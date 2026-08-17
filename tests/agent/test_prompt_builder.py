@@ -695,13 +695,12 @@ class TestStripYamlFrontmatter:
 class TestPromptBuilderConstants:
 
 
-    def test_cli_and_tui_hints_flag_local_only_cron(self):
-        """#51568 — cron jobs from CLI/TUI sessions don't deliver back into
+    def test_cli_hint_flags_local_only_cron(self):
+        """#51568 — cron jobs from CLI sessions don't deliver back into
         the session, so the agent must be told up front not to promise it."""
-        for key in ("cli", "tui"):
-            hint = PLATFORM_HINTS[key]
-            assert "LOCAL-ONLY" in hint
-            assert "deliver" in hint
+        hint = PLATFORM_HINTS["cli"]
+        assert "LOCAL-ONLY" in hint
+        assert "deliver" in hint
 
 
 
@@ -1011,5 +1010,4 @@ class TestParallelToolCallGuidance:
 # =========================================================================
 # Budget warning history stripping
 # =========================================================================
-
 

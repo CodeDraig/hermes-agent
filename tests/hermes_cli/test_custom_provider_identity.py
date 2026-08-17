@@ -1,10 +1,10 @@
 """Unit tests for find_custom_provider_identity (base_url → custom:<name>).
 
-Reverse lookup used by tui_gateway session persistence to recover a named
+Reverse lookup used by session persistence to recover a named
 ``providers:`` / ``custom_providers:`` entry from the only durable fact the
 session row keeps once the provider has been resolved to the literal string
 "custom": the endpoint URL. See
-tests/tui_gateway/test_custom_provider_session_persistence.py for the
+session-persistence coverage for the
 end-to-end persist/resume round-trip.
 """
 

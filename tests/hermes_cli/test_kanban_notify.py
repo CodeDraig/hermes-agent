@@ -878,7 +878,7 @@ async def test_notifier_artifact_delivery_skips_missing_files(kanban_home, tmp_p
 # session unconditionally whenever the task carried a session_id — so every
 # pre-existing gateway subscription had de facto active wake. The column's
 # 'notify' DEFAULT alone would silently disable that on upgrade. The migration
-# backfills first-add rows: gateway platforms -> 'notify+wake', tui -> 'notify'.
+# backfills first-add rows with a chat target to 'notify+wake'.
 # ---------------------------------------------------------------------------
 
 
@@ -888,7 +888,7 @@ def test_migration_backfills_legacy_gateway_subs_to_notify_wake(kanban_home):
     with kb.connect() as conn:
         task_id = kb.create_task(conn, title="legacy sub upgrade")
         # Simulate a pre-delivery_mode database: drop the column entirely,
-        # then insert legacy-shaped rows (one gateway, one tui).
+        # then insert legacy-shaped rows (one gateway, one local-only).
         conn.execute("ALTER TABLE kanban_notify_subs DROP COLUMN delivery_mode")
         conn.execute(
             "INSERT INTO kanban_notify_subs "
@@ -899,11 +899,11 @@ def test_migration_backfills_legacy_gateway_subs_to_notify_wake(kanban_home):
         conn.execute(
             "INSERT INTO kanban_notify_subs "
             "(task_id, platform, chat_id, thread_id, created_at) "
-            "VALUES (?, 'tui', 'tui-session-1', '', 1)",
+            "VALUES (?, 'cli', '', '', 1)",
             (task_id,),
         )
         # Re-run the idempotent migration: first-add of delivery_mode must
-        # backfill gateway rows to notify+wake and leave tui rows on notify.
+        # backfill gateway rows to notify+wake and leave local rows on notify.
         _migrate_add_optional_columns(conn)
         rows = {
             r["platform"]: r["delivery_mode"]
@@ -916,7 +916,7 @@ def test_migration_backfills_legacy_gateway_subs_to_notify_wake(kanban_home):
     assert rows["telegram"] == "notify+wake", (
         "Legacy gateway subscription lost active wake across the upgrade"
     )
-    assert rows["tui"] == "notify"
+    assert rows["cli"] == "notify"
 
 
 def test_migration_backfill_runs_only_on_first_add(kanban_home):

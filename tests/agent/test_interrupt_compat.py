@@ -87,7 +87,7 @@ def test_inherited_hard_interrupt_bypasses_legacy_subclass_override() -> None:
     assert agent._interrupt_message == "stop now"
 
 
-def test_tui_subagent_interrupt_is_an_explicit_hard_stop() -> None:
+def test_subagent_stop_is_an_explicit_hard_stop() -> None:
     import tools.delegate_tool as delegate_tool
 
     agent = _ModernAgent()
@@ -100,4 +100,4 @@ def test_tui_subagent_interrupt_is_an_explicit_hard_stop() -> None:
         with delegate_tool._active_subagents_lock:
             delegate_tool._active_subagents.pop(subagent_id, None)
 
-    assert agent.calls == [("hard", f"Interrupted via TUI ({subagent_id})")]
+    assert agent.calls == [("hard", f"Interrupted by parent ({subagent_id})")]

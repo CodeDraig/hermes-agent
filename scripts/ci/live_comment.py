@@ -19,9 +19,8 @@ defaults itself and ignores an ``env:`` override, so that name would
 silently resolve to the poller's own run — which stays ``in_progress``
 for as long as the poller runs, deadlocking it against itself.)
 The poller reports on runs that
-it does not belong to. This is also how it covers a workflow that CI does
-not contain: ``WATCH_WORKFLOWS`` names sibling workflows that the same
-commit triggered (the Docker image build). Their jobs join the comment.
+it does not belong to. It can optionally merge named sibling workflows through
+``WATCH_WORKFLOWS``.
 
 Architecture:
 
@@ -244,9 +243,8 @@ def collect_run_jobs(
 
     Reusable-workflow (``workflow_call``) jobs need no special handling:
     GitHub flattens them into the caller run's job list, already named
-    ``\"Workflow / job\"``. Watched runs are separate top-level runs
-    (the Docker image build), so their jobs are fetched per run and
-    prefixed here.
+    ``\"Workflow / job\"``. Watched runs are separate top-level runs, so
+    their jobs are fetched per run and prefixed here.
     """
     owner, repo_name = repo.split("/")
     run_info = _api_request(f"{API_BASE}/repos/{owner}/{repo_name}/actions/runs/{run_id}", token)
@@ -686,7 +684,7 @@ def parse_watch_workflows(raw: str) -> list[str]:
     """Parse the ``WATCH_WORKFLOWS`` value into workflow names.
 
     One name per line. Not comma-separated: a workflow name can contain a
-    comma ("Docker Build, Test, and Publish").
+    comma ("Build, Test, and Publish").
     """
     return [name.strip() for name in raw.splitlines() if name.strip()]
 

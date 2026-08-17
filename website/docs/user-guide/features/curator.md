@@ -70,8 +70,6 @@ hermes model                   # → "Auxiliary models — side-task routing"
                                # → pick "Curator" → pick provider → pick model
 ```
 
-The same picker is available in the web dashboard under the **Models** tab.
-
 **Direct config.yaml (equivalent):**
 
 ```yaml

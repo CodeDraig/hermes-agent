@@ -487,9 +487,8 @@ class InProcessCronScheduler(CronScheduler):
 
         Each profile uses ``set_hermes_home_override()`` + ``use_cron_store()``
         to scope its tick, heartbeat, recovery, lock file, config/.env, and
-        agent execution to that profile's home — mirroring how
-        ``_profile_runtime_scope`` scopes the multiplexed inbound path and
-        ``web_server.py`` scopes per-profile cron API calls.
+        agent execution to that profile's home, mirroring how
+        ``_profile_runtime_scope`` scopes the multiplexed inbound path.
         """
         import logging
         from cron.scheduler import tick as cron_tick

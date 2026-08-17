@@ -51,7 +51,7 @@ def test_linux_falls_through_backends_until_success():
 
 class TestOsc52MultiplexerWrapping:
     """CLI _write_osc52_clipboard must wrap for tmux/screen passthrough
-    (mirrors ui-tui/src/lib/osc52.ts wrapForMultiplexer)."""
+    (including tmux and screen wrappers)."""
 
     def _capture_seq(self, env):
         import io
@@ -76,5 +76,4 @@ class TestOsc52MultiplexerWrapping:
         assert seq.startswith("\x1bPtmux;")
         assert "]52;c;" in seq
         assert seq.endswith("\x1b\\")
-
 

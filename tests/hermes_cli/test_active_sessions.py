@@ -142,15 +142,15 @@ def test_cross_process_acquire_claims_only_one_last_slot(tmp_path, monkeypatch):
 def test_release_orphaned_leases_reclaims_only_unowned_own_pid_entries(tmp_path, monkeypatch):
     """A long-lived server must reclaim leases whose session skipped teardown.
 
-    ``_prune_dead`` only fires when the owning pid dies, so a ``hermes
-    dashboard`` running for days holds a leaked lease until restart. The
-    process reconciles against the leases it still owns instead.
+    ``_prune_dead`` only fires when the owning pid dies, so a long-lived
+    gateway can hold a leaked lease until restart. The process reconciles
+    against the leases it still owns instead.
     """
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
     cfg = {"max_concurrent_sessions": 5}
     kept, orphan = (
         active_sessions.try_acquire_active_session(
-            session_id=sid, surface="desktop", config=cfg
+            session_id=sid, surface="gateway", config=cfg
         )[0]
         for sid in ("kept", "orphaned")
     )

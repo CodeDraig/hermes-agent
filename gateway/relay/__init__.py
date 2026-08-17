@@ -180,9 +180,8 @@ def relay_endpoint() -> Optional[str]:
     tenant's route rows. It is gateway-asserted (the connector scopes it to the
     verified tenant, so a dishonest gateway can only misdirect its OWN inbound).
     The *source* of the value differs by deployment but the code path is uniform:
-    a self-hosted operator sets ``GATEWAY_RELAY_ENDPOINT`` (mirrors how they set
-    ``HERMES_DASHBOARD_PUBLIC_URL``); a hosted/NAS container has the same var
-    stamped in (NAS knows the public URL only in that case). Absent -> the
+    a self-hosted operator sets ``GATEWAY_RELAY_ENDPOINT``; a hosted/NAS
+    container has the same variable stamped in. Absent -> the
     gateway provisions outbound-only (no inbound routes written).
 
     Env first (Docker), then ``gateway.relay_endpoint`` in config.yaml.
@@ -652,10 +651,8 @@ def self_provision_relay() -> bool:
     into ``os.environ`` so the subsequent ``register_relay_adapter()`` picks them
     up. The creds live ONLY in process memory — never written to ``~/.hermes/.env``.
 
-    The trigger is deliberately NOT ``is_managed()``: that means
-    "package-manager/NixOS-managed" and is False on a NAS-hosted Fly agent (which
-    sets neither ``HERMES_MANAGED`` nor a ``.managed`` marker), so gating on it
-    blocked the exact hosted case this is for. The real signal is "you pointed me
+    The trigger is deliberately based on runtime credentials rather than an
+    installation marker. The real signal is "you pointed me
     at a connector and didn't pin a secret" — which is both NAS-independent and
     self-guarding:
 

@@ -20,9 +20,8 @@ Why tools instead of just shelling out to ``hermes kanban``?
 3. **Better errors.** Tool-call failures return structured JSON the
    model can reason about, not stderr strings it has to parse.
 
-Humans continue to use the CLI (``hermes kanban …``), the dashboard
-(``hermes dashboard``), and the slash command (``/kanban …``) — all
-three bypass the agent entirely. The tools are for dispatcher-spawned
+Humans continue to use the CLI (``hermes kanban …``) and the slash command
+(``/kanban …``); both bypass the agent entirely. The tools are for dispatcher-spawned
 worker handoffs and for configured orchestrator profiles that route work
 through the board.
 """
@@ -1118,10 +1117,9 @@ def _handle_comment(args: dict, **kw) -> str:
 def _handle_attach(args: dict, **kw) -> str:
     """Attach an inline (base64) file to a task.
 
-    Mirrors the dashboard's upload endpoint for the agent surface: decode
-    the payload, enforce the shared size cap, write it under the per-task
-    attachments dir, and record the metadata row — all via
-    ``kanban_db.store_attachment_bytes`` so the three surfaces stay in lockstep.
+    Decode the payload, enforce the shared size cap, write it under the per-task
+    attachments directory, and record the metadata row through
+    ``kanban_db.store_attachment_bytes``.
     """
     from hermes_cli import kanban_db as kb
 
@@ -1491,9 +1489,7 @@ def _maybe_auto_subscribe(conn: Any, task_id: str) -> bool:
     explicit ``kanban_notify-subscribe`` or to polling.
 
     Gated by ``kanban.auto_subscribe_on_create`` in config.yaml (default
-    True). Disable to mirror pre-feature behaviour, e.g. when the
-    originating user/chat opted out via the per-platform notification
-    toggle (see ``hermes dashboard``).
+    True). Disable when the originating user/chat opts out of notifications.
 
     Subscription paths:
 
@@ -1501,15 +1497,6 @@ def _maybe_auto_subscribe(conn: Any, task_id: str) -> bool:
       ``HERMES_SESSION_CHAT_ID``, and ``HERMES_SESSION_CHAT_TYPE`` are set in
       ContextVars by the messaging gateway before agent dispatch. The
       notification poller already keys off these, so we just register a row.
-
-    - **TUI** (herm desktop / herm TUI): the platform/chat_id ContextVars
-      are intentionally cleared (TUI is a single-channel local UI, not
-      a multi-tenant chat surface), but the agent subprocess inherits
-      ``HERMES_SESSION_KEY`` from the parent session. We subscribe with
-      ``platform="tui"`` and ``chat_id=<key>``; the TUI notification
-      poller (``tui_gateway/server.py``) reads ``kanban_notify_subs``
-      for these rows and posts the completion message into the running
-      session.
 
     - **CLI / cron / test / unattached**: no persistent delivery channel,
       no-op.
@@ -1535,30 +1522,9 @@ def _maybe_auto_subscribe(conn: Any, task_id: str) -> bool:
         platform = get_session_env("HERMES_SESSION_PLATFORM", "")
         chat_id = get_session_env("HERMES_SESSION_CHAT_ID", "")
         if not platform or not chat_id:
-            # TUI / desktop fallback: platform/chat_id ContextVars are
-            # cleared for TUI sessions, but the parent process exports
-            # HERMES_SESSION_KEY into the subprocess env. Treat that
-            # as a "tui" subscription so the TUI notification poller
-            # (tui_gateway/server.py) can pick it up.
-            #
-            # HERMES_SESSION_ID is intentionally NOT a fallback here:
-            # it is set by ACP / the agent subprocess for telemetry
-            # regardless of whether the parent is a TUI or a CLI, so
-            # treating it as a notification target would auto-subscribe
-            # every CLI invocation, which is exactly the over-eager
-            # behaviour that got #19718 reverted upstream. The TUI
-            # poller keys on HERMES_SESSION_KEY.
-            session_key = (
-                get_session_env("HERMES_SESSION_KEY", "")
-                or os.environ.get("HERMES_SESSION_KEY", "")
-            )
-            if not session_key:
-                return False  # CLI / cron / test — no persistent channel
-            platform = "tui"
-            chat_id = session_key
-        is_gateway_session = platform != "tui"
+            return False  # CLI / cron / test — no persistent channel
         chat_type = get_session_env("HERMES_SESSION_CHAT_TYPE", "") or None
-        delivery_mode = "notify+wake" if is_gateway_session else None
+        delivery_mode = "notify+wake"
         thread_id = get_session_env("HERMES_SESSION_THREAD_ID", "") or None
         user_id = get_session_env("HERMES_SESSION_USER_ID", "") or None
         user_id_alt = get_session_env("HERMES_SESSION_USER_ID_ALT", "") or None

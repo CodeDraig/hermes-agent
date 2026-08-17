@@ -7,11 +7,7 @@ refactor — they are the regression harness that proves the built-in firing
 behavior is byte-for-byte preserved when the ticker is moved behind the
 CronScheduler provider interface.
 
-No production code is exercised beyond the two ticker entry points:
-  - gateway/run.py::_start_cron_ticker        (production gateway ticker)
-  - hermes_cli/web_server.py::_start_desktop_cron_ticker  (desktop fallback)
-
-Both call `cron.scheduler.tick(...)` on a loop and exit when their stop_event
+The gateway ticker calls `cron.scheduler.tick(...)` on a loop and exits when its stop_event
 is set. We patch `cron.scheduler.tick` (both tickers import it locally as
 `cron_tick`, so the module-attribute patch is observed) and assert the loop
 drives it and stops promptly.
@@ -70,35 +66,6 @@ def test_ticker_calls_tick_at_least_once_then_stops():
     # the background thread, never the synchronous CLI path).
     assert calls[0].get("sync") is False
 
-
-def test_desktop_ticker_calls_tick_then_stops():
-    """The desktop dashboard ticker loop calls cron.scheduler.tick and exits
-    once the stop_event is set. Desktop has no live adapters, so it ticks with
-    no adapters/loop."""
-    from hermes_cli.web_server import _start_desktop_cron_ticker
-
-    calls = []
-    stop = threading.Event()
-
-    def fake_tick(*args, **kwargs):
-        calls.append(kwargs)
-        return 0
-
-    with patch("cron.scheduler.tick", side_effect=fake_tick):
-        t = threading.Thread(
-            target=_start_desktop_cron_ticker,
-            args=(stop,),
-            kwargs={"interval": 0},
-            daemon=True,
-        )
-        t.start()
-        assert _wait_until(lambda: len(calls) >= 1), "desktop ticker never called tick()"
-        stop.set()
-        t.join(timeout=5)
-
-    assert not t.is_alive(), "desktop ticker did not exit after stop_event was set"
-    assert len(calls) >= 1, "desktop ticker never called tick()"
-    assert calls[0].get("sync") is False
 
 
 # ── Phase 1: CronScheduler ABC + InProcessCronScheduler ──────────────────────
@@ -638,5 +605,4 @@ def test_multiplex_ticker_ticks_each_profile_once(tmp_path, monkeypatch):
     # With 2 profiles and multiple iterations, we should have seen at least 2 calls.
     assert len(tick_count) >= len(profile_homes), \
         f"Expected >= {len(profile_homes)} tick calls, got {len(tick_count)}"
-
 

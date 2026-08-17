@@ -15,7 +15,6 @@ You can also point Hermes at **external skill directories** — additional folde
 See also:
 
 - [Bundled Skills Catalog](/reference/skills-catalog)
-- [Official Optional Skills Catalog](/reference/optional-skills-catalog)
 
 ## Starting with a blank slate
 
@@ -531,19 +530,17 @@ in the pending JSON file). Memory writes have the same gate under
 
 ## Skills Hub
 
-Browse, search, install, and manage skills from online registries, `skills.sh`, direct well-known skill endpoints, and official optional skills.
+Browse, search, install, and manage skills from online registries, `skills.sh`, direct well-known skill endpoints, and GitHub sources.
 
 ### Common commands
 
 ```bash
-hermes skills browse                              # Browse all hub skills (official first)
-hermes skills browse --source official            # Browse only official optional skills
+hermes skills browse                              # Browse all hub skills
 hermes skills search kubernetes                   # Search all sources
 hermes skills search react --source skills-sh     # Search the skills.sh directory
 hermes skills search https://mintlify.com/docs --source well-known
 hermes skills inspect openai/skills/k8s           # Preview before installing
 hermes skills install openai/skills/k8s           # Install with security scan
-hermes skills install official/security/1password
 hermes skills install skills-sh/vercel-labs/json-render/json-render-react --force
 hermes skills install well-known:https://mintlify.com/docs/.well-known/skills/mintlify
 hermes skills install https://sharethis.chat/SKILL.md              # Direct URL (+ referenced support files)
@@ -564,7 +561,6 @@ hermes skills tap add myorg/skills-repo           # Add a custom GitHub source
 
 | Source | Example | Notes |
 |--------|---------|-------|
-| `official` | `official/security/1password` | Optional skills shipped with Hermes. |
 | `skills-sh` | `skills-sh/vercel-labs/agent-skills/vercel-react-best-practices` | Searchable via `hermes skills search <query> --source skills-sh`. Hermes resolves alias-style skills when the skills.sh slug differs from the repo folder. |
 | `well-known` | `well-known:https://mintlify.com/docs/.well-known/skills/mintlify` | Skills served directly from `/.well-known/skills/index.json` on a website. Search using the site or docs URL. |
 | `url` | `https://sharethis.chat/SKILL.md` | Direct HTTP(S) URL to `SKILL.md` plus explicitly referenced support files. Name resolution: frontmatter → URL slug → interactive prompt → `--name` flag. |
@@ -575,20 +571,7 @@ hermes skills tap add myorg/skills-repo           # Add a custom GitHub source
 
 Hermes currently integrates with these skills ecosystems and discovery sources:
 
-#### 1. Official optional skills (`official`)
-
-These are maintained in the Hermes repository itself and install with built-in trust.
-
-- Catalog: [Official Optional Skills Catalog](../../reference/optional-skills-catalog)
-- Source in repo: `optional-skills/`
-- Example:
-
-```bash
-hermes skills browse --source official
-hermes skills install official/security/1password
-```
-
-#### 2. skills.sh (`skills-sh`)
+#### 1. skills.sh (`skills-sh`)
 
 This is Vercel's public skills directory. Hermes can search it directly, inspect skill detail pages, resolve alias-style slugs, and install from the underlying source repo.
 
@@ -737,14 +720,12 @@ hermes skills install skills-sh/anthropics/skills/pdf --force
 Important behavior:
 - `--force` can override policy blocks for caution/warn-style findings.
 - `--force` does **not** override a `dangerous` scan verdict.
-- Official optional skills (`official/...`) are treated as built-in trust and do not show the third-party warning panel.
 
 ### Trust levels
 
 | Level | Source | Policy |
 |-------|--------|--------|
 | `builtin` | Ships with Hermes | Always trusted |
-| `official` | `optional-skills/` in the repo | Built-in trust, no third-party warning |
 | `trusted` | Trusted registries/repos such as `openai/skills`, `anthropics/skills`, `huggingface/skills`, `NVIDIA/skills` | More permissive policy than community sources |
 | `community` | Everything else (`skills.sh`, well-known endpoints, custom GitHub repos, most marketplaces) | Non-dangerous findings can be overridden with `--force`; `dangerous` verdicts stay blocked |
 
@@ -932,5 +913,3 @@ All the same commands work with `/skills`:
 /skills reset google-workspace
 /skills list
 ```
-
-Official optional skills still use identifiers like `official/security/1password` and `official/migration/openclaw-migration`.

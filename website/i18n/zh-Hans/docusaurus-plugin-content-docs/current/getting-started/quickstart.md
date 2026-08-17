@@ -48,13 +48,7 @@ description: "与 Hermes Agent 的第一次对话——从安装到开始聊天�
 
 ## 1. 安装 Hermes Agent
 
-### 在 macOS 或 Windows 上使用 Hermes Desktop 安装器（推荐）
-
-如需同时安装命令行与桌面应用，请从我们的官网[下载 Hermes Desktop 安装器](https://hermes-agent.nousresearch.com/)并运行。
-
-### 不使用 Hermes Desktop：
-
-仅安装命令行版本（跟踪 main 分支）：
+使用命令行安装脚本（跟踪 main 分支）：
 
 ```bash
 # Linux / macOS / WSL2 / Android (Termux)
@@ -154,15 +148,10 @@ hermes config set OPENROUTER_API_KEY sk-or-...
 ## 3. 运行第一次对话
 
 ```bash
-hermes            # 经典 CLI
-hermes --tui      # 现代 TUI（推荐）
+hermes            # prompt_toolkit CLI
 ```
 
 你会看到一个欢迎横幅，显示你的模型、可用工具和 skills。使用一个具体且易于验证的 prompt（提示词）：
-
-:::tip 选择你的界面
-Hermes 提供两种终端界面：经典的 `prompt_toolkit` CLI，以及更新的 [TUI](../user-guide/tui.md)（支持模态覆盖层、鼠标选择和非阻塞输入）。两者共享相同的会话、斜杠命令和配置——分别用 `hermes` 和 `hermes --tui` 试试看。
-:::
 
 ```
 Summarize this repo in 5 bullets and tell me what the main entrypoint is.

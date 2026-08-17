@@ -400,7 +400,6 @@ def test_durable_dispatch_persists_and_recovers_scope_id(tmp_path, monkeypatch):
         record = {
             "delegation_id": "d-scope-1",
             "session_key": "agent:main:discord:group:C123:U9",
-            "origin_ui_session_id": "",
             "origin_session_id": "",
             "parent_session_id": "sess-p",
             "goal": "scoped goal",

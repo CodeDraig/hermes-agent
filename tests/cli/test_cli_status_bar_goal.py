@@ -1,6 +1,6 @@
 """Status-bar goal segment (⊙ goal N/M) — active-goal-only rendering.
 
-The segment mirrors the desktop composer goal indicator: it appears only
+The segment appears only
 while a /goal is ACTIVE, shows turns used vs the turn budget, and stays out
 of the bar entirely for paused/done/absent goals (those already print their
 own glyph lines in the conversation thread).
@@ -74,4 +74,3 @@ class TestStatusBarGoalSegment:
         text = cli_obj._build_status_bar_text(width=50)
 
         assert "⊙ goal" in text
-

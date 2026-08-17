@@ -176,7 +176,7 @@ def test_atomic_roundtrip_yaml_save_restores_owner(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Mirrors the update-variant owner test for the whole-state save that
-    backs tui_gateway/server.py:_save_cfg()."""
+    backs atomic configuration saves."""
     if os.name != "posix":
         pytest.skip("POSIX-only")
 

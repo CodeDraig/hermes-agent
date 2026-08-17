@@ -4,8 +4,7 @@ Upstream policy closed ``plugins/memory/`` to new providers, so every new
 memory backend now lives outside this tree. These tests cover the two sources
 that reach it — project-local directories and pip entry points — and the
 integration points a directory install gets for free but a pip install
-historically did not: the dashboard config panel, the provider's CLI
-subcommands, and the ``memory.provider`` dropdown.
+historically did not: provider CLI subcommands and discovery by name.
 """
 
 from __future__ import annotations
@@ -123,21 +122,17 @@ def test_bundled_still_wins_over_project(tmp_path, monkeypatch):
 
 
 def test_entry_point_provider_is_listed(entry_points, tmp_path, monkeypatch):
-    """list_memory_provider_names() fills the dashboard's memory.provider
-    dropdown. Enumerating entry points reads distribution metadata without
-    executing any of it, so this stays safe to call at import time."""
+    """Enumerating provider names reads metadata without importing providers."""
     entry_points.append(FakeEntryPoint("pipmem", "pipmem_pkg"))
     assert "pipmem" in memory_plugins.list_memory_provider_names()
 
 
 def test_find_provider_dir_resolves_a_package_entry_point(entry_points, tmp_path, monkeypatch):
-    """Without a directory, a pip-installed provider silently loses its
-    dashboard config panel and its `hermes <provider>` subcommands — both are
-    read from disk rather than imported."""
+    """Package entry points can expose disk-discovered CLI subcommands."""
     package = tmp_path / "pipmem_pkg"
     package.mkdir()
     (package / "__init__.py").write_text(PROVIDER_SOURCE.format(name="pipmem"), encoding="utf-8")
-    (package / "config_schema.py").write_text("CONFIG_SCHEMA = None\n", encoding="utf-8")
+    (package / "cli.py").write_text("# discovered without importing the provider\n", encoding="utf-8")
     monkeypatch.syspath_prepend(str(tmp_path))
     entry_points.append(FakeEntryPoint("pipmem", "pipmem_pkg:register"))
 
@@ -168,8 +163,7 @@ def test_resolving_an_entry_point_does_not_import_it(entry_points, tmp_path, mon
 
 
 def test_bare_module_entry_point_has_no_directory(entry_points, tmp_path, monkeypatch):
-    """A single-file provider has nowhere to put a sibling config_schema.py, so
-    it resolves to None rather than handing back the whole site-packages root."""
+    """A single-file provider has no sibling CLI module directory."""
     (tmp_path / "flatmem.py").write_text(PROVIDER_SOURCE.format(name="flatmem"), encoding="utf-8")
     monkeypatch.syspath_prepend(str(tmp_path))
     entry_points.append(FakeEntryPoint("flatmem", "flatmem"))

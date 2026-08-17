@@ -84,7 +84,7 @@ def test_rotation_flush_does_not_duplicate_persisted_prefix(tmp_path: Path) -> N
     db = SessionDB(db_path=tmp_path / "state.db")
 
     parent_sid = "COLD_RESUME_PARENT"
-    db.create_session(parent_sid, source="desktop")
+    db.create_session(parent_sid, source="cli")
 
     # Two durable rows already in the parent.
     db.append_message(parent_sid, "user", "persisted question")

@@ -131,12 +131,7 @@ the hermes-agent repo, so Nous has reviewed each entry before it shipped —
 Manifests live at
 [`optional-mcps/<name>/manifest.yaml`](https://github.com/NousResearch/hermes-agent/tree/main/optional-mcps)
 on GitHub. The picker also prints the manifest's `source:` URL at install
-time so you can quickly verify the upstream repo. The web dashboard's MCP
-page surfaces the same detail per catalog entry — transport, auth type, the
-endpoint URL (HTTP) or command + args (stdio), the git install source/ref and
-bootstrap commands, and setup notes — with the `source:` rendered as a
-clickable link, so you can inspect exactly what an entry connects to or runs
-before clicking Install.
+time so you can quickly verify the upstream repo.
 
 ### Manifest version compatibility
 
@@ -182,22 +177,11 @@ after a Hermes update if a manifest version changed.
 To add an MCP to the catalog, open a PR against
 [`optional-mcps/`](https://github.com/NousResearch/hermes-agent/tree/main/optional-mcps).
 
-### Suggestion metadata (`suggest:`)
-
-A manifest may declare an optional `suggest:` block with `keywords:` and/or
-`hosts:` lists. UI surfaces (currently the Desktop app's composer) use it to
-offer a one-click "Add &lt;server&gt;" pill when your draft mentions one of the
-keywords as a completed word, or contains a pasted link whose hostname ends
-with one of the host suffixes. It is purely advisory — installs still flow
-through the same validated catalog/config paths — and most hosted remote
-entries (Atlassian, Sentry, Notion, Stripe, Vercel, Supabase, and friends)
-declare it.
-
 GitHub is deliberately **not** in the catalog: its hosted MCP requires each
 client to bring its own OAuth app (generic dynamic client registration is
 rejected), and Hermes's bundled `github/*` skills driving the `gh` CLI are a
-more capable integration. On Desktop, GitHub mentions instead offer the
-`github-auth` skill when `gh` isn't signed in yet.
+more capable integration. The `github-auth` skill handles `gh` sign-in when
+needed.
 
 ## Two kinds of MCP servers
 
@@ -798,7 +782,7 @@ mcp_servers:
 
 ## MCP Elicitation Support
 
-MCP servers can ask the user for structured input mid-tool-call via the `elicitation/create` protocol (mcp Python SDK ≥ 1.11.0). Hermes routes **form-mode** elicitations through its existing approval surface — an interactive prompt in the CLI/TUI, or approval buttons on gateway platforms like Telegram and Slack — so the request reaches you wherever the session lives. **URL-mode** elicitations (where a server points you at an external URL) are declined as unsupported.
+MCP servers can ask the user for structured input mid-tool-call via the `elicitation/create` protocol (mcp Python SDK ≥ 1.11.0). Hermes routes **form-mode** elicitations through its existing approval surface — an interactive prompt in the CLI, or approval buttons on gateway platforms like Telegram and Slack — so the request reaches you wherever the session lives. **URL-mode** elicitations (where a server points you at an external URL) are declined as unsupported.
 
 Elicitation is **enabled by default** per server. Configure it under the `elicitation` key:
 

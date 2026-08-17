@@ -72,7 +72,7 @@ hermes auth add xai-oauth --no-browser
 # Open the printed verification URL in your browser.
 ```
 
-The same device-code flow applies when you sign in from the web dashboard or the desktop app: Hermes shows the verification URL and user code, then polls in the background until you approve access.
+Hermes shows the verification URL and user code, then polls in the background until you approve access.
 
 ## How the Login Works
 

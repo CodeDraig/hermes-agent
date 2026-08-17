@@ -1,23 +1,20 @@
-"""Provider/model inventory context — shared substrate for the dashboard
-``/api/model/options``, the TUI ``model.options``/``model.save_key``
-JSON-RPC handlers, and the interactive picker.
+"""Provider/model inventory context shared by retained model pickers.
 
-Before this module the three call-sites each duplicated:
+Before this module the call sites each duplicated:
 
 1. The 17-LOC config-slice that pulls ``model.{default,name,provider,base_url}``,
    ``providers:``, and ``custom_providers:`` out of ``load_config()``;
 2. The call into ``list_authenticated_providers`` with the resulting kwargs;
-3. (TUI only) a 45-LOC post-pass that merges authenticated rows with
+3. A post-pass that merges authenticated rows with
    unconfigured ``CANONICAL_PROVIDERS`` rows and emits ``authenticated``/
    ``auth_type``/``key_env``/``warning`` hints for the picker UI.
 
 Consolidating those three steps into one entry point eliminates two bugs
 the duplicates were hiding:
 
-- The dashboard read ``cfg.get("custom_providers")`` directly, missing the
-  v12+ keyed ``providers:`` form (which the TUI handled via
-  ``get_compatible_custom_providers``).
-- The TUI's canonical-merge keyed on ``is_user_defined`` to decide
+- One caller read ``cfg.get("custom_providers")`` directly, missing the v12+
+  keyed ``providers:`` form handled by ``get_compatible_custom_providers``.
+- A canonical merge keyed on ``is_user_defined`` to decide
   ordering. Section 3 of ``list_authenticated_providers`` sets
   ``is_user_defined=True`` even for canonical slugs that appear in the
   ``providers:`` config dict, which silently demoted them to the tail of
@@ -43,8 +40,8 @@ from typing import Optional
 @dataclass(frozen=True)
 class ConfigContext:
     """Snapshot of the model + provider config every inventory caller
-    needs. Built once via ``load_picker_context()``; the TUI overlays
-    live agent state via ``with_overrides()`` before passing through.
+    needs. Built once via ``load_picker_context()``; callers may overlay live
+    agent state via ``with_overrides()`` before passing through.
     """
 
     current_provider: str
@@ -63,8 +60,8 @@ class ConfigContext:
     ) -> "ConfigContext":
         """Return a copy with truthy overrides applied.
 
-        Truthy-only because the TUI reads agent attributes that may be
-        empty strings before an agent is spawned — empties must NOT
+        Truthy-only because callers may read agent attributes that are empty
+        strings before an agent is spawned — empties must NOT
         clobber the disk-config values.
         """
         kw: dict = {}
@@ -80,8 +77,7 @@ class ConfigContext:
 def load_picker_context() -> ConfigContext:
     """Load the disk-config snapshot every consumer needs.
 
-    Replaces the inline 17-LOC config-slice that ``web_server.py`` and
-    ``tui_gateway/server.py`` (×2 sites) used to do.
+    Provides one shared config slice for retained model pickers.
     """
     from hermes_cli.config import get_compatible_custom_providers, load_config
 
@@ -135,15 +131,14 @@ def build_models_payload(
     - ``explicit_only``: keep only providers the user explicitly configured
       (current provider, providers from config, or providers backed by
       provider-specific env vars). This hides ambient / auto-seeded
-      credentials from desktop chat pickers.
+      credentials from explicitly configured picker views.
     - ``include_unconfigured``: append ``CANONICAL_PROVIDERS`` rows that
-      ``list_authenticated_providers`` didn't emit (TUI uses this to show
-      the full provider universe in the picker).
+      ``list_authenticated_providers`` didn't emit.
     - ``picker_hints``: add ``authenticated``/``auth_type``/``key_env``/
-      ``warning`` per row (TUI ``ModelPickerDialog`` shape).
+      ``warning`` per row.
     - ``canonical_order``: reorder canonical-slug rows to
       ``CANONICAL_PROVIDERS`` declaration order; truly-custom rows go
-      last (TUI display order).
+      last.
     - ``pricing``: enrich each row with formatted per-model pricing and,
       for Nous, ``free_tier``/``unavailable_models`` so the GUI picker can
       show $/Mtok columns and gate paid models on free accounts —
@@ -162,20 +157,20 @@ def build_models_payload(
       models.dev — no allowlist.
     - ``force_fresh_nous_tier``: bypass the short Nous free-tier cache when
       selecting Portal-recommended Nous models and applying tier gating. Keep
-      this false for UI picker opens; explicit auth/model flows can opt in
+      this false for normal picker opens; explicit auth/model flows can opt in
       when they need freshly-purchased credits to show up immediately.
     - ``refresh``: bust the per-provider model-id disk cache so every row
       re-fetches its live catalog. Set only for an explicit user-triggered
       "refresh models" action; normal picker opens leave it false to stay
       snappy on the 1h cache.
     - ``probe_custom_providers``: allow saved custom/provider endpoints to
-      run live ``/models`` discovery while building the payload. GUI picker
+      run live ``/models`` discovery while building the payload. Picker
       opens should leave this false unless the user explicitly refreshes; the
       row can still render its configured model immediately, and slow/offline
       local endpoints no longer block the dialog.
     - ``probe_current_custom_provider``: when ``probe_custom_providers`` is
       false, still live-probe the current custom endpoint. This keeps normal
-      GUI/TUI picker opens fast while making the active custom provider's model
+      picker opens fast while making the active custom provider's model
       list match the classic CLI picker.
     - ``for_picker``: interactive-picker visibility. Keeps providers whose
       credential pool exists but is entirely rate-limited (exhausted) in the
@@ -206,7 +201,7 @@ def build_models_payload(
 
     if explicit_only:
         rows = _filter_explicit_provider_rows(rows, ctx)
-        # Desktop chat pickers request the explicit subset without the full
+        # Some model pickers request the explicit subset without the full
         # unconfigured provider universe. If the configured current provider
         # has lost its credential, list_authenticated_providers() omits it;
         # keep that one row visible so the UI can show the saved selection and
@@ -288,10 +283,10 @@ def build_model_options_payload(
     include_unconfigured: bool = False,
     refresh: bool = False,
 ) -> dict:
-    """Build the shared API-server/dashboard/TUI model-options payload.
+    """Build the shared model-options payload.
 
     This wraps ``build_models_payload`` with the stable picker shape and the
-    safe custom-provider probe policy used for normal GUI/TUI opens:
+    safe custom-provider probe policy used for normal picker opens:
 
     - normal open: probe only the current custom provider so offline saved
       endpoints do not block the picker
@@ -609,8 +604,8 @@ def _filter_explicit_provider_rows(rows: list[dict], ctx: ConfigContext) -> list
     """Keep only rows backed by explicit user configuration.
 
     ``list_authenticated_providers`` intentionally discovers ambient / auto-
-    seeded credentials (for example GitHub CLI -> Copilot). Desktop chat model
-    pickers want the narrower subset the user explicitly configured for Hermes.
+    seeded credentials (for example GitHub CLI -> Copilot). Explicit-only model
+    pickers want the narrower subset the user configured for Hermes.
     """
     from hermes_cli.auth import is_provider_explicitly_configured
 
@@ -631,7 +626,7 @@ def _filter_explicit_provider_rows(rows: list[dict], ctx: ConfigContext) -> list
             # provider. Hide it from explicit-only pickers unless it is the
             # current provider (handled above) or the user explicitly wrote an
             # enabled MoA preset into config.yaml. Use raw config so the
-            # DEFAULT_CONFIG preset does not make every desktop picker show MoA.
+            # DEFAULT_CONFIG preset does not make every picker show MoA.
             if _raw_config_has_enabled_moa_preset():
                 kept.append(row)
             continue

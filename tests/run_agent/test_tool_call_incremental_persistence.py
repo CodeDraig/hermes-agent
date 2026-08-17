@@ -81,7 +81,7 @@ def _make_agent():
 
 def _attach_real_session_db(agent, db_path: Path, session_id: str) -> SessionDB:
     db = SessionDB(db_path=db_path)
-    db.create_session(session_id=session_id, source="tui", model="test/model")
+    db.create_session(session_id=session_id, source="cli", model="test/model")
     agent._session_db = db
     agent._session_db_created = True
     agent.session_id = session_id

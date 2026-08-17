@@ -314,7 +314,7 @@ def _check_via_local_git(repo_dir: Path) -> Optional[int]:
     # number (e.g. "12492 commits behind"). Detect shallow up front: fetch with
     # --depth 1 to preserve the boundary and compare tip SHAs instead of
     # counting. Full clones (developers, Docker dev images) keep the exact
-    # count path unchanged. Mirrors the desktop fix in apps/desktop/electron/main.cjs.
+    # count path unchanged.
     shallow = _git_stdout(["rev-parse", "--is-shallow-repository"], cwd=repo_dir)
     is_shallow = shallow == "true"
 
@@ -399,11 +399,8 @@ def check_for_updates() -> Optional[int]:
 
     # Docker images have no working tree to count commits against — the
     # published image excludes `.git` (see .dockerignore) and sets no
-    # HERMES_REVISION (that's nix-only). Returning None makes both the Rich
-    # banner (build_welcome_banner) and the Ink badge (branding.tsx, guarded
-    # on `typeof === 'number' && > 0`) show nothing. The dashboard's REST
-    # `/api/hermes/update/check` endpoint short-circuits docker the same way
-    # (web_server.py); mirror that here so the banner/TUI surfaces agree.
+    # HERMES_REVISION (that's nix-only). Returning None suppresses the update
+    # badge because the checkout-based comparison is unavailable.
     try:
         from hermes_cli.config import detect_install_method, get_project_root
         if detect_install_method(get_project_root()) == "docker":
@@ -494,15 +491,8 @@ _git_banner_state_cache: Optional[tuple] = None  # (state_or_None,) once compute
 def get_git_banner_state(repo_dir: Optional[Path] = None) -> Optional[dict]:
     """Return upstream/local git hashes for the startup banner.
 
-    For source installs and dev images this runs ``git rev-parse`` against
-    the active checkout.  When no checkout is available — the canonical case
-    is the published Docker image, which excludes ``.git`` from the build
-    context — we fall back to the baked-in build SHA (see
-    ``hermes_cli/build_info.py``) and return it as a frozen
-    ``upstream == local`` state with ``ahead=0``.  A built image is by
-    definition pinned to one commit, so "ahead" is always zero and the
-    banner correctly shows ``· upstream <sha>`` with no carried-commits
-    annotation.
+    This runs ``git rev-parse`` against the active checkout. When no checkout
+    is available, no git state is displayed.
 
     Cached per-process (default ``repo_dir`` only): the state costs 2-3 git
     subprocesses (~100ms) and the checkout revision cannot change under a
@@ -522,28 +512,12 @@ def get_git_banner_state(repo_dir: Optional[Path] = None) -> Optional[dict]:
 def _compute_git_banner_state(repo_dir: Optional[Path] = None) -> Optional[dict]:
     repo_dir = repo_dir or _resolve_repo_dir()
     if repo_dir is None:
-        # No git checkout — try the baked build SHA (Docker image path).
-        try:
-            from hermes_cli.build_info import get_build_sha
-            baked = get_build_sha(short=8)
-            if baked:
-                return {"upstream": baked, "local": baked, "ahead": 0}
-        except Exception:
-            pass
         return None
 
     upstream = _git_short_hash(repo_dir, "origin/main")
     local = _git_short_hash(repo_dir, "HEAD")
     if not upstream or not local:
         # Live-git lookup failed (e.g. shallow clone without origin/main).
-        # Fall back to the baked build SHA if available.
-        try:
-            from hermes_cli.build_info import get_build_sha
-            baked = get_build_sha(short=8)
-            if baked:
-                return {"upstream": baked, "local": baked, "ahead": 0}
-        except Exception:
-            pass
         return None
 
     ahead = 0
@@ -693,20 +667,14 @@ def get_update_result(timeout: float = 0.5) -> Optional[int]:
 
 def _format_update_notice(behind: int) -> str:
     """Render the update warning line for a non-zero ``behind`` result."""
-    from hermes_cli.config import get_managed_update_command, recommended_update_command
+    from hermes_cli.config import recommended_update_command
     if behind > 0:
         commits_word = "commit" if behind == 1 else "commits"
         return (
             f"[bold yellow]⚠ {behind} {commits_word} behind[/]"
             f"[dim yellow] — run [bold]{recommended_update_command()}[/bold] to update[/]"
         )
-    # UPDATE_AVAILABLE_NO_COUNT: nix-built hermes; we know an update
-    # exists but not by how much, and we don't know how the user
-    # installed it (nix run, profile, system flake, home-manager).
-    managed_cmd = get_managed_update_command()
     line = "[bold yellow]⚠ update available[/]"
-    if managed_cmd:
-        line += f"[dim yellow] — run [bold]{managed_cmd}[/bold][/]"
     return line
 
 

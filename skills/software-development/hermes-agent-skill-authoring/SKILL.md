@@ -18,7 +18,7 @@ metadata:
 There are two places a SKILL.md can live:
 
 1. **User-local:** `~/.hermes/skills/<maybe-category>/<name>/SKILL.md` — personal, not shared. Created via `skill_manage(action='create')`.
-2. **In-repo (this skill is about this case):** `skills/<category>/<name>/SKILL.md` or `optional-skills/<category>/<name>/SKILL.md` inside the hermes-agent repo — committed, shipped with the package. Use `write_file` + `git add`. `skill_manage(action='create')` does NOT target this tree.
+2. **In-repo (this skill is about this case):** `skills/<category>/<name>/SKILL.md` inside the hermes-agent repo — committed and shipped with the package. Use `write_file` + `git add`. `skill_manage(action='create')` does NOT target this tree.
 
 In-repo skills must meet the repo's **hardline authoring standards** (see AGENTS.md, "Skill authoring standards (HARDLINE)" — that section is the source of truth; this skill is the operational walkthrough). Reviewers reject PRs that violate them, so meeting them up front is cheaper than a salvage pass later.
 
@@ -26,15 +26,14 @@ In-repo skills must meet the repo's **hardline authoring standards** (see AGENTS
 
 - User asks you to add a skill "in this branch / repo / commit"
 - You're committing a reusable workflow that should ship with hermes-agent
-- You're editing an existing skill under `skills/` or `optional-skills/` (use `patch` for small edits, `write_file` for rewrites; `skill_manage` still works for patch on in-repo skills, but not for `create`)
+- You're editing an existing skill under `skills/` (use `patch` for small edits, `write_file` for rewrites; `skill_manage` still works for patch on in-repo skills, but not for `create`)
 - Don't use for: personal skills in `~/.hermes/skills/` (just use `skill_manage`)
 
-## Decide the Tier First: Bundled vs Optional
+## Confirm It Belongs in the Bundled Catalog
 
 - **Bundled (`skills/<category>/`)** — daily-driver behavior, broadly useful across many user types, low footprint. Hard bar: you can say "a user will load this in 5+ sessions per month" with a straight face.
-- **Optional (`optional-skills/<category>/`)** — niche, vertical-specific (blockchain, gaming, finance, one app), recurring-job/task skills, or anything heavy. Installed via `hermes skills install official/<category>/<skill>`.
 
-**When in doubt, optional.** Promoting later is easy; demoting is churn. "Would be useful to anyone who ever needs this" is an optional-tier argument, not a bundled one.
+Niche, vertical-specific, one-application, recurring-task, or heavyweight skills should live in an external Skills Hub source rather than this repository. "Would be useful to anyone who ever needs this" is not a bundled-catalog argument.
 
 Pick the category by what the tool IS, not what it feels like (an AI-agent CLI goes in `autonomous-ai-agents/` even if it "feels productivity"). Confirm existing categories with `search_files(pattern='*', target='files', path='skills')` and don't invent new top-level categories casually.
 
@@ -88,7 +87,7 @@ Bad: `Use when a user asks to monitor named competitors or companies for product
 ### `related_skills` rules
 
 - Every entry must resolve to an existing **in-repo** skill in the same tree state as your PR. Do not reference skills that were only planned, live in another PR, or exist only in `~/.hermes/skills/`.
-- Verify each entry: `search_files(pattern='<name>', target='files', path='skills')` (and `optional-skills/`).
+- Verify each entry: `search_files(pattern='<name>', target='files', path='skills')`.
 
 ## Platform Gating: audit, don't trust
 
@@ -154,8 +153,8 @@ A skill exists to make the agent's process more predictable — the agent reliab
 ## Workflow
 
 1. **Survey peers** in the target category with `search_files(target='files')` and read 2-3 peer SKILL.md files to match tone and structure. Prefer extending an existing skill over creating a narrow sibling.
-2. **Decide tier and category** (see above). When in doubt, optional — and ask before pushing rather than defaulting.
-3. **Draft** with `write_file` to `skills/<category>/<name>/SKILL.md` (or `optional-skills/...`).
+2. **Confirm bundled eligibility and choose a category** (see above). If the bundled bar is not met, use an external Skills Hub source.
+3. **Draft** with `write_file` to `skills/<category>/<name>/SKILL.md`.
 4. **Validate locally**:
    ```python
    import yaml, re, pathlib
@@ -196,8 +195,8 @@ A skill exists to make the agent's process more predictable — the agent reliab
 
 ## Verification Checklist
 
-- [ ] Tier decided deliberately (bundled bar: 5+ sessions/month; else `optional-skills/`)
-- [ ] File at `skills/<category>/<name>/SKILL.md` or `optional-skills/<category>/<name>/SKILL.md`
+- [ ] Bundled eligibility confirmed (5+ sessions/month for a broad user population)
+- [ ] File at `skills/<category>/<name>/SKILL.md`
 - [ ] Frontmatter starts at byte 0 with `---`, closes with `\n---\n`
 - [ ] `name`, `description`, `version`, `author`, `license`, `platforms`, `metadata.hermes.{tags, related_skills}` all present
 - [ ] Description ≤ 60 chars, one sentence, ends with a period, no marketing words

@@ -2,7 +2,7 @@ name: Supply Chain Audit
 
 # Narrow, high-signal scanner. Only fires on critical indicators of supply
 # chain attacks (e.g. the litellm-style payloads). Low-signal heuristics
-# (plain base64, plain exec/eval, dependency/Dockerfile/workflow edits,
+# (plain base64, plain exec/eval, dependency/workflow edits,
 # Actions version unpinning, outbound POST/PUT) were intentionally
 # removed — they fired on nearly every PR and trained reviewers to ignore
 # the scanner. Keep this file's checks ruthlessly narrow: if you find

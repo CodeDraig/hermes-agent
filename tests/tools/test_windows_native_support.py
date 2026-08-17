@@ -354,31 +354,6 @@ class TestReadmeNoLongerSaysWindowsUnsupported:
 
 
 # ---------------------------------------------------------------------------
-# pty_bridge graceful import on Windows
-# ---------------------------------------------------------------------------
-
-
-class TestWebServerPtyBridgeGuard:
-    """The web server must not crash if pty_bridge can't import (Windows)."""
-
-    def test_import_guard_present_in_source(self):
-        root = Path(__file__).resolve().parents[2]
-        source = (root / "hermes_cli" / "web_server.py").read_text(encoding="utf-8")
-        assert "_PTY_BRIDGE_AVAILABLE" in source
-        assert "except ImportError" in source, (
-            "web_server.py must wrap the pty_bridge import in try/except ImportError"
-        )
-
-    def test_pty_handler_checks_availability_flag(self):
-        """The /api/pty handler must short-circuit when the bridge is unavailable."""
-        root = Path(__file__).resolve().parents[2]
-        source = (root / "hermes_cli" / "web_server.py").read_text(encoding="utf-8")
-        assert "if not _PTY_BRIDGE_AVAILABLE" in source, (
-            "/api/pty handler must return a friendly error when PTY is unavailable"
-        )
-
-
-# ---------------------------------------------------------------------------
 # Entry points wire configure_windows_stdio
 # ---------------------------------------------------------------------------
 
@@ -439,7 +414,7 @@ class TestSubprocessCompatHelpers:
            flash per spawn that no per-call-site hide sweep can fully cover.
            CREATE_NO_WINDOW instead gives the daemon one hidden console that
            all descendants inherit (parent-console root cause isolated by
-           the desktop backend fix, commit aa2ae36c3f).
+           the Windows backend fix, commit aa2ae36c3f).
         """
         from hermes_cli import _subprocess_compat as sc
         assert not sc.windows_detach_flags() & 0x00000008, (
@@ -453,13 +428,11 @@ class TestSubprocessCompatHelpers:
 
     @pytest.mark.windows_only
     def test_windows_detach_flags_includes_breakaway_from_job(self):
-        """CREATE_BREAKAWAY_FROM_JOB is load-bearing for the GUI-driven update path.
+        """CREATE_BREAKAWAY_FROM_JOB is load-bearing for gateway updates.
 
         Without it, the gateway-respawn watcher spawned by ``hermes update``
-        (which runs under hermes-setup.exe, itself a grandchild of the
-        Electron Desktop app) gets reaped when Electron exits and its
-        Win32 job object is torn down by the OS.  Result: gateway dies
-        during update and never comes back.
+        can be reaped when a restrictive parent Win32 job object is torn down.
+        Result: the gateway dies during update and never comes back.
 
         Regression guard against accidentally dropping the breakaway bit
         from the default detach bundle.  This was fixed in
@@ -469,8 +442,8 @@ class TestSubprocessCompatHelpers:
         from hermes_cli import _subprocess_compat as sc
         assert sc.windows_detach_flags() & 0x01000000, (
             "CREATE_BREAKAWAY_FROM_JOB (0x01000000) must remain in the "
-            "default detach flag bundle so the Desktop GUI update flow "
-            "can respawn the gateway after Electron exits."
+            "default detach flag bundle so an update can respawn the gateway "
+            "after the parent process exits."
         )
 
     @pytest.mark.windows_only
@@ -497,46 +470,7 @@ class TestSubprocessCompatHelpers:
 
 
 # ---------------------------------------------------------------------------
-# tui_gateway/entry.py signal installation survives absent POSIX signals
 # ---------------------------------------------------------------------------
-
-
-class TestTuiGatewayEntrySignalGuards:
-    """Importing tui_gateway.entry must not crash when SIGPIPE/SIGHUP absent.
-
-    Linux has both signals, so this is mostly a source-level invariant check
-    (no bare ``signal.SIGPIPE`` at module level without a ``hasattr`` guard).
-    On Windows the import would have raised AttributeError before this fix.
-    """
-
-    def test_source_guards_each_signal_installation(self):
-        root = Path(__file__).resolve().parents[2]
-        source = (root / "tui_gateway" / "entry.py").read_text(encoding="utf-8")
-        # Every signal installation at module scope must be guarded against
-        # missing signals (Windows: SIGPIPE/SIGHUP absent).  Originally this
-        # was ``hasattr(signal, "SIGPIPE")`` inline; PR #72677 refactored to
-        # ``_install_signal("SIGPIPE", ...)`` which does the same guard via
-        # ``getattr(signal, signame, None)`` internally.  Either form is
-        # acceptable — what matters is no bare ``signal.signal(SIGPIPE)``
-        # at module scope without a guard.
-        for sig_name in ("SIGPIPE", "SIGHUP", "SIGTERM", "SIGINT"):
-            assert (
-                f'hasattr(signal, "{sig_name}")' in source
-                or f'_install_signal("{sig_name}"' in source
-            ), (
-                f"signal {sig_name} must be installed via a guarded path "
-                f"(hasattr or _install_signal), not bare signal.signal()"
-            )
-
-    def test_module_imports_cleanly(self):
-        """Importing the module must not raise — verifies the guards work."""
-        # Drop any cached import so the module re-initialises
-        for mod in list(sys.modules):
-            if mod.startswith("tui_gateway"):
-                del sys.modules[mod]
-        import tui_gateway.entry  # noqa: F401  # must not raise
-
-
 # ---------------------------------------------------------------------------
 # hermes_cli/kanban_db.py waitpid guard
 # ---------------------------------------------------------------------------

@@ -61,9 +61,7 @@ Bundled skills (in `skills/`) ship with every Hermes install. They should be **b
 - Document handling, web research, common dev workflows, system administration
 - Used regularly by a wide range of people
 
-If your skill is official and useful but not universally needed (e.g., a paid service integration, a heavyweight dependency), put it in **`optional-skills/`** — it ships with the repo but isn't activated by default. Users can discover it via `hermes skills browse` (labeled "official") and install it with `hermes skills install` (no third-party warning, built-in trust).
-
-If your skill is specialized, community-contributed, or niche, it's better suited for a **Skills Hub** — upload it to a skills registry and share it in the [Nous Research Discord](https://discord.gg/NousResearch). Users can install it with `hermes skills install`.
+If your skill is specialized, community-contributed, or niche, publish it through a **Skills Hub** registry and share it in the [Nous Research Discord](https://discord.gg/NousResearch). Users can install it with `hermes skills install`.
 
 ---
 
@@ -111,7 +109,7 @@ A well-built third-party-product plugin can clear automated review and still be 
 | **Git** | With the `git-lfs` extension installed |
 | **Python 3.11–3.13** | uv will install it if missing |
 | **uv** | Fast Python package manager ([install](https://docs.astral.sh/uv/)) |
-| **Node.js 20+** | Optional — needed for browser tools and WhatsApp bridge (matches root `package.json` engines) |
+| **Node.js 20+** | Optional — needed for browser tools, the documentation site, and WhatsApp bridge |
 
 ### Install with the standard installer
 
@@ -130,8 +128,8 @@ cd "${HERMES_HOME:-$HOME/.hermes}/hermes-agent"
 # Add dev/test extras on top of the standard install.
 uv pip install -e ".[all,dev]"
 
-# Optional: docs site + workspace dependencies.
-npm install
+# Optional: documentation-site dependencies.
+(cd website && npm install)
 ```
 
 After that, create branches and run tests from that checkout:
@@ -167,8 +165,8 @@ export PATH="$VIRTUAL_ENV/bin:$PATH"
 # Install with all extras (messaging, cron, CLI menus, dev tools)
 uv pip install -e ".[all,dev]"
 
-# Optional: workspace / docs dependencies
-npm install
+# Optional: documentation-site dependencies
+(cd website && npm install)
 ```
 
 ### Configure for development
@@ -217,7 +215,7 @@ pytest tests/ -v
 ```
 hermes-agent/
 ├── run_agent.py              # AIAgent class — core conversation loop, tool dispatch, session persistence
-├── cli.py                    # HermesCLI class — interactive TUI, prompt_toolkit integration
+├── cli.py                    # HermesCLI class — interactive prompt_toolkit client
 ├── model_tools.py            # Tool orchestration (thin layer over tools/registry.py)
 ├── toolsets.py               # Tool groupings and presets (hermes-cli, hermes-telegram, etc.)
 ├── hermes_state.py           # SQLite session database with FTS5 full-text search, session titles
@@ -273,7 +271,6 @@ hermes-agent/
 │   └── whatsapp-bridge/          # Node.js WhatsApp bridge (Baileys)
 │
 ├── skills/                   # Bundled skills (copied to ~/.hermes/skills/ on install)
-├── optional-skills/          # Official optional skills (discoverable via hub, not activated by default)
 ├── tests/                    # Test suite
 ├── website/                  # Documentation site (hermes-agent.nousresearch.com)
 │
@@ -403,7 +400,7 @@ plugin vs core guidance.
 
 ## Adding a Skill
 
-Bundled skills live in `skills/` organized by category. Official optional skills use the same structure in `optional-skills/`:
+Bundled skills live in `skills/` organized by category:
 
 ```
 skills/

@@ -253,18 +253,6 @@ def test_delegate_task_routes_control_action_before_spawn_machinery():
     assert out["action"] == "list"
 
 
-def test_delegate_task_control_action_bypasses_spawn_pause():
-    from tools.delegate_tool import set_spawn_paused
-
-    parent = _StubParent()
-    set_spawn_paused(True)
-    try:
-        out = json.loads(delegate_task(action="list", parent_agent=parent))
-        assert out["action"] == "list"
-    finally:
-        set_spawn_paused(False)
-
-
 def test_delegate_task_unknown_action_is_an_error():
     out = delegate_task(action="pause", goal="g", parent_agent=_StubParent())
     assert "Unknown action" in out

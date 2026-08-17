@@ -12,8 +12,6 @@ Covered:
     through to ``openai.OpenAI(...)``.
   * ``_normalize_main_runtime`` preserves the callable so auxiliary
     clients inherit Entra auth.
-  * ``_truncate_token`` (dashboard preview) renders ``"<entra-id-bearer>"``
-    instead of ``"<function ...>"`` and never invokes the callable.
   * ``run_agent.py`` masked-banner path renders the Entra placeholder
     and never tries to slice/len the callable.
   * Serialization scrub: dumping a runtime dict via ``json.dumps`` with
@@ -26,7 +24,6 @@ Covered:
 from __future__ import annotations
 
 import json
-from typing import cast
 from unittest.mock import MagicMock
 
 import pytest
@@ -119,40 +116,6 @@ class TestNormalizeMainRuntimePreservesCallable:
         assert normalized["api_key"] == "sk-static"
 
 
-
-
-# ---------------------------------------------------------------------------
-# Display surfaces never invoke the callable
-# ---------------------------------------------------------------------------
-
-
-class TestTruncateTokenCallable:
-    def test_callable_returns_placeholder(self):
-        """Dashboard preview must render the Entra placeholder, NOT
-        ``"<function ...>"``."""
-        from hermes_cli.web_server import _truncate_token
-
-        invoked = {"count": 0}
-
-        def provider():
-            invoked["count"] += 1
-            return "should-not-appear-in-ui"
-
-        token_provider = cast(str | None, provider)
-        rendered = _truncate_token(token_provider)
-        assert rendered == "<entra-id-bearer>"
-        assert invoked["count"] == 0
-
-    def test_string_jwt_still_truncated_to_signature_tail(self):
-        from hermes_cli.web_server import _truncate_token
-        # JWT shape: header.payload.signature → only signature tail shown.
-        out = _truncate_token("aaaa.bbbb.cccccccsig", visible=4)
-        assert out == "…csig"
-
-    def test_empty_returns_empty(self):
-        from hermes_cli.web_server import _truncate_token
-        assert _truncate_token(None) == ""
-        assert _truncate_token("") == ""
 
 
 # ---------------------------------------------------------------------------
@@ -312,5 +275,4 @@ class TestInlinedDisplayMasks:
             "'Microsoft Entra ID' label (matching run_agent banners) "
             "instead of attempting to slice the callable."
         )
-
 

@@ -28,7 +28,7 @@ def _host_block(refresh="hch-rt-old", expires_at=100):
         "oauth": {
             "refreshToken": refresh,
             "expiresAt": expires_at,
-            "clientId": "hermes-desktop",
+            "clientId": "hermes-test-client",
             "tokenEndpoint": "http://localhost:8000/oauth/token",
             "scope": "write",
             "tokenType": "Bearer",
@@ -132,7 +132,7 @@ class TestExchangeRetry:
         oauth.install_grant(
             path, "hermes",
             {"access_token": "hch-at-fresh", "refresh_token": "hch-rt-fresh", "expires_in": 3600},
-            client_id="hermes-desktop",
+            client_id="hermes-test-client",
             token_endpoint="http://localhost:8000/oauth/token",
             now=2000,
         )
@@ -461,7 +461,7 @@ def _relogin(path: Path) -> None:
     oauth.install_grant(
         path, "hermes",
         {"access_token": "hch-at-fresh", "refresh_token": "hch-rt-fresh", "expires_in": 3600},
-        client_id="hermes-desktop",
+        client_id="hermes-test-client",
         token_endpoint="http://localhost:8000/oauth/token",
     )
 

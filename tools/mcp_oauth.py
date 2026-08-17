@@ -156,11 +156,9 @@ _oauth_interactive_enabled: "contextvars.ContextVar[bool]" = contextvars.Context
     "_oauth_interactive_enabled", default=True
 )
 
-# Forces _is_interactive() past the stdin-TTY check for flows driven from a
-# GUI (dashboard/desktop REST): the browser + localhost callback server do all
-# the work there, and the stdin paste fallback degrades harmlessly (EOF is
-# swallowed by _paste_callback_reader). Suppression still wins — background
-# discovery must never start a browser flow.
+# Forces _is_interactive() past the stdin-TTY check for an explicit
+# ``hermes mcp login`` flow. Suppression still wins: background discovery
+# must never start a browser flow.
 _oauth_interactive_forced: "contextvars.ContextVar[bool]" = contextvars.ContextVar(
     "_oauth_interactive_forced", default=False
 )
@@ -326,9 +324,9 @@ def _raise_if_non_interactive(lead: str) -> None:
 def force_interactive_oauth():
     """Treat the current execution context as interactive despite no TTY.
 
-    For GUI-driven auth (dashboard/desktop REST endpoint): the user IS present
-    — just not on stdin. Opens the browser + localhost callback flow that the
-    TTY heuristic would otherwise refuse. Same ContextVar propagation story as
+    Explicit login commands may be user-driven even when their stdin wrapper
+    is not a TTY. This opens the browser + localhost callback flow that the TTY
+    heuristic would otherwise refuse. Same ContextVar propagation story as
     suppress_interactive_oauth() (#35927).
     """
     token = _oauth_interactive_forced.set(True)
@@ -756,13 +754,6 @@ def _make_redirect_handler(port: int, redirect_uri: str | None = None):
         Opens the browser automatically when possible; always prints the URL
         as a fallback for headless/SSH/gateway environments.
         """
-        from tools.mcp_dashboard_oauth import get_dashboard_oauth_flow
-
-        dashboard_flow = get_dashboard_oauth_flow()
-        if dashboard_flow is not None:
-            await dashboard_flow.publish_authorization_url(authorization_url)
-            return
-
         # Fail fast at the authorization boundary in non-interactive contexts
         # (systemd gateway, cron, background MCP discovery). A cached-but-unusable
         # token (expired/revoked, refresh rejected) makes the SDK fall through to
@@ -881,15 +872,6 @@ def _make_callback_waiter(port: int, timeout: float = 300.0):
     """
 
     async def _wait():
-        from tools.mcp_dashboard_oauth import get_dashboard_oauth_flow
-
-        dashboard_flow = get_dashboard_oauth_flow()
-        if dashboard_flow is not None:
-            # The dashboard flow still speaks the legacy tuple; normalize it
-            # here so both callback sources hand the SDK one shape.
-            dash_code, dash_state = await dashboard_flow.wait_for_callback()
-            return _authorization_code_result(dash_code, dash_state)
-
         # Reject before binding the callback listener in non-interactive
         # contexts. Reaching here means the SDK entered the authorization-code
         # flow (a valid or refreshable token would never call the callback
@@ -1219,13 +1201,6 @@ def _configure_callback_port(
     consolidation PR.
     """
     global _oauth_port
-    from tools.mcp_dashboard_oauth import get_dashboard_oauth_flow
-
-    dashboard_flow = get_dashboard_oauth_flow()
-    if dashboard_flow is not None:
-        cfg["_resolved_port"] = 0
-        cfg["redirect_uri"] = cfg.get("redirect_uri") or dashboard_flow.redirect_uri
-        return 0
     cached_redirect_uri = _cached_redirect_uri(storage)
     if not cfg.get("redirect_uri") and cached_redirect_uri:
         cfg["redirect_uri"] = cached_redirect_uri
@@ -1366,10 +1341,9 @@ def _build_client_metadata(cfg: dict) -> "OAuthClientMetadata":
         "token_endpoint_auth_method": auth_method,
         # SEP-837 (2026-07-28 spec): clients MUST declare an application_type
         # during registration so OIDC-strict authorization servers stop
-        # rejecting loopback redirect_uris. Hermes is a CLI/desktop app
+        # rejecting loopback redirect_uris. Hermes is a native CLI
         # redirecting to 127.0.0.1/localhost — that is exactly "native".
-        # Overridable for the rare hosted-dashboard deployment fronting a
-        # real https redirect.
+        # Overridable for deployments fronting a real https redirect.
         "application_type": cfg.get("application_type", "native"),
     }
     if scope:

@@ -47,7 +47,7 @@ description: "调试 Python：pdb REPL + debugpy 远程（DAP）"
 
 - 测试失败，但 traceback 无法说明某个值为何出错
 - 需要逐步执行某个函数并观察集合的变化
-- 长期运行的进程（hermes gateway、tui_gateway）出现异常且无法重启
+- 长期运行的进程（Hermes gateway、daemon）出现异常且无法重启
 - 事后分析（post-mortem）：异常在类生产代码中触发，需要检查崩溃现场的局部变量
 - 子进程 / 子进程（Python `_SlashWorker`、PTY bridge worker）才是实际的 bug 所在
 
@@ -162,7 +162,7 @@ sys.excepthook = excepthook
 
 ## 方案 5：使用 debugpy 进行远程调试（附加到运行中的进程）
 
-适用于长期运行的进程：Hermes gateway、tui_gateway、daemon，或已出现异常且无法干净重启的进程。
+适用于长期运行的进程：Hermes gateway、daemon，或已出现异常且无法干净重启的进程。
 
 ### 安装
 
@@ -297,27 +297,6 @@ nc 127.0.0.1 4444
 ### `run_agent.py` / CLI — 一次性运行
 最简单：在可疑行附近添加 `breakpoint()`，然后正常运行 `hermes`。控制权将在暂停点返回到你的终端。
 
-### `tui_gateway` 子进程（由 `hermes --tui` 启动）
-gateway 作为 Node TUI 的子进程运行。可选方案：
-
-**A. 修改 gateway 源码：**
-```python
-# tui_gateway/server.py，在 serve() 顶部附近
-import debugpy
-debugpy.listen(("127.0.0.1", 5678))
-debugpy.wait_for_client()
-```
-启动 `hermes --tui`。TUI 将显示为冻结状态（其后端正在等待）。附加客户端后，执行在你 `continue` 时恢复。
-
-**B. 在特定处理器中使用 `remote-pdb`：**
-```python
-from remote_pdb import set_trace
-set_trace(host="127.0.0.1", port=4444)   # 在你想捕获的 RPC 处理器中
-```
-从 TUI 触发对应的 slash 命令，然后在另一个终端中执行 `nc 127.0.0.1 4444`。
-
-### `_SlashWorker` 子进程
-相同模式——在 worker 的 `exec` 路径中使用 `remote-pdb` 的 `set_trace()`。该 worker 在多次 slash 命令间持续存在，因此第一次触发会阻塞直到你连接；后续 slash 命令正常通过，除非你重新设置断点。
 
 ### Gateway（`gateway/run.py`）
 长期运行。在处理器中使用 `remote-pdb`，或者如果你本来就要重启 gateway，则使用带 `--wait-for-client` 的 `debugpy`。

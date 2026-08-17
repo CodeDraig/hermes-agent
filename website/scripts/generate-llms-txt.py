@@ -152,7 +152,6 @@ SECTIONS: list[tuple[str, list[tuple[str, str, str | None]]]] = [
         ("reference/mcp-config-reference", "MCP Config Reference", None),
         ("reference/model-catalog", "Model Catalog", None),
         ("reference/skills-catalog", "Bundled Skills Catalog", "Table of all ~90 skills bundled with Hermes"),
-        ("reference/optional-skills-catalog", "Optional Skills Catalog", "Table of ~60 additional installable skills"),
         ("reference/faq", "FAQ & Troubleshooting", None),
     ]),
 ]
@@ -280,7 +279,7 @@ def emit_llms_full() -> str:
         rel = path.relative_to(DOCS)
         parts = rel.parts
         if len(parts) >= 3 and parts[0] == "user-guide" and parts[1] == "skills" \
-                and parts[2] in {"bundled", "optional"}:
+                and parts[2] == "bundled":
             continue
         seen.add(path)
         meta, body = read_frontmatter(path)

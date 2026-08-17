@@ -1,14 +1,14 @@
 ---
-title: "Blocked Page Recovery — Recover blocked/paywalled/WAF'd pages via archive snapshots and reader fallbacks"
+title: "Blocked Page Recovery — Recover blocked/paywalled/WAF'd pages via fallbacks"
 sidebar_label: "Blocked Page Recovery"
-description: "Recover blocked/paywalled/WAF'd pages via archive snapshots and reader fallbacks"
+description: "Recover blocked/paywalled/WAF'd pages via fallbacks"
 ---
 
 {/* This page is auto-generated from the skill's SKILL.md by website/scripts/generate-skill-docs.py. Edit the source SKILL.md, not this page. */}
 
 # Blocked Page Recovery
 
-Recover blocked/paywalled/WAF'd pages via archive snapshots and reader fallbacks. Use when web_extract or the browser hits 403/429/challenge pages, paywalls, or bot-detection interstitials.
+Recover blocked/paywalled/WAF'd pages via fallbacks.
 
 ## Skill metadata
 

@@ -6,7 +6,7 @@ description: "One-command import of a Claude Code (~/.claude) or OpenAI Codex CL
 
 # Import from Other Agents
 
-`hermes import-agent` imports your existing **Claude Code** or **OpenAI Codex CLI** setup into Hermes with one command. It follows the same preview-first pattern as [`hermes claw migrate`](../guides/migrate-from-openclaw.md): you always see a per-item plan before anything is written, and `--dry-run` never touches disk.
+`hermes import-agent` imports your existing **Claude Code** or **OpenAI Codex CLI** setup into Hermes with one command. You always see a per-item plan before anything is written, and `--dry-run` never touches disk.
 
 ```bash
 hermes import-agent                    # auto-detect ~/.claude or ~/.codex
@@ -51,4 +51,3 @@ Claude's `Bash(npm run test:*)` prefix rules become `npm run test*` globs. Non-`
 - **Merges, not replaces.** Memory entries are deduplicated against your existing `MEMORY.md`; allowlist/denylist patterns merge with what's already in `config.yaml`.
 - **Conflicts are skipped by default.** An MCP server or skill that already exists in Hermes is reported as a conflict; pass `--overwrite` to replace it.
 - **Malformed files don't abort the run.** A broken `settings.json` or `config.toml` becomes a per-item error in the report while everything else still imports.
-- Coming from OpenClaw instead? Use [`hermes claw migrate`](../guides/migrate-from-openclaw.md).

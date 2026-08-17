@@ -253,14 +253,7 @@ def _looks_like_credential(name: str) -> bool:
 # HERMES_* vars that change test behavior by being set. Unset all of these
 # unconditionally — individual tests that need them set do so explicitly.
 _HERMES_BEHAVIORAL_VARS = frozenset({
-    # Voice/TTS runtime flags. ``tui_gateway/server.py`` reads these straight
-    # off ``os.environ`` at call time (``_voice_mode_enabled`` /
-    # ``_voice_tts_enabled``) and, on every completed turn, hands the turn's
-    # final response text to ``hermes_cli.voice.speak_text`` — real synthesis,
-    # real playback, out of the developer's speakers. Blank them per-test so a
-    # leak (from the shell, or from an earlier test that drove the
-    # ``voice.toggle`` RPC, which writes ``os.environ`` directly) cannot carry
-    # into the next test. See ``_audio_playback_guard`` for the second layer.
+    # Voice/TTS flags can trigger real synthesis and playback.
     "HERMES_VOICE",
     "HERMES_VOICE_TTS",
     "HERMES_YOLO_MODE",
@@ -283,8 +276,6 @@ _HERMES_BEHAVIORAL_VARS = frozenset({
     "HERMES_MODEL",
     "HERMES_INFERENCE_MODEL",
     "HERMES_INFERENCE_PROVIDER",
-    "HERMES_TUI_PROVIDER",
-    "HERMES_MANAGED",
     "HERMES_MANAGED_DIR",
     "HERMES_DEV",
     "HERMES_CONTAINER",
@@ -317,14 +308,6 @@ _HERMES_BEHAVIORAL_VARS = frozenset({
     # shell override leaked "myhost" into the full suite and flipped 20
     # otherwise-unrelated config tests away from the default "hermes" host.
     "HERMES_HONCHO_HOST",
-    # Dashboard OAuth auth gate (PR #30156). When set, the bundled
-    # dashboard-auth `nous` plugin auto-registers itself on plugin discovery,
-    # which is triggered by any `/api/status` call. That leaks a provider
-    # into the dashboard_auth registry across tests in the same worker and
-    # makes assertions like `auth_providers == []` flaky. CI never sets
-    # these, so production tests must not see them either.
-    "HERMES_DASHBOARD_OAUTH_CLIENT_ID",
-    "HERMES_DASHBOARD_PORTAL_URL",
     "TERMINAL_CWD",
     "TERMINAL_ENV",
     "TERMINAL_VERCEL_RUNTIME",
@@ -785,104 +768,7 @@ def _state_db_write_guard(request, monkeypatch):
 # approvals from one test's session into another's.
 
 
-# ── tui_gateway.server shared-module state isolation ───────────────────────
-#
-# ``tui_gateway.server`` registers its RPC handlers in a module-level
-# ``_methods`` dict at import time and keeps per-session state in module
-# globals (sessions, child-run registry, config cache, DB handle). The
-# canonical per-file process isolation above hides any leakage, but a direct
-# multi-file invocation (``pytest tests/tui_gateway/ tests/test_tui_gateway_server.py``,
-# or plain ``pytest tests/``) shares one interpreter: a test that stubs
-# ``_methods["slash.exec"]`` or leaves an active-session lease behind breaks
-# unrelated tests in later files. This fixture snapshots the cheap-to-copy
-# globals before each test and restores them after, so any file combination
-# is order-independent. It is a near no-op (one sys.modules lookup) while
-# the module has not been imported.
-#
-# The case this cannot cover — the module is first imported *during* a test
-# that also mutates ``_methods`` — is handled by the importing files' own
-# ``server`` fixtures (tests/tui_gateway/test_protocol.py and friends), which
-# snapshot immediately after the import.
-
-_TUI_SERVER_MODULE = "tui_gateway.server"
-
-
-def _teardown_tui_server_sessions(mod) -> None:
-    """Close leftover sessions through the production teardown boundary.
-
-    Besides returning active-session leases, this finalizes the session,
-    unregisters notification state, and closes its agent and slash worker.
-    """
-    sessions = getattr(mod, "_sessions", None)
-    if not isinstance(sessions, dict):
-        return
-    for sid in list(sessions):
-        mod._close_session_by_id(sid, end_reason="test_cleanup")
-
-
-@pytest.fixture(autouse=True)
-def _reset_tui_gateway_server_state():
-    mod = sys.modules.get(_TUI_SERVER_MODULE)
-    snapshot = None
-    if mod is not None:
-        snapshot = {
-            "methods": dict(mod._methods),
-            "cfg": (mod._cfg_cache, mod._cfg_mtime, mod._cfg_path),
-            "db": (mod._db, mod._db_error),
-            "real_stdout": mod._real_stdout,
-        }
-
-    yield
-
-    mod = sys.modules.get(_TUI_SERVER_MODULE)
-    if mod is None:
-        return
-
-    # This finalizer can run before the test's own monkeypatch undo, so a
-    # global may still be replaced with a non-dict test double — skip those
-    # (monkeypatch restores the real, pre-test object afterwards anyway).
-    sessions = mod._sessions
-    if isinstance(sessions, dict):
-        _teardown_tui_server_sessions(mod)
-    for name in (
-        "_pending",
-        "_pending_prompt_payloads",
-        "_answers",
-        "_child_mirrors",
-        "_active_child_runs",
-    ):
-        obj = getattr(mod, name, None)
-        if isinstance(obj, dict):
-            obj.clear()
-
-    if snapshot is not None:
-        mod._methods.clear()
-        mod._methods.update(snapshot["methods"])
-        mod._cfg_cache, mod._cfg_mtime, mod._cfg_path = snapshot["cfg"]
-        mod._db, mod._db_error = snapshot["db"]
-        mod._real_stdout = snapshot["real_stdout"]
-    else:
-        # First imported during this test — reset to import-time defaults
-        # for the globals we could not snapshot (``_methods`` is left to
-        # the importing file's fixture, see block comment above).
-        mod._cfg_cache = None
-        mod._cfg_mtime = None
-        mod._cfg_path = None
-        mod._db = None
-        mod._db_error = None
-
-    # A leaked context-local Hermes home override redirects every later
-    # ``get_hermes_home()`` call (active-session registry, config paths)
-    # to a stale per-test tmpdir. Force the main-thread ContextVar back
-    # to its default.
-    try:
-        from hermes_constants import get_hermes_home_override, set_hermes_home_override
-
-        if get_hermes_home_override() is not None:
-            set_hermes_home_override(None)
-    except Exception:
-        pass
-
+# General fixtures
 
 @pytest.fixture()
 def tmp_dir(tmp_path):
@@ -1031,32 +917,8 @@ def _wal_is_usable() -> bool:
 
 # ── Audio-playback guard ───────────────────────────────────────────────────
 #
-# Same class of incident as the live-system guard above, different primitive:
-# a test run spoke the string "partial answer complete" out of the developer's
-# speakers. That string is a test fixture
-# (``tests/test_tui_gateway_server.py``'s fake ``final_response``), and the
-# route it took is fully in-process — no leaked shell variable required:
-#
-#   1. ``test_voice_toggle_tts_branch_also_carries_record_key`` drives the
-#      ``voice.toggle`` RPC with ``action="tts"``. The handler
-#      (``tui_gateway/server.py``) flips the flag by writing the *real*
-#      process environment: ``os.environ["HERMES_VOICE_TTS"] = "1"``. The
-#      test's ``monkeypatch.delenv(..., raising=False)`` records no undo entry
-#      (pytest only records an undo when the key was present), so the "1"
-#      survives teardown and persists for the rest of the pytest process.
-#   2. Any later test in that process that drives a turn to completion hits
-#      the TTS dispatch in ``prompt.submit``, which checks
-#      ``_voice_tts_enabled()`` — now true — and fires
-#      ``hermes_cli.voice.speak_text(final_response)`` on a daemon thread.
-#   3. ``speak_text`` needs no API key to be audible: ``tools/tts_tool.py``
-#      defaults to the ``edge`` provider, which is keyless.
-#
-# Because the flag is set from *inside* the process, ``scripts/run_tests.sh``'s
-# ``env -i`` does not help, and neither does env-blanking on its own — the
-# hermetic fixture blanks at test setup, and step 1 re-sets it mid-test. So we
-# also intercept the primitive that does the damage, exactly as the
-# live-system guard intercepts ``os.kill`` rather than trusting every caller
-# to mock it:
+# Tests must never produce real audio. Environment isolation is insufficient
+# when a test enables voice inside the process, so intercept playback too.
 #
 #  • ``hermes_cli.voice.speak_text`` — the synth+playback entry point both
 #    gateway call sites late-import, so patching the module attribute catches

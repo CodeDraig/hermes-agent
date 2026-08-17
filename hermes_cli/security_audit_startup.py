@@ -3,7 +3,7 @@
 Surfaces dangerous host / deployment posture at process start so operators
 get an at-a-glance "you're exposed" signal. Motivated by the June 2026
 MCP-config persistence campaign, where compromised boxes ran as root with an
-exposed dashboard / API server and no firewall — and nothing ever told the
+exposed API server and no firewall — and nothing ever told the
 operator. These checks are advisory: they emit ``logger.warning`` records
 and return human-readable strings; they never raise or block startup.
 
@@ -14,7 +14,7 @@ and simply yields no finding):
 2. SSH daemon present with password authentication enabled.
 3. Running inside a container with no persistent volume mount over the
    HERMES_HOME data dir (state is ephemeral — lost on container restart).
-4. A network-accessible gateway listener (dashboard / API server) with no
+4. A network-accessible gateway API listener with no
    authentication configured.
 
 Cross-platform: the root and SSH checks are POSIX-only and no-op on Windows.
@@ -116,8 +116,6 @@ def _in_container() -> bool:
     """Best-effort container detection (Docker / Podman / generic OCI)."""
     if os.path.exists("/.dockerenv"):
         return True
-    if os.environ.get("HERMES_DESKTOP_CHILD_PID"):
-        return False  # desktop child, not a server container
     try:
         cgroup = Path("/proc/1/cgroup").read_text(encoding="utf-8", errors="replace")
         if any(tok in cgroup for tok in ("docker", "containerd", "kubepods", "libpod")):
@@ -190,9 +188,9 @@ def _container_no_volume_mount(hermes_home: Optional[Path]) -> Optional[str]:
 def _network_listener_without_auth(config: Optional[dict]) -> list[str]:
     """Warn about network-accessible gateway listeners with no auth.
 
-    Covers the API server (no API_SERVER_KEY) and the dashboard (non-loopback
-    bind with no auth provider). Read-only against config + env; overlaps the
-    hard fail-closed guards but surfaces the posture proactively at startup.
+    Covers the API server when no ``API_SERVER_KEY`` is configured. Read-only
+    against config + env; overlaps the hard fail-closed guard but surfaces the
+    posture proactively at startup.
     """
     findings: list[str] = []
     try:

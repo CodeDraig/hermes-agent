@@ -45,11 +45,9 @@ EXECUTION_SURFACES: frozenset[str] = frozenset({
     "api",
     "batch",
     "cli",
-    "desktop",
     "gateway",
     "python",
     "scheduled_task",
-    "tui",
     "other",
     "unknown",
 })
@@ -724,11 +722,9 @@ def task_entrypoint(kwargs: dict[str, Any], surface: str | None = None) -> str:
         "api": "api",
         "batch": "batch",
         "cli": "interactive",
-        "desktop": "interactive",
         "gateway": "gateway_message",
         "python": "python",
         "scheduled_task": "scheduled_task",
-        "tui": "interactive",
         "unknown": "unknown",
     }.get(resolved_surface, "other")
 

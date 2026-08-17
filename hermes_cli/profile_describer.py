@@ -1,14 +1,13 @@
 """Profile describer — auto-generate ``description`` for a profile.
 
-Used by ``hermes profile describe <name> --auto`` and the dashboard's
-"auto-generate description" button. Reads the profile's installed
-skills, model+provider, name, and optionally a small slice of memory,
+Used by ``hermes profile describe <name> --auto``. Reads the profile's
+installed skills, model+provider, name, and optionally a small slice of memory,
 then asks the auxiliary LLM to produce a 1-2 sentence description of
 what the profile is good at.
 
 Result is written to ``<profile_dir>/profile.yaml`` with
-``description_auto: true`` so the dashboard can surface a "review"
-badge. User can edit afterward to confirm.
+``description_auto: true`` so callers know it still needs review. Users can
+edit afterward to confirm it.
 
 Design notes
 ------------

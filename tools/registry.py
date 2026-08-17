@@ -492,8 +492,8 @@ class ToolRegistry:
 
         Mirrors :meth:`get_tool_definitions` per-tool filtering so doctor,
         banners, and other toolset-level surfaces agree with runtime exposure.
-        Mixed toolsets (e.g. ``terminal`` plus desktop-only ``read_terminal``)
-        must not be gated solely by the first registered ``check_fn``.
+        Mixed toolsets must not be gated solely by the first registered
+        ``check_fn``.
         """
         check_results: Dict[Callable, bool] = {}
         for entry in entries:

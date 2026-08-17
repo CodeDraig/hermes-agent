@@ -797,16 +797,16 @@ def build_preloaded_skills_prompt(
     skill_identifiers: list[str],
     task_id: str | None = None,
 ) -> tuple[str, list[str], list[str]]:
-    """Load one or more skills for session-wide CLI/TUI preloading.
+    """Load one or more skills for session-wide CLI preloading.
 
     Returns (prompt_text, loaded_skill_names, missing_identifiers).
 
     Disabled skills are treated the same as missing ones: this loads via a
     raw identifier straight into ``_load_skill_payload``, bypassing
     ``get_skill_commands()``'s scan-time disabled filter — mirrors the
-    bundle-invocation gate (#59156). Without this, ``hermes -s <skill>`` or
-    a deployment's ``HERMES_TUI_SKILLS`` env var could force-load a skill an
-    operator disabled via ``skills.disabled``/``skills.platform_disabled``.
+    bundle-invocation gate (#59156). Without this, ``hermes -s <skill>`` could
+    force-load a skill an operator disabled via
+    ``skills.disabled``/``skills.platform_disabled``.
     """
     prompt_parts: list[str] = []
     loaded_names: list[str] = []

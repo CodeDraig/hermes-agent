@@ -687,7 +687,7 @@ class MemoryManager:
         blocking network/daemon call (a misconfigured Hindsight daemon
         was observed blocking ~298s before failing); doing that inline
         held ``run_conversation`` open long after the user saw their
-        response, so every interface (CLI, TUI, gateway) kept the agent
+        response, so every interface (CLI and gateway) kept the agent
         marked "running" for minutes and any follow-up message triggered
         an aggressive interrupt. Dispatching off-thread means a slow or
         broken provider can never stall the turn — the sync simply

@@ -44,7 +44,7 @@ from tools.skills_guard import (
 
 class TestResolveTrustLevel:
     def test_builtin_and_trusted_sources(self):
-        assert _resolve_trust_level("official") == "builtin"
+        assert _resolve_trust_level("official") == "community"
         assert _resolve_trust_level("openai/skills") == "trusted"
         assert _resolve_trust_level("anthropics/skills") == "trusted"
         assert _resolve_trust_level("openai/skills/some-skill") == "trusted"

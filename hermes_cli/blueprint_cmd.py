@@ -1,20 +1,16 @@
-"""Shared ``/blueprint`` command logic for CLI, TUI, and gateway.
+"""Shared ``/blueprint`` command logic for CLI and gateway.
 
-The conversational counterpart to the dashboard's Automation Blueprints form. Where a
-surface has a screen, the user fills a form (dashboard / GUI app) and the API
-calls ``fill_blueprint`` -> ``create_job`` directly. Where a surface is just a
-chat line, the user picks a blueprint by name and the agent asks for what it
-needs — pick a blueprint by name and the agent asks you for what it needs, one
-question at a time (the messaging-assistant model: pick a blueprint → it asks you
-a couple things → done).
+The user picks a blueprint by name and the agent asks for what it needs, one
+question at a time. A complete set of slot values can instead create the cron
+job directly through the same functions.
 
 Subcommand shapes:
   /blueprint                      list the catalog
   /blueprint <name>               name-match a blueprint, then SEED THE AGENT to
                                     ask the user for each value conversationally
   /blueprint <name> slot=val …    fill + create the cron job directly
-                                    (the deterministic dashboard / docs / power-
-                                    user shortcut — no agent turn)
+                                    (the deterministic power-user shortcut —
+                                    no agent turn)
 
 The ``<name>`` form is forgiving: exact key, unique prefix, or fuzzy match all
 resolve; an ambiguous query lists the candidates; an unknown one suggests the
@@ -99,9 +95,8 @@ def match_blueprint(query: str) -> Tuple[Optional[Any], List[Any]]:
       * ambiguous (2+ plausible) -> ``(None, [candidates…])``
       * no plausible match -> ``(None, [])``
 
-    Matching is forgiving because chat-line users type the name (unlike the
-    dashboard/Discord where it's picked): exact key first, then case-insensitive
-    prefix on key or title, then a difflib fuzzy pass.
+    Matching is forgiving because chat-line users type the name: exact key
+    first, then case-insensitive prefix on key or title, then a difflib fuzzy pass.
     """
     from cron.blueprint_catalog import CATALOG, get_blueprint
 
@@ -236,8 +231,7 @@ def _fmt_no_match(query: str) -> str:
 
 def _manage_hint(surface: str) -> str:
     """Post-create management hint. /cron is a CLI-only slash command; on
-    gateway platforms the user manages jobs by asking the agent (cronjob tool)
-    or from the dashboard."""
+    gateway platforms the user manages jobs by asking the agent (cronjob tool)."""
     if surface == "cli":
         return "Manage it with /cron."
     return "Ask me to list, pause, or remove it any time."

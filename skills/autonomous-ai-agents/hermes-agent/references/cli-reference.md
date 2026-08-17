@@ -18,7 +18,7 @@ hermes [flags] [command]        (no subcommand = interactive chat)
   --skills, -s SKILL        Preload skills (comma-separate or repeat)
   --profile, -p NAME        Use a named profile
   --yolo                    Skip dangerous command approval
-  --tui / --cli             Force the Ink TUI / classic REPL
+  --cli                     Launch the prompt-toolkit client
   --ignore-rules            Skip AGENTS.md/SOUL.md/memory/skill injection
   --safe-mode               Disable ALL customizations (troubleshooting)
   --pass-session-id         Include session ID in system prompt
@@ -115,8 +115,6 @@ Multiple credentials per provider form a pool that rotates automatically and ski
 ### Other
 
 ```
-hermes desktop / gui        Native desktop app
-hermes dashboard            Web admin panel + embedded chat (--stop / --status)
 hermes proxy                OpenAI-compatible local proxy backed by an OAuth provider
 hermes portal               Quick setup / sign in via Nous Portal
 hermes kanban <verb>        Multi-agent work-queue board
@@ -132,7 +130,7 @@ hermes send                 One-off message through a gateway platform
 hermes pairing / plugins / insights / journey / computer-use
 hermes acp                  ACP server (IDE integration)
 hermes completion bash|zsh|fish
-hermes update / uninstall / claw migrate
+hermes update / uninstall
 ```
 
 Plugin- and provider-supplied subcommands (e.g. `hermes photon setup`) only appear once their plugin is installed/active.

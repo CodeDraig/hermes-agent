@@ -1,6 +1,6 @@
 """Shared renderers for session export commands.
 
-The CLI, dashboard, and slash-command surfaces all deal with the same
+The CLI and slash-command surfaces deal with the same
 session-shaped data: a session dict with a ``messages`` list. Keep filtering
 and human-readable rendering here so each surface only has to load sessions
 and write bytes.

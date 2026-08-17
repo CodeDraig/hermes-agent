@@ -711,9 +711,8 @@ def _find_all_skills(*, skip_disabled: bool = False) -> List[Dict[str, Any]]:
         and cached[0] == signature
         and (now - cached[1]) < _SKILLS_CACHE_TTL_SECONDS
     ):
-        # Per-call shallow copies: callers mutate the returned dicts
-        # (e.g. web_server annotates s["enabled"]/s["usage"]) — handing
-        # out the cached objects would poison the cache for everyone else.
+        # Per-call shallow copies: callers may annotate returned dicts, and
+        # handing out the cached objects would poison the cache for everyone.
         return [dict(s) for s in cached[2]]
 
     skills = []

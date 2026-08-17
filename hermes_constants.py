@@ -18,15 +18,6 @@ _HERMES_HOME_OVERRIDE: ContextVar[str | object] = ContextVar(
     "_HERMES_HOME_OVERRIDE", default=_UNSET
 )
 
-# ── TUI busy-indicator styles ─────────────────────────────────────────
-# Single source of truth shared by the CLI /indicator command, the TUI
-# gateway config handler, and the /help command registry. Keep in sync
-# with ``INDICATOR_STYLES`` / ``DEFAULT_INDICATOR_STYLE`` in
-# ``ui-tui/src/app/interfaces.ts`` on the frontend side.
-INDICATOR_STYLES: tuple[str, ...] = ("ascii", "emoji", "kaomoji", "unicode")
-DEFAULT_INDICATOR_STYLE: str = "kaomoji"
-
-
 def set_hermes_home_override(path: str | Path | None) -> Token:
     """Set a context-local Hermes home override and return its reset token.
 
@@ -160,10 +151,9 @@ def get_process_hermes_home() -> Path:
     so it reflects the scope the process was launched under **as long as
     nothing mutates ``os.environ`` in-process**.
 
-    Use this for machine/process-level dashboard-owned assets — theme YAML,
-    dashboard plugin manifests — that live under the server's launch home and
-    must stay visible even while a request is scoped to another profile (e.g.
-    the embedded ``/chat`` running under ``--open-profile``).  Do NOT use it
+    Use this for machine/process-level state that lives under the process's
+    launch home and must stay visible even while work is scoped to another
+    profile. Do NOT use it
     for genuinely profile-scoped data (memories, backups, checkpoints,
     provider config) — those should keep following the override.
     """
@@ -227,27 +217,11 @@ def get_default_hermes_root() -> Path:
     return result
 
 
-def get_optional_skills_dir(default: Path | None = None) -> Path:
-    """Return the optional-skills directory, honoring package-manager wrappers.
-
-    Packaged installs may ship ``optional-skills`` outside the Python package
-    tree and expose it via ``HERMES_OPTIONAL_SKILLS``.
-    """
-    override = os.getenv("HERMES_OPTIONAL_SKILLS", "").strip()
-    if override:
-        return Path(override)
-    if default is not None:
-        return default
-    return get_hermes_home() / "optional-skills"
-
-
 def get_optional_mcps_dir(default: Path | None = None) -> Path:
     """Return the optional-mcps directory, honoring package-manager wrappers.
 
-    Mirrors :func:`get_optional_skills_dir` for the MCP catalog (Nous-approved
-    Model Context Protocol servers shipped with the repo but disabled by
-    default). Packaged installs may ship ``optional-mcps`` outside the Python
-    package tree and expose it via ``HERMES_OPTIONAL_MCPS``.
+    Packaged installs may ship the MCP catalog outside the Python package tree
+    and expose it via ``HERMES_OPTIONAL_MCPS``.
     """
     override = os.getenv("HERMES_OPTIONAL_MCPS", "").strip()
     if override:
@@ -322,10 +296,8 @@ def iter_hermes_node_dirs(home: Path | None = None) -> list[Path]:
     root = home or get_hermes_home()
     dirs = [root / "node"]
     bin_dir = root / "node" / "bin"
-    # NOTE: keep this ordering in sync with hermesManagedNodePathEntries() in
-    # apps/desktop/electron/backend-env.ts — the Electron main process is Node
-    # and cannot import this module, so the platform-ordering rule is mirrored
-    # there (once; main.ts imports it rather than keeping its own copy).
+    # Windows resolves npm.cmd from the prefix root; POSIX resolves binaries
+    # from the prefix's bin directory first.
     if sys.platform == "win32":
         return dirs + [bin_dir]
     return [bin_dir] + dirs
@@ -1639,7 +1611,6 @@ FIRST_PARTY_MODULE_ROOTS = frozenset(
         "tools",
         "toolsets",
         "run_agent",
-        "tui_gateway",
         "utils",
     }
 )

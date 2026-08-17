@@ -977,9 +977,8 @@ def resolve_module_origin(module_name: str) -> Optional[str]:
     extension modules, and anything else unexpected return ``None``.
 
     Shared with ``plugins/memory/__init__.py``, which needs the directory
-    of a pip-installed provider to find its ``config_schema.py`` and
-    ``cli.py`` — both of which are loaded by path precisely so the
-    provider module never has to be imported.
+    of a pip-installed provider to find its ``cli.py`` without importing the
+    provider module.
     """
     parts = [p for p in module_name.split(".") if p]
     if not parts:
@@ -1458,10 +1457,6 @@ class PluginContext:
             raise
         from hermes_cli import config as config_mod
 
-        if config_mod.is_managed():
-            raise PermissionError(
-                "Plugin settings cannot be changed in a managed install"
-            )
         from hermes_cli import managed_scope
 
         dotted_path = ".".join((
@@ -2358,67 +2353,6 @@ class PluginContext:
         logger.info(
             "Plugin '%s' registered image_gen provider: %s",
             self.manifest.name, registry_name,
-        )
-        return handle
-
-    # -- dashboard auth provider registration --------------------------------
-
-    @_serialized_replacement
-    def register_dashboard_auth_provider(self, provider) -> Optional[PluginRegistration]:
-        """Register a dashboard authentication provider.
-
-        ``provider`` must be an instance of
-        :class:`hermes_cli.dashboard_auth.DashboardAuthProvider`. Used by
-        the dashboard OAuth auth gate, which engages when the dashboard
-        binds to a non-loopback host without ``--insecure``.
-
-        Misbehaving providers (wrong type, duplicate name) are logged at
-        WARNING and silently ignored — never raised — so a broken plugin
-        cannot crash the host. Same convention as
-        ``register_image_gen_provider``.
-        """
-        from hermes_cli.dashboard_auth import (
-            DashboardAuthProvider,
-            register_provider,
-        )
-        from hermes_cli.dashboard_auth.registry import restore_registration
-        from hermes_cli.dashboard_auth.registry import snapshot_registration
-
-        if not isinstance(provider, DashboardAuthProvider):
-            logger.warning(
-                "Plugin '%s' tried to register a dashboard-auth provider "
-                "that does not inherit from DashboardAuthProvider. Ignoring.",
-                self.manifest.name,
-            )
-            return
-        registry_name = provider.name
-        scope = self._manager.scope_key
-        previous = snapshot_registration(registry_name, scope=scope)
-        try:
-            register_provider(provider, scope=scope)
-        except (TypeError, ValueError) as e:
-            logger.warning(
-                "Plugin '%s' failed to register dashboard-auth provider "
-                "%r: %s",
-                self.manifest.name, getattr(provider, "name", "?"), e,
-            )
-            return
-        registered = snapshot_registration(registry_name, scope=scope)
-        if registered is not provider:
-            return None
-        handle = self._track_replacement(
-            "dashboard_auth_provider",
-            registry_name,
-            slot=("dashboard_auth_provider", scope, registry_name),
-            current=provider,
-            previous=previous,
-            restore=lambda replacement: restore_registration(
-                registry_name, provider, replacement, scope=scope
-            ),
-        )
-        logger.info(
-            "Plugin '%s' registered dashboard-auth provider: %s (%s)",
-            self.manifest.name, registry_name, provider.display_name,
         )
         return handle
 

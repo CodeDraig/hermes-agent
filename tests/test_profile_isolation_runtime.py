@@ -1,7 +1,7 @@
 """Profile-isolation regression tests for single-process multi-profile runtimes.
 
 In runtimes that serve every profile from one OS process (the desktop
-``tui_gateway``), the profile boundary is the context-local
+concurrent session paths), the profile boundary is the context-local
 ``_HERMES_HOME_OVERRIDE`` ContextVar, not the process environment.  State that
 escapes the request call stack — import-time-frozen path constants, direct
 ``os.environ`` reads, or worker threads that don't inherit the request context —

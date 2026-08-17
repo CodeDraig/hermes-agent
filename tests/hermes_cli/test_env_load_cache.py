@@ -65,8 +65,6 @@ def test_remove_env_value_invalidates_cache(tmp_path, monkeypatch):
     monkeypatch.setattr(config_mod, "get_env_path", lambda: env_path)
     monkeypatch.setattr(config_mod, "ensure_hermes_home", lambda: None)
     monkeypatch.setattr(config_mod, "_secure_file", lambda _p: None)
-    monkeypatch.setattr(config_mod, "is_managed", lambda: False)
-
     save_env_value("DOOMED_KEY", "value")
     assert load_env().get("DOOMED_KEY") == "value"
 
@@ -77,5 +75,4 @@ def test_remove_env_value_invalidates_cache(tmp_path, monkeypatch):
     finally:
         monkeypatch.delenv("DOOMED_KEY", raising=False)
         invalidate_env_cache()
-
 

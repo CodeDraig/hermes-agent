@@ -19,7 +19,6 @@ act/
 .env.production.local
 .env.development
 .env.test
-.hermes-docker/
 .notebooklm-home/
 .notebooklm-cli-venv/
 .notebooklm-playwright/
@@ -79,34 +78,7 @@ ignored/
 .worktrees/
 environments/benchmarks/evals/
 
-# Web UI build output
-hermes_cli/web_dist/
-# Cross-process web UI build lock (flock target, always empty)
-.web_ui_build.lock
-apps/desktop/build/
-apps/desktop/dist/
-
-# tsc-emitted artifacts (a stray `tsc -b` compiles into src/, and vite then
-# resolves the stale .js OVER the .tsx — never track these)
-apps/desktop/src/**/*.js
-apps/desktop/src/**/*.js.map
-apps/desktop/src/**/*.d.ts
-# EXCEPT bundled plain-ESM plugin entries (adopted SDK-consumer plugins,
-# e.g. hermes-bots): plugin.js IS the source, not tsc output. No .tsx
-# sibling exists, so the stale-shadow hazard above cannot apply.
-!apps/desktop/src/plugins/*/plugin.js
-!apps/desktop/src/global.d.ts
-!apps/desktop/src/vite-env.d.ts
-apps/shared/src/**/*.js
-apps/shared/src/**/*.js.map
-apps/shared/src/**/*.d.ts
-apps/desktop/release/
 *.tsbuildinfo
-
-# Web UI assets — synced from @nous-research/ui at build time via
-# `npm run sync-assets` (see web/package.json).
-web/public/fonts/
-web/public/ds-assets/
 
 # Release script temp files
 .release_notes.md
@@ -137,19 +109,12 @@ models-dev-upstream/
 opencode.json
 config/mcporter.json
 
-hermes_cli/tui_dist/*
 hermes_cli/scripts/
 docs/superpowers/*
 # Working directory for the Hermes Agent's session state (~/.hermes/ at runtime;
 # also created in-repo when an agent operates in this checkout). Plans, audit
 # logs, and per-session caches are never artifacts of the codebase.
 .hermes/
-
-# Desktop/bootstrap install marker written into the managed checkout root by the
-# bootstrap installer. It is Hermes-managed runtime state, never a code change —
-# ignore it so `hermes update`'s `git stash push --include-untracked` does not
-# treat it as a local edit and autostash it on every run (#38529).
-.hermes-bootstrap-complete
 
 # Persistent dev sandbox dir (scripts/dev-sandbox.sh --persistent)
 .hermes-sandbox/
@@ -182,10 +147,6 @@ scripts/out/
 # stores the published notes. They are not a build artifact and must never be
 # committed to the repo root. See the hermes-release skill.
 RELEASE_v*.md
-
-# Desktop demo-run scratch output (hermes writes demo/*.txt during recorded
-# walkthroughs). Throwaway artifacts, never part of the app.
-apps/desktop/demo/
 
 # PR infographics are rendered locally and embedded in PR descriptions via the
 # image-provider (fal.media) URL — they are NEVER committed to the repo. The

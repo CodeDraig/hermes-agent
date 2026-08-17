@@ -2,13 +2,13 @@
 
 Browse, install, and select animated "pet" mascots from the public
 [petdex](https://github.com/crafter-station/petdex) gallery. An installed pet
-reacts to agent activity (idle, running a tool, reviewing, error, done) across
-the Hermes CLI, TUI, and desktop app. This skill drives the `hermes pets` CLI
+reacts to agent activity (idle, running a tool, reviewing, error, done) in
+the Hermes CLI. This skill drives the `hermes pets` CLI
 and the `display.pet` config — it does not generate sprites.
 
 ## When to Use
 
-- The user wants a desktop/terminal mascot or asks about "pets" / petdex.
+- The user wants a terminal mascot or asks about "pets" / petdex.
 - The user wants to change, preview, or disable the active pet.
 - Diagnosing why a pet isn't showing (terminal graphics support, config).
 
@@ -32,7 +32,7 @@ Use the `terminal` tool to run `hermes pets <subcommand>`.
 | List installed pets | `hermes pets list --installed` |
 | Install a pet | `hermes pets install <slug>` (add `--select` to make it active) |
 | Set the active pet | `hermes pets select <slug>` (omit slug for a picker) |
-| Resize the pet everywhere | `hermes pets scale <factor>` (e.g. `0.5`, clamped 0.1–3.0) |
+| Resize the pet | `hermes pets scale <factor>` (e.g. `0.5`, clamped 0.1–3.0) |
 | Preview/animate in terminal | `hermes pets show [slug] [--cycle] [--state run]` |
 | Disable the pet | `hermes pets off` |
 | Remove a pet | `hermes pets remove <slug>` |
@@ -57,9 +57,8 @@ Under `display.pet` in `config.yaml`:
 - `slug` (str) — active pet; empty = first installed.
 - `render_mode` — `auto` (detect) | `kitty` | `iterm` | `sixel` | `unicode` | `off`.
 - `scale` (float) — on-screen size of the native 192×208 frames (default 0.33,
-  clamped 0.1–3.0). One knob resizes every surface; set it with
-  `hermes pets scale <factor>`, the `/pet scale` slash command, or the desktop
-  Appearance slider.
+  clamped 0.1–3.0). Set it with `hermes pets scale <factor>` or the `/pet scale`
+  slash command.
 - `unicode_cols` (int) — width in columns for the Unicode fallback.
 
 ## Pitfalls

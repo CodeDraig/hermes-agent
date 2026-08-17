@@ -332,7 +332,7 @@ _JWT_DISK_MAX_BYTES = 1_048_576  # 1 MiB cap on the persisted JWT store read
 # call re-runs the full exchange — and on a permanently-rejected token
 # (HTTP 403: account not Copilot-entitled, expired grant, org policy) the
 # retry backoff burned ~4.5s of time.sleep() on EVERY provider-discovery
-# pass. The /model picker, delegation child spawns, and the web dashboard
+# pass. The /model picker and delegation child spawns
 # all walk that path, so a single bad Copilot token made all of them crawl.
 # Maps raw-token fingerprint -> epoch until which exchange attempts are
 # skipped (raise immediately). Success clears the entry.

@@ -4,9 +4,8 @@ Currently the only reaction is ``vibe`` — an expression of affection or
 gratitude toward the agent (``ily``, ``<3``, ``love you``, ``good bot``, a heart
 emoji, …). Detection is a curated regex/lexicon: **no model call, no tokens**.
 
-This is the single source of truth shared by every surface — the CLI pet, the
-TUI heart, and the desktop floating hearts all react off the same signal,
-delivered via ``AIAgent.reaction_callback`` (wired per interactive host).
+This is the source of truth used by the CLI pet, delivered via
+``AIAgent.reaction_callback``.
 
 Generalized on purpose: :func:`detect_reaction` returns a reaction *kind*
 string, so new kinds (other emoji reactions, etc.) can be added here without

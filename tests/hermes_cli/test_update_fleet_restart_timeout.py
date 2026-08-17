@@ -15,7 +15,6 @@ import pytest
 
 from hermes_cli.main import (
     _for_each_systemd_gateway_unit,
-    _service_unit_supports_graceful_sigusr1_restart,
     _warn_incomplete_gateway_fleet_restart,
 )
 
@@ -91,9 +90,7 @@ class TestFleetRestartTimeoutIsolation:
 
         assert seen == ["hermes-gateway-coder"]
 
-    def test_hermes_serve_units_are_included(self):
-        # #83438 — hermes update restarted hermes-gateway* units but left
-        # hermes-serve* (the Desktop app's backend) on stale pre-update code.
+    def test_removed_serve_units_are_ignored(self):
         seen: list[str] = []
 
         _for_each_systemd_gateway_unit(
@@ -110,21 +107,7 @@ class TestFleetRestartTimeoutIsolation:
             on_unit_timeout=lambda *_: pytest.fail("unexpected timeout"),
         )
 
-        assert seen == ["hermes-serve", "hermes-serve-work", "hermes-gateway"]
-
-    def test_hermes_server_near_prefix_is_rejected(self):
-        # Review on #83595: a bare ``startswith("hermes-serve")`` gate also
-        # accepts the unrelated ``hermes-server.service``. Only the exact
-        # base unit or the hyphenated profile family should pass.
-        seen: list[str] = []
-
-        _for_each_systemd_gateway_unit(
-            _list_units_stdout(["hermes-server"]),
-            process_unit=seen.append,
-            on_unit_timeout=lambda *_: pytest.fail("unexpected timeout"),
-        )
-
-        assert seen == []
+        assert seen == ["hermes-gateway"]
 
     def test_hermes_gateway_near_prefix_is_rejected(self):
         # Same strict shape on the gateway side: profile units are
@@ -141,22 +124,7 @@ class TestFleetRestartTimeoutIsolation:
         assert seen == ["hermes-gateway-coder"]
 
 
-class TestGracefulSigusr1Eligibility:
-    def test_gateway_units_are_eligible(self):
-        assert _service_unit_supports_graceful_sigusr1_restart("hermes-gateway")
-        assert _service_unit_supports_graceful_sigusr1_restart(
-            "hermes-gateway-work"
-        )
-
-    def test_serve_units_are_not_eligible(self):
-        # hermes-serve doesn't run gateway/run.py, so it never installs the
-        # SIGUSR1 handler — sending it the signal would just terminate the
-        # process (the default action) instead of draining gracefully.
-        assert not _service_unit_supports_graceful_sigusr1_restart("hermes-serve")
-        assert not _service_unit_supports_graceful_sigusr1_restart(
-            "hermes-serve-work"
-        )
-
+class TestFleetRestartErrors:
     def test_process_errors_other_than_timeout_still_propagate(self):
         def process_unit(_svc_name: str) -> None:
             raise RuntimeError("not a timeout")
@@ -179,4 +147,3 @@ class TestIncompleteFleetRestartWarning:
         assert out.count("hermes-gateway-xiaomo5") == 1
         assert "hermes-gateway-xiaomo6" in out
         assert "pre-update code" in out
-

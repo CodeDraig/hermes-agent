@@ -11,7 +11,6 @@ Hermes 提供三种协议，供外部程序驱动 agent——IDE 插件、自定
 | 协议 | 传输方式 | 适用场景 | 定义位置 |
 |----------|-----------|----------|------------|
 | **ACP** | JSON-RPC over stdio | 已支持 [Agent Client Protocol](https://github.com/zed-industries/agent-client-protocol) 的 IDE 客户端（VS Code、Zed、JetBrains） | `acp_adapter/` |
-| **TUI gateway** | JSON-RPC over stdio（或 WebSocket） | 需要精细控制会话、slash 命令、审批及流式事件的自定义宿主 | `tui_gateway/server.py` |
 | **API server** | HTTP + Server-Sent Events | 兼容 OpenAI 的前端（Open WebUI、LobeChat、LibreChat……）及语言无关的 Web 客户端 | `gateway/platforms/api_server.py` |
 
 三种协议均驱动同一个 `AIAgent` 核心，区别仅在于线路格式和所暴露的功能集。
@@ -33,48 +32,6 @@ hermes acp --bootstrap      # 打印适用于支持 ACP 的 IDE 的安装代码�
 
 ---
 
-## TUI Gateway JSON-RPC
-
-`tui_gateway/server.py` 是 Ink TUI（`hermes --tui`）和嵌入式仪表板 PTY 桥接所使用的协议。任何外部宿主均可通过 stdio（或经由 `tui_gateway/ws.py` 的 WebSocket）使用相同协议。
-
-### 方法目录（精选）
-
-```
-prompt.submit           prompt.background       session.steer
-session.create          session.list            session.interrupt
-session.history         session.compress        session.branch
-session.title           session.usage           session.status
-clarify.respond         sudo.respond            secret.respond
-approval.respond        config.set / config.get commands.catalog
-command.resolve         command.dispatch        cli.exec
-reload.mcp              reload.env              process.stop
-delegation.status       subagent.interrupt      spawn_tree.save / list / load
-terminal.resize         clipboard.paste         image.attach
-```
-
-### 流式返回的事件
-
-`message.delta`、`message.complete`、`tool.start`、`tool.progress`、`tool.complete`、`approval.request`、`clarify.request`、`sudo.request`、`secret.request`、`gateway.ready`，以及会话生命周期和错误事件。
-
-### Pi 风格 RPC 映射
-
-Pi-mono RPC 规范（[issue #360](https://github.com/NousResearch/hermes-agent/issues/360)）中的每条命令均有对应的 TUI gateway 等价项：
-
-| Pi 命令 | Hermes 等价项 |
-|------------|-------------------|
-| `prompt` | `prompt.submit`（或 ACP `session/prompt`） |
-| `steer` | `session.steer` |
-| `follow_up` | 在当前轮次结束后排队的 `prompt.submit` |
-| `abort` | `session.interrupt` |
-| `set_model` | 通过 `command.dispatch` 执行 `/model <provider:model>`（会话中途生效，持久化） |
-| `compact` | `session.compress` |
-| `get_state` | `session.status` |
-| `get_messages` | `session.history` |
-| `switch_session` | `session.resume` |
-| `fork` | `session.branch` |
-| `ui_request` / `ui_response` | `clarify.respond` / `sudo.respond` / `secret.respond` / `approval.respond` |
-
----
 
 ## 兼容 OpenAI 的 API Server
 

@@ -1,7 +1,6 @@
 """``hermes import-agent`` subcommand parser.
 
-Follows the ``hermes claw`` pattern (see ``hermes_cli/subcommands/claw.py``):
-parser building lives here, the handler is injected to avoid importing
+Parser building lives here, the handler is injected to avoid importing
 ``main``, and the import logic itself lives in ``hermes_cli/agent_import.py``.
 """
 

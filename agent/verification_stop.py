@@ -101,7 +101,7 @@ def verify_on_stop_enabled(config: dict[str, Any] | None = None) -> bool:
     the behavior off for existing installs, so fresh installs match. An
     explicit bool forces the behavior in either direction, and the ``"auto"``
     sentinel opts into the legacy surface-aware behavior: ON for interactive
-    coding surfaces (CLI, TUI, desktop) and programmatic callers, OFF for
+    coding surfaces (CLI and programmatic callers), OFF for
     conversational messaging surfaces (Telegram, Discord, etc.) where the
     verification narrative would reach a human as chat noise. A missing or
     unrecognized value falls back to OFF.

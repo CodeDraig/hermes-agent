@@ -34,14 +34,14 @@ class TestResolveHermesBin:
 
 
 class TestExtractInheritedFlags:
-    def test_extracts_tui_and_dev(self):
-        argv = ["--tui", "--dev", "chat"]
-        assert relaunch_mod._extract_inherited_flags(argv) == ["--tui", "--dev"]
+    def test_extracts_cli(self):
+        argv = ["--cli", "chat"]
+        assert relaunch_mod._extract_inherited_flags(argv) == ["--cli"]
 
 
     def test_preserves_multiple_skills(self):
-        argv = ["-s", "foo", "-s", "bar", "--tui"]
-        assert relaunch_mod._extract_inherited_flags(argv) == ["-s", "foo", "-s", "bar", "--tui"]
+        argv = ["-s", "foo", "-s", "bar", "--cli"]
+        assert relaunch_mod._extract_inherited_flags(argv) == ["-s", "foo", "-s", "bar", "--cli"]
 
 
 class TestInheritedFlagTable:
@@ -76,10 +76,9 @@ class TestBuildRelaunchArgv:
 
     def test_preserves_inherited_flags(self, monkeypatch):
         monkeypatch.setattr(relaunch_mod, "resolve_hermes_bin", lambda: "/usr/bin/hermes")
-        original = ["--tui", "--dev", "--profile", "work", "sessions", "browse"]
+        original = ["--cli", "--profile", "work", "sessions", "browse"]
         argv = relaunch_mod.build_relaunch_argv(["--resume", "abc"], original_argv=original)
-        assert "--tui" in argv
-        assert "--dev" in argv
+        assert "--cli" in argv
         assert "--profile" in argv
         assert "work" in argv
         assert "--resume" in argv
@@ -90,11 +89,11 @@ class TestBuildRelaunchArgv:
 
     def test_can_disable_preserve(self, monkeypatch):
         monkeypatch.setattr(relaunch_mod, "resolve_hermes_bin", lambda: "/usr/bin/hermes")
-        original = ["--tui", "chat"]
+        original = ["--cli", "chat"]
         argv = relaunch_mod.build_relaunch_argv(
             ["--resume", "abc"], preserve_inherited=False, original_argv=original
         )
-        assert "--tui" not in argv
+        assert "--cli" not in argv
         assert argv == ["/usr/bin/hermes", "--resume", "abc"]
 
 

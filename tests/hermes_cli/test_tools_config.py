@@ -26,7 +26,6 @@ from hermes_cli.tools_config import (
     _toolset_needs_configuration_prompt,
     CONFIGURABLE_TOOLSETS,
     TOOL_CATEGORIES,
-    gui_toolset_label,
     _visible_providers,
     provider_readiness_status,
     tools_command,
@@ -350,7 +349,7 @@ def test_numeric_mcp_server_name_does_not_crash_sorted():
 class TestAgentBrowserPostSetup:
     """_run_post_setup('agent_browser'/'browserbase') — #43564.
 
-    agent-browser is no longer a root package.json dependency (there's no
+    agent-browser is resolved lazily through npx (there's no
     local `npm install` step anymore); it resolves at runtime via
     tools.browser_tool._find_agent_browser (PATH -> Homebrew/Hermes-managed
     node -> local .bin -> npx). This class exercises the Chromium-install
@@ -407,23 +406,6 @@ class TestAgentBrowserPostSetup:
         run.assert_not_called()
         success.assert_called_once()
         assert "already installed" in success.call_args.args[0]
-
-    def test_docker_with_missing_chromium_warns_instead_of_installing(self):
-        with patch("shutil.which", return_value="/usr/bin/npx"), patch(
-            "tools.browser_tool.node_tool_runnable", return_value=True
-        ), patch(
-            "subprocess.run"
-        ) as run, patch(
-            "tools.browser_tool._chromium_installed", return_value=False
-        ), patch(
-            "tools.browser_tool._running_in_docker", return_value=True
-        ), patch(
-            "hermes_cli.tools_config._print_warning"
-        ) as warn:
-            _run_post_setup("agent_browser")
-
-        run.assert_not_called()
-        assert any("Docker" in c.args[0] for c in warn.call_args_list)
 
     def test_find_agent_browser_not_found_warns_before_any_chromium_check(self):
         """_find_agent_browser is resolved up front now (shared with the

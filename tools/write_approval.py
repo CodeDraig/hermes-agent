@@ -27,7 +27,7 @@ The size asymmetry between memory and skills is real and unavoidable: a memory
 entry can be reviewed inline in a chat bubble; a 100 KB SKILL.md cannot. So
 the gate stages BOTH to disk, but review affordances differ by subsystem
 (see ``hermes_cli`` slash handlers): memory shows full content, skills show
-metadata + a one-line gist + a ``diff`` escape hatch (CLI/dashboard/file).
+metadata + a one-line gist + a ``diff`` escape hatch (CLI/file).
 
 Staging is mandatory for background-origin writes (a daemon thread cannot
 block on an interactive prompt) and for gateway sessions (no inline prompt
@@ -36,8 +36,7 @@ writes prompt inline via the dangerous-command approval callback; skill
 writes always stage (too big to eyeball mid-loop).
 
 Pending records live under ``<HERMES_HOME>/pending/{memory,skills}/<id>.json``
-so they survive process restarts and can be reviewed from CLI, gateway, or the
-web dashboard.
+so they survive process restarts and can be reviewed from CLI or gateway.
 """
 
 from __future__ import annotations

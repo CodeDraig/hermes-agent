@@ -92,8 +92,8 @@ _TERMINAL_COMPRESSION_PROVENANCES = frozenset(
 )
 
 # Stable marker the gateway matches on to re-tag the auto-compaction lifecycle
-# status as ``kind="compacting"`` (tui_gateway/server.py::_status_update), so
-# drivers like the desktop app can show an explicit "Summarizing…" indicator
+# status as ``kind="compacting"`` so
+# clients can show an explicit "Summarizing…" indicator
 # instead of the transcript appearing to silently reset. Keep the marker phrase
 # intact if you reword COMPACTION_STATUS.
 COMPACTION_STATUS_MARKER = "Compacting context"

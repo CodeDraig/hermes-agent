@@ -258,11 +258,10 @@ _MODEL_CONFIG_ROW_MISSING = object()
 
 # Billing-bucket classes that aren't a routable provider identity on their
 # own — used by session_gateway_runtime's billing_provider fallback and by
-# tui_gateway.server._stored_session_runtime_overrides. A session that
+# session runtime overrides. A session that
 # persisted only one of these (never ran /model) must fall back to the
 # ambient config default rather than restore a bare bucket. Shared here so
-# both consumers stay in sync (previously duplicated as a set in
-# tui_gateway/server.py).
+# all consumers stay in sync.
 _BARE_BILLING_PROVIDERS = frozenset({"auto", "custom"})
 
 
@@ -695,8 +694,8 @@ def _set_last_init_error(msg: Optional[str]) -> None:
     Thread-safe via _last_init_error_lock.  Callers pass a message to
     record a failure or None to clear.  SessionDB.__init__ only calls
     this to SET on failure — it deliberately does NOT clear on success,
-    because in a multi-threaded caller (e.g. gateway / web_server per-
-    request SessionDB() instantiation), a concurrent successful open
+    because in a multi-threaded caller (for example a gateway request), a
+    concurrent successful open
     racing past a different thread's failure would erase the cause
     string that thread's /resume handler is about to format.  Explicit
     clears (e.g. test fixtures) are still supported by passing None.
@@ -1359,12 +1358,7 @@ def _wal_reset_repair_hint() -> str:
         )
         method = detect_install_method(get_project_root())
         cmd = recommended_update_command_for_method(method)
-        if method in {"git", "unknown"}:
-            return f"Hermes-managed installs can repair the embedded runtime with `{cmd}`"
-        if method == "docker":
-            return f"update the container image with `{cmd}`"
-        # nix/nixos
-        return cmd
+        return f"Hermes-managed installs can repair the embedded runtime with `{cmd}`"
     except Exception:
         pass
     return (
@@ -1520,8 +1514,8 @@ def apply_database_pragmas(
 # ``DROP TABLE``.  The only operations that still work are
 # ``PRAGMA writable_schema=ON`` plus direct ``sqlite_master`` surgery.
 #
-# Symptom users hit (Desktop/Dashboard show "no sessions" while 200+ JSON
-# files sit on disk):
+# User-visible symptom: the session list is empty while transcript JSON files
+# remain on disk:
 #   sqlite3.DatabaseError: malformed database schema (messages_fts) -
 #   table messages_fts already exists
 #
@@ -1534,8 +1528,8 @@ _MALFORMED_SCHEMA_MARKERS = (
 )
 
 # Process-global guard so auto-repair is attempted at most once per DB path
-# per process (prevents repair loops and serialises concurrent web_server /
-# gateway opens against the same malformed file).
+# per process (prevents repair loops and serialises concurrent gateway opens
+# against the same malformed file).
 _repair_attempted_paths: set[str] = set()
 _repair_attempt_lock = threading.Lock()
 
@@ -1716,9 +1710,8 @@ def _claim_repair_attempt(db_path: Path) -> bool:
 # Cross-process serialisation for the schema-surgery paths below.  The
 # ``_repair_attempt_lock`` above is a ``threading.Lock`` — it only covers
 # threads inside ONE interpreter, yet a normal Hermes host runs several
-# independent processes against the same ``state.db``: the gateway service,
-# the Desktop app's own ``hermes serve`` backend, interactive CLI sessions,
-# and the TUI slash worker.  Two of those hitting a malformed DB at once each
+# independent processes against the same ``state.db``: the gateway service
+# and interactive CLI sessions. Two of those hitting a malformed DB at once each
 # ran the full ``writable_schema`` surgery + ``VACUUM`` on their own private
 # connection, with nothing serialising them.
 #
@@ -3511,8 +3504,8 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
             #
             # Note: we deliberately do NOT clear _last_init_error on the
             # success path (no else branch).  In multi-threaded callers
-            # (gateway, web_server per-request SessionDB()), a concurrent
-            # successful open racing past this failure would erase the
+            # (for example gateway requests), a concurrent successful open
+            # racing past this failure would erase the
             # cause that another thread's /resume is about to format.
             # Tests that need to reset the state can call
             # ``hermes_state._set_last_init_error(None)`` explicitly.
@@ -4359,8 +4352,7 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
         handles are eventually collectible — but "eventually, after the
         idle window and a GC cycle" is not a release policy.  Call sites
         owning a handle are still expected to close it deterministically
-        (see the ownership comments in ``run_agent.py`` and
-        ``tui_gateway/methods_session.py``).
+        (see the ownership comments in ``run_agent.py``).
 
         This makes the correct usage the easy one, so an owning scope can be
         exception-safe by construction rather than by remembering a
@@ -4924,21 +4916,6 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
                 (scope,),
             ).fetchall()
         return {r["session_key"]: r["entry_json"] for r in rows}
-
-    def delete_gateway_routing_entries(
-        self, session_keys: List[str], *, scope: str = ""
-    ) -> None:
-        """Remove routing entries for the given session keys in *scope*."""
-        if not session_keys:
-            return
-
-        def _do(conn):
-            conn.executemany(
-                "DELETE FROM gateway_routing WHERE scope = ? AND session_key = ?",
-                [(scope, k) for k in session_keys],
-            )
-
-        self._execute_write(_do)
 
     def list_never_active_keyed_sessions(
         self, *, older_than_days: float
@@ -6009,27 +5986,6 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
             return cursor.rowcount == 1
 
         return bool(self._execute_write(_do))
-
-    def backfill_repo_roots(self, cwd_to_root: Dict[str, str]) -> None:
-        """Persist resolved git repo roots for cwds that don't have one yet.
-
-        Backfills history so projects light up for sessions created before the
-        column existed, without clobbering an already-recorded root. Only
-        non-empty roots are written (a non-git cwd stays NULL).
-        """
-        pairs = [(root, cwd) for cwd, root in cwd_to_root.items() if root and cwd]
-        if not pairs:
-            return
-
-        def _do(conn):
-            for root, cwd in pairs:
-                conn.execute(
-                    "UPDATE sessions SET git_repo_root = ? "
-                    "WHERE cwd = ? AND COALESCE(git_repo_root, '') = ''",
-                    (root, cwd),
-                )
-
-        self._execute_write(_do)
 
     def record_compression_failure_cooldown(
         self,
@@ -7818,36 +7774,6 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
             )
         self._execute_write(_do)
 
-    def prune_empty_ghost_sessions(self, sessions_dir: "Optional[Path]" = None) -> int:
-        """Remove empty TUI ghost sessions (no messages, no title, >24hr old)."""
-        cutoff = time.time() - 86400  # Only sessions older than 24 hours
-
-        def _do(conn):
-            rows = conn.execute("""
-                SELECT id FROM sessions
-                WHERE source = 'tui'
-                  AND title IS NULL
-                  AND ended_at IS NOT NULL
-                  AND started_at < ?
-                  AND NOT EXISTS (
-                      SELECT 1 FROM messages WHERE messages.session_id = sessions.id
-                  )
-            """, (cutoff,)).fetchall()
-            ids = [r[0] if isinstance(r, (tuple, list)) else r["id"] for r in rows]
-            if ids:
-                placeholders = ",".join("?" * len(ids))
-                conn.execute(
-                    f"DELETE FROM sessions WHERE id IN ({placeholders})", ids
-                )
-                self._delete_unreferenced_system_prompts(conn)
-            return ids
-
-        removed_ids = self._execute_write(_do) or []
-        # Clean up any on-disk session files (belt-and-suspenders)
-        if sessions_dir and removed_ids:
-            for sid in removed_ids:
-                self._remove_session_files(sessions_dir, sid)
-        return len(removed_ids)
 
     def finalize_orphaned_compression_sessions(self) -> int:
         """Mark orphaned compression continuation sessions as ended.
@@ -8453,12 +8379,7 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
 
     @staticmethod
     def session_unread(session_row: Dict[str, Any]) -> bool:
-        """Derive unread from a session row's watermark and activity.
-
-        Shared by ``list_sessions_rich`` and any future surface that holds a
-        row (or projected row) with ``last_read_at`` and ``last_active``.
-        NULL watermark = never tracked = read.
-        """
+        """Derive unread state from a session watermark and activity."""
         last_read = session_row.get("last_read_at")
         if last_read is None:
             return False
@@ -9489,248 +9410,6 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
             _do, patience_s=self._TRANSCRIPT_WRITE_PATIENCE_S
         )
 
-    def set_latest_matching_message_display_kind(
-        self, session_id: str, *, role: str, content: str, display_kind: str,
-        display_metadata: Optional[Dict[str, Any]] = None,
-    ) -> bool:
-        """Stamp presentation metadata on this turn's freshly persisted row.
-
-        The model still receives ``role`` and ``content`` unchanged. Gateway and
-        CLI synthetic inputs call this immediately after their serial turn has
-        flushed, preserving producer provenance without classifying by content
-        during transcript rendering.
-        """
-        if not session_id or not content or not display_kind:
-            return False
-
-        def _do(conn):
-            row = conn.execute(
-                "SELECT id FROM messages WHERE session_id = ? AND role = ? "
-                "AND content = ? AND active = 1 ORDER BY id DESC LIMIT 1",
-                (session_id, role, self._encode_content(content)),
-            ).fetchone()
-            if row is None:
-                return False
-            conn.execute(
-                "UPDATE messages SET display_kind = ?, display_metadata = ? WHERE id = ?",
-                (
-                    _scrub_surrogates(display_kind),
-                    self._encode_display_metadata(display_metadata),
-                    row[0],
-                ),
-            )
-            return True
-
-        return bool(self._execute_write(_do))
-
-    #: Key under which message reactions live inside ``display_metadata``.
-    #: Reactions share the existing per-message JSON column rather than a side
-    #: table so they survive rewind/compaction row rewrites with the row itself.
-    REACTIONS_METADATA_KEY = "reactions"
-
-    def set_message_reaction(
-        self,
-        session_id: str,
-        message_row_id: int,
-        emoji: Optional[str],
-        *,
-        author: str = "user",
-    ) -> Optional[List[Dict[str, Any]]]:
-        """Set (or with ``emoji=None`` clear) *author*'s reaction on one message.
-
-        iOS Tapback semantics: one reaction per author per message. Re-sending
-        the same emoji clears it, a different emoji replaces it. Returns the
-        message's full reaction list after the write, or ``None`` when the row
-        doesn't exist or isn't part of *session_id*.
-        """
-        if not session_id or message_row_id is None:
-            return None
-
-        def _do(conn):
-            row = conn.execute(
-                "SELECT display_metadata FROM messages WHERE id = ? AND session_id = ?",
-                (message_row_id, session_id),
-            ).fetchone()
-            if row is None:
-                return None
-
-            meta = self._decode_display_metadata(row[0]) or {}
-            existing = meta.get(self.REACTIONS_METADATA_KEY)
-            reactions = [
-                r
-                for r in (existing if isinstance(existing, list) else [])
-                if isinstance(r, dict) and r.get("author") != author
-            ]
-            previous = next(
-                (
-                    r
-                    for r in (existing if isinstance(existing, list) else [])
-                    if isinstance(r, dict) and r.get("author") == author
-                ),
-                None,
-            )
-            # Tapping the live reaction again retracts it.
-            toggling_off = (
-                emoji is not None and previous is not None and previous.get("emoji") == emoji
-            )
-            if emoji and not toggling_off:
-                reactions.append(
-                    {"emoji": _scrub_surrogates(emoji), "author": author, "at": time.time()}
-                )
-
-            if reactions:
-                meta[self.REACTIONS_METADATA_KEY] = reactions
-            else:
-                meta.pop(self.REACTIONS_METADATA_KEY, None)
-
-            conn.execute(
-                "UPDATE messages SET display_metadata = ? WHERE id = ?",
-                (self._encode_display_metadata(meta) if meta else None, message_row_id),
-            )
-            return reactions
-
-        return self._execute_write(_do)
-
-    def get_message_reactions(
-        self, session_id: str, message_row_id: int
-    ) -> List[Dict[str, Any]]:
-        """Return the reaction list persisted on one message row (never ``None``)."""
-        if not session_id or message_row_id is None:
-            return []
-
-        with self._lock:
-            row = self._conn.execute(
-                "SELECT display_metadata FROM messages WHERE id = ? AND session_id = ?",
-                (message_row_id, session_id),
-            ).fetchone()
-
-        if row is None:
-            return []
-
-        meta = self._decode_display_metadata(row[0]) or {}
-        reactions = meta.get(self.REACTIONS_METADATA_KEY)
-
-        return [r for r in reactions if isinstance(r, dict)] if isinstance(reactions, list) else []
-
-    def take_unseen_reactions(
-        self, session_id: str, *, author: str = "user"
-    ) -> List[Dict[str, Any]]:
-        """Return *author*'s not-yet-surfaced reactions and mark them seen.
-
-        Powers the cache-safe model-context path: reactions are announced on the
-        NEXT user turn (never by rewriting the message that was reacted to), and
-        the ``seen`` stamp guarantees each one is announced exactly once.
-        """
-        if not session_id:
-            return []
-
-        def _do(conn):
-            rows = conn.execute(
-                "SELECT id, role, content, display_metadata FROM messages "
-                "WHERE session_id = ? AND active = 1 AND display_metadata IS NOT NULL "
-                "ORDER BY id",
-                (session_id,),
-            ).fetchall()
-
-            pending = []
-            for row in rows:
-                meta = self._decode_display_metadata(row["display_metadata"])
-                if not meta:
-                    continue
-                reactions = meta.get(self.REACTIONS_METADATA_KEY)
-                if not isinstance(reactions, list):
-                    continue
-
-                changed = False
-                for reaction in reactions:
-                    if (
-                        not isinstance(reaction, dict)
-                        or reaction.get("author") != author
-                        or reaction.get("seen")
-                    ):
-                        continue
-                    reaction["seen"] = True
-                    changed = True
-                    content = self._decode_content(row["content"])
-                    pending.append(
-                        {
-                            "row_id": row["id"],
-                            "role": row["role"],
-                            "emoji": reaction.get("emoji") or "",
-                            "text": content if isinstance(content, str) else "",
-                        }
-                    )
-
-                if changed:
-                    conn.execute(
-                        "UPDATE messages SET display_metadata = ? WHERE id = ?",
-                        (self._encode_display_metadata(meta), row["id"]),
-                    )
-
-            return pending
-
-        return self._execute_write(_do) or []
-
-    def latest_message_row_id(
-        self, session_id: str, *, role: str = "user", offset: int = 0, require_text: bool = True
-    ) -> Optional[int]:
-        """Row id of the most recent active message with *role*, or ``None``.
-
-        Two callers, same need — "the message I mean, without an id": the agent
-        defaulting to the turn that triggered it, and the desktop reacting to a
-        live message that hasn't round-tripped through a resume yet.
-        ``offset`` steps to earlier turns (1 = the one before the latest) so a
-        reaction can land retroactively — "two messages ago" is how the caller
-        thinks about it.
-
-        ``require_text`` (default) skips rows with no plain-text content —
-        tool-call-only assistant turns and attachment stubs don't render as
-        bubbles, so "the latest message" as a HUMAN means it must never
-        resolve to one (a reaction landing on an invisible row looks dropped,
-        and its annotation quotes an empty string).
-        """
-        if not session_id or role not in {"user", "assistant"} or offset < 0:
-            return None
-
-        text_filter = (
-            "AND content IS NOT NULL AND TRIM(content) != '' " if require_text else ""
-        )
-
-        with self._lock:
-            row = self._conn.execute(
-                "SELECT id FROM messages WHERE session_id = ? AND role = ? "
-                f"AND active = 1 {text_filter}ORDER BY id DESC LIMIT 1 OFFSET ?",
-                (session_id, role, int(offset)),
-            ).fetchone()
-
-        return row[0] if row else None
-
-    def latest_user_message_row_id(self, session_id: str) -> Optional[int]:
-        """Row id of the most recent active user message, or ``None``.
-
-        The agent's default reaction target: "the message that triggered me",
-        so the model never has to thread row ids through a tool call (mirrors
-        the photon adapter's ``_record_last_inbound``).
-        """
-        return self.latest_message_row_id(session_id, role="user")
-
-    def get_message_role(self, session_id: str, row_id: int) -> Optional[str]:
-        """Role of the active message at *row_id* in *session_id*, or ``None``.
-
-        Lets a reaction event carry the target's role so a renderer can match
-        a live message that doesn't know its durable row id yet.
-        """
-        if not session_id:
-            return None
-
-        with self._lock:
-            row = self._conn.execute(
-                "SELECT role FROM messages WHERE id = ? AND session_id = ? AND active = 1",
-                (int(row_id), session_id),
-            ).fetchone()
-
-        return row[0] if row else None
-
     def _insert_message_rows(self, conn, session_id: str, messages: List[Dict[str, Any]]) -> tuple[int, int]:
         """Insert *messages* as fresh active rows for *session_id*.
 
@@ -10264,31 +9943,6 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
                 msg["display_metadata"] = self._decode_display_metadata(msg["display_metadata"])
             result.append(msg)
         return result
-
-    def find_pr_url_messages(self, session_ids: List[str]) -> List[Dict[str, Any]]:
-        """Tool results in these sessions that mention a GitHub PR url.
-
-        A candidate scan, deliberately loose: it hands back every tool result
-        containing ``/pull/`` and leaves the caller to decide which ones make a
-        claim (see the desktop's PR recovery, which only accepts an output that
-        is a bare PR url — the signature of ``gh pr create``). Ordered
-        oldest-first per session so the caller can take the last match.
-        """
-        found: List[Dict[str, Any]] = []
-        ids = [s for s in session_ids if s]
-        for start in range(0, len(ids), 900):  # SQLite's bound-variable ceiling.
-            chunk = ids[start : start + 900]
-            placeholders = ",".join("?" * len(chunk))
-            with self._read_ctx() as conn:
-                rows = conn.execute(
-                    f"""SELECT session_id, content FROM messages
-                        WHERE session_id IN ({placeholders})
-                          AND role = 'tool' AND content LIKE '%/pull/%'
-                        ORDER BY id ASC""",
-                    chunk,
-                ).fetchall()
-            found.extend({"session_id": row[0], "content": row[1]} for row in rows)
-        return found
 
     def get_messages_around(
         self,
@@ -11016,30 +10670,6 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
             "new_head_id": new_head_id,
         }
 
-    def restore_rewound(self, session_id: str, since_message_id: int) -> int:
-        """Mark inactive messages with id >= *since_message_id* active again.
-
-        Returns the number of rows flipped back to ``active=1``.
-        Intended for undo-of-rewind and test cleanup; not wired to a
-        slash command in v1.
-        """
-        def _do(conn):
-            cursor = conn.execute(
-                "SELECT id FROM messages "
-                "WHERE session_id = ? AND id >= ? AND active = 0",
-                (session_id, since_message_id),
-            )
-            ids = [r[0] for r in cursor.fetchall()]
-            if ids:
-                placeholders = ",".join("?" for _ in ids)
-                conn.execute(
-                    f"UPDATE messages SET active = 1 WHERE id IN ({placeholders})",
-                    ids,
-                )
-            return len(ids)
-
-        return self._execute_write(_do)
-
     # =========================================================================
     # Search
     # =========================================================================
@@ -11330,18 +10960,6 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
                 continue
         return lineage if session_id in lineage else [session_id]
 
-    def clear_messages(self, session_id: str) -> None:
-        """Delete all messages for a session and reset its counters."""
-        def _do(conn):
-            conn.execute(
-                "DELETE FROM messages WHERE session_id = ?", (session_id,)
-            )
-            conn.execute(
-                "UPDATE sessions SET message_count = 0, tool_call_count = 0 WHERE id = ?",
-                (session_id,),
-            )
-        self._execute_write(_do)
-
     @staticmethod
     def _remove_session_files(sessions_dir: Optional[Path], session_id: str) -> None:
         """Remove on-disk transcript files for a session.
@@ -11489,182 +11107,6 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
             self._remove_session_files(sessions_dir, session_id)
         return bool(deleted)
 
-    def delete_sessions(
-        self,
-        session_ids: List[str],
-        sessions_dir: Optional[Path] = None,
-    ) -> int:
-        """Delete every session in *session_ids* in a single transaction.
-
-        Backs the dashboard's bulk-select-then-delete flow on the
-        sessions page (``POST /api/sessions/bulk-delete``). Mirrors the
-        single-session :meth:`delete_session` contract per row:
-
-        * Unknown IDs are silently skipped (no 404) — selection state
-          in the UI can race against another tab's delete, and we'd
-          rather succeed-on-the-rest than fail-the-whole-batch.
-        * Delegate subagent children (``model_config._delegate_from``) are
-          cascade-deleted with their parent; branch children are orphaned
-          (``parent_session_id → NULL``) so they stay accessible.
-        * Messages and the session row both go in one
-          ``_execute_write`` call so a partial failure can't leave the
-          DB in a "messages gone but session row still there" state.
-        * On-disk transcript / ``request_dump_*`` files are cleaned up
-          outside the DB transaction when *sessions_dir* is provided,
-          matching :meth:`prune_sessions` and
-          :meth:`delete_empty_sessions`.
-
-        Returns the count of sessions that actually existed and were
-        deleted (may be less than ``len(session_ids)`` if some IDs were
-        already gone).
-        """
-        if not session_ids:
-            return 0
-        # Dedup + drop any non-string entries up-front. Avoids
-        # double-counting in the WHERE-IN list and protects against
-        # callers that pass a list with stray ``None`` values.
-        unique_ids = list({sid for sid in session_ids if isinstance(sid, str) and sid})
-        if not unique_ids:
-            return 0
-
-        removed_ids: list[str] = []
-        removed_delegate_ids: list[str] = []
-
-        def _do(conn):
-            placeholders = ",".join("?" * len(unique_ids))
-            # First, filter to IDs that actually exist — we want to
-            # return the real deleted count, not the input length.
-            cursor = conn.execute(
-                f"SELECT id FROM sessions WHERE id IN ({placeholders})",
-                unique_ids,
-            )
-            existing = [row["id"] for row in cursor.fetchall()]
-            if not existing:
-                return 0
-
-            existing_placeholders = ",".join("?" * len(existing))
-            removed_delegate_ids.extend(_delete_delegate_children(conn, existing))
-            # Orphan remaining children whose parent is in the kill list so the
-            # FK constraint stays satisfied. Pin children whose parent
-            # is itself in the kill list rather than NULL-ing parents
-            # of survivors — the IN list on ``parent_session_id`` does
-            # exactly this.
-            conn.execute(
-                f"UPDATE sessions SET parent_session_id = NULL "
-                f"WHERE parent_session_id IN ({existing_placeholders})",
-                existing,
-            )
-            conn.execute(
-                f"DELETE FROM messages WHERE session_id IN ({existing_placeholders})",
-                existing,
-            )
-            conn.execute(
-                f"DELETE FROM sessions WHERE id IN ({existing_placeholders})",
-                existing,
-            )
-            self._delete_unreferenced_system_prompts(conn)
-            removed_ids.extend(existing)
-            return len(existing)
-
-        count = self._execute_write(_do)
-        for sid in removed_delegate_ids:
-            self._remove_session_files(sessions_dir, sid)
-        for sid in removed_ids:
-            self._remove_session_files(sessions_dir, sid)
-        return count
-
-    def count_empty_sessions(self) -> int:
-        """Return the count of empty, non-active, non-archived sessions.
-
-        "Empty" = ``message_count = 0`` AND the session has ended
-        (``ended_at IS NOT NULL``) AND is not archived. The ``ended_at``
-        guard matches the safety contract used by :meth:`prune_sessions`:
-        only ended sessions are candidates for bulk deletion, so a freshly
-        spawned session whose first message hasn't landed yet — or one
-        held open by the live agent — is never sniped out from under
-        the runtime.
-
-        Backs the ``GET /api/sessions/empty/count`` endpoint that lets the
-        web dashboard hide its "Delete empty" button when there's nothing
-        to clean up, and pre-populate the confirm dialog with the actual
-        count.
-        """
-        with self._lock:
-            cursor = self._conn.execute(
-                "SELECT COUNT(*) FROM sessions "
-                "WHERE message_count = 0 "
-                "AND ended_at IS NOT NULL "
-                "AND archived = 0"
-            )
-            return cursor.fetchone()[0]
-
-    def delete_empty_sessions(
-        self,
-        sessions_dir: Optional[Path] = None,
-    ) -> int:
-        """Delete every empty, ended, non-archived session.
-
-        Mirrors :meth:`prune_sessions`' transactional shape:
-
-        * Selects candidate IDs first (``message_count = 0`` AND
-          ``ended_at IS NOT NULL`` AND ``archived = 0``) so we never
-          touch a live session or one the user deliberately archived.
-        * Orphans any child whose parent is in the kill list — children
-          of an empty parent are kept and re-parented to ``NULL`` rather
-          than cascade-deleted, matching ``delete_session`` /
-          ``prune_sessions`` semantics so branch/subagent transcripts
-          survive an inadvertent parent cleanup.
-        * Deletes the rows in a single ``_execute_write`` callback so
-          the operation is atomic — a partial failure (e.g. SIGKILL
-          mid-loop) doesn't leave the DB in a "messages-deleted but
-          session-row-still-there" half-state.
-        * Cleans up on-disk transcript files (``.json`` / ``.jsonl`` /
-          ``request_dump_*``) outside the DB transaction when
-          ``sessions_dir`` is provided. Empty sessions don't typically
-          have transcript files, but the gateway can leave a stub
-          ``request_dump_*`` if it crashed before the first reply —
-          so we still sweep, matching ``prune_sessions``.
-
-        Returns the number of sessions deleted.
-        """
-        removed_ids: list[str] = []
-
-        def _do(conn):
-            cursor = conn.execute(
-                "SELECT id FROM sessions "
-                "WHERE message_count = 0 "
-                "AND ended_at IS NOT NULL "
-                "AND archived = 0"
-            )
-            session_ids = {row["id"] for row in cursor.fetchall()}
-
-            if not session_ids:
-                return 0
-
-            placeholders = ",".join("?" * len(session_ids))
-            conn.execute(
-                f"UPDATE sessions SET parent_session_id = NULL "
-                f"WHERE parent_session_id IN ({placeholders})",
-                list(session_ids),
-            )
-
-            for sid in session_ids:
-                # DELETE FROM messages is paranoia — by construction
-                # these rows have ``message_count = 0`` — but if a
-                # bookkeeping bug ever lets the counter drift below the
-                # real row count, we still leave a clean FK state.
-                conn.execute(
-                    "DELETE FROM messages WHERE session_id = ?", (sid,)
-                )
-                conn.execute("DELETE FROM sessions WHERE id = ?", (sid,))
-                removed_ids.append(sid)
-            self._delete_unreferenced_system_prompts(conn)
-            return len(session_ids)
-
-        count = self._execute_write(_do)
-        for sid in removed_ids:
-            self._remove_session_files(sessions_dir, sid)
-        return count
 
     @staticmethod
     def _prune_filter_where(

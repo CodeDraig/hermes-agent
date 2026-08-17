@@ -11,8 +11,7 @@ through ``hermes config set``, ``.env``, and ``config.yaml``; the gateway reads
 them exactly as before. This module just says what a new user is asked during
 setup.
 
-Lives here rather than in ``web_server`` so the CLI wizard can share it without
-importing the dashboard's FastAPI surface.
+Lives in a small dependency-free module so setup callers can share it.
 """
 
 # Suffix match, so plugin adapters nobody enumerated (IRC, SimpleX, LINE, ntfy)

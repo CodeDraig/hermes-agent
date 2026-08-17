@@ -132,13 +132,7 @@ def _run_update_until_guard(args):
     ), patch.object(
         cli_main,
         "_detect_venv_python_processes",
-        return_value=[(101, "python.exe", "python.exe -m hermes_cli.main serve")],
-    ), patch.object(
-        # Pin the orphan classifier: this test exercises --force/--force-venv
-        # gating, not orphan detection (covered in
-        # test_update_orphan_backend_reap.py). None = "not provably orphaned"
-        # → the guard refuses exactly as before the orphan-reap addition.
-        cli_main, "_orphaned_desktop_backend_pids", return_value=None
+        return_value=[(101, "python.exe", "python.exe operator-script.py")],
     ), patch.object(
         cli_main, "PROJECT_ROOT", _RootSentinel()
     ):

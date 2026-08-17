@@ -51,9 +51,8 @@ operators should reason about them in the same terms.
   granted Hermes Agent access to by running it — typically, whatever
   the operator's own user account can reach on the host.
 - **Stance.** An explicit statement in Hermes Agent's documentation
-  or code about how a consuming layer (adapter, UI, file writer,
-  shell) should treat agent output — e.g. "the dashboard renders
-  agent output as inert HTML."
+  or code about how a consuming layer (adapter, file writer, shell)
+  should treat agent output.
 
 ### 2.2 The Boundary: OS-Level Isolation
 
@@ -94,13 +93,8 @@ sandbox. Every code path — shell, code-execution, MCP, file tools,
 plugins, hooks, skill loading — is subject to the same filesystem,
 network, process, and (where applicable) inference policy.
 
-Hermes Agent supports this in two ways:
-
-- **Hermes Agent's own Docker image and Compose setup.** Lighter-
-  weight; the agent runs in a standard container with operator-
-  configured mounts and network policy.
-- **[NVIDIA OpenShell](https://github.com/NVIDIA/OpenShell)**.
-  OpenShell provides per-session sandboxes with declarative policy
+Hermes Agent supports this through **[NVIDIA OpenShell](https://github.com/NVIDIA/OpenShell)**.
+OpenShell provides per-session sandboxes with declarative policy
   across filesystem, network (L7 egress), process/syscall, and
   inference-routing layers. Network and inference policies are
   hot-reloadable. Credentials are injected from a Provider store
@@ -183,14 +177,11 @@ authorization model, but the rules below apply uniformly.
   legacy/direct adapters live under `gateway/platforms/`
   (`base.py`, Signal, API server, webhooks, …), with discovery and
   deferred loading via `gateway/platform_registry.py`.
-- **Network-exposed HTTP surfaces.** The API server adapter, the
-  dashboard plugin, the kanban plugin's HTTP endpoints, and any
-  other plugin that binds a listening socket.
+- **Network-exposed HTTP surfaces.** The API server adapter and any plugin
+  that binds a listening socket.
 - **Editor / IDE adapters.** The ACP adapter (`acp_adapter/`) and
   equivalent integrations that accept requests from a local client
   process.
-- **The TUI gateway (`tui_gateway/`).** JSON-RPC backend for the
-  Ink terminal UI, reached over local IPC.
 
 **Uniform rules:**
 
@@ -198,7 +189,7 @@ authorization model, but the rules below apply uniformly.
    trust boundary.** For messaging and network HTTP surfaces, the
    boundary is the network: authorization means an operator-
    configured caller allowlist. For editor and local-IPC surfaces
-   (ACP, TUI gateway), the boundary is the host's user account:
+   (ACP), the boundary is the host's user account:
    authorization means relying on OS-level access control (file
    permissions, loopback-only binds) and not exposing the surface
    beyond the local user without an explicit network auth layer.
@@ -216,8 +207,8 @@ authorization model, but the rules below apply uniformly.
    single adapter. Operators who need capability separation should
    run separate agent instances with separate allowlists.
 5. **Binding a local-only surface to a non-loopback interface is a
-   break-glass operator decision (§3.2).** The dashboard and other
-   plugin HTTP servers default to loopback; exposing them via
+   break-glass operator decision (§3.2).** Plugin and API HTTP servers
+   default to loopback; exposing them via
    `--host 0.0.0.0` or equivalent makes public-exposure hardening
    (§4) the operator's responsibility.
 
@@ -243,8 +234,8 @@ authorization model, but the rules below apply uniformly.
   what this policy, Hermes Agent's own documentation, or reasonable
   operator expectations would predict — including cases where
   Hermes Agent has documented a stance about how its output should
-  be rendered by a consuming layer (dashboard, gateway adapter,
-  file writer, shell) and a code path breaks that stance.
+  be rendered by a consuming layer (gateway adapter, file writer,
+  shell) and a code path breaks that stance.
 
 ### 3.2 Out of Scope
 
@@ -276,7 +267,7 @@ private-disclosure channel and don't receive advisories.
   or credential files (those are already inside the trust envelope).
 - **Documented break-glass settings.** Operator-selected trade-offs
   that explicitly disable protections: `--insecure` and equivalent
-  flags on the dashboard or other components, disabled approvals,
+  flags on network-facing components, disabled approvals,
   local backend in production, development profiles that bypass
   hermes-home security, and similar. Reports against those
   configurations are not vulnerabilities — that's the flag's job.

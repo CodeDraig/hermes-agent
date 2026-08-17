@@ -140,10 +140,10 @@ def _insert_pending(ad, delegation_id, completed_at):
     with ad._DB_LOCK, ad._transaction() as conn:
         conn.execute(
             """INSERT INTO async_delegations
-               (delegation_id, origin_session, origin_ui_session_id,
-                parent_session_id, state, dispatched_at, completed_at,
+               (delegation_id, origin_session, parent_session_id,
+                state, dispatched_at, completed_at,
                 delivery_state, event_json, updated_at)
-               VALUES (?, ?, '', ?, 'completed', ?, ?, 'pending', ?, ?)""",
+               VALUES (?, ?, ?, 'completed', ?, ?, 'pending', ?, ?)""",
             (
                 delegation_id, "agent:main:slack:dm:D1:2", "parent-1",
                 completed_at, completed_at, json.dumps(evt), completed_at,

@@ -161,7 +161,7 @@ def _has_agent_browser() -> bool:
 
     from hermes_constants import agent_browser_runnable
 
-    # agent-browser is no longer a root package.json dependency (#43564) — it
+    # agent-browser is resolved lazily through npx (#43564) — it
     # resolves lazily via npx for most installs, which a bare PATH +
     # node_modules probe can't see. Mirror the local-CLI tail of
     # :func:`tools.browser_tool.check_browser_requirements` (same cascade, same

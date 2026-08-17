@@ -47,7 +47,6 @@ class _FakeSource:
 def _install_fake_sources(monkeypatch, *, github_count,
                           well_known_count=10, github_rate_limited=False):
     monkeypatch.setattr(build_mod, "SkillsShSource", lambda auth: _FakeSource("skills.sh", 15000))
-    monkeypatch.setattr(build_mod, "OptionalSkillSource", lambda: _FakeSource("official", 95))
     monkeypatch.setattr(build_mod, "WellKnownSkillSource", lambda: _FakeSource("well-known", well_known_count))
     monkeypatch.setattr(
         build_mod, "GitHubSource",

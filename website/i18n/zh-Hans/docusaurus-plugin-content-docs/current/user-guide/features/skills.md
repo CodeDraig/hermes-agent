@@ -15,7 +15,6 @@ Skills 是 agent 在需要时可以加载的按需知识文档。它们遵循**�
 另请参阅：
 
 - [捆绑 Skills 目录](/reference/skills-catalog)
-- [官方可选 Skills 目录](/reference/optional-skills-catalog)
 
 ## 使用 Skills
 
@@ -376,19 +375,17 @@ agent 可以通过 `skill_manage` 工具创建、更新和删除自己的 skills
 
 ## Skills Hub
 
-从在线注册表、`skills.sh`、直接的知名 skill 端点以及官方可选 skills 中浏览、搜索、安装和管理 skills。
+从在线注册表、`skills.sh`、知名 skill 端点、GitHub 仓库和直接 URL 浏览、搜索、安装和管理 skills。
 
 ### 常用命令
 
 ```bash
-hermes skills browse                              # Browse all hub skills (official first)
-hermes skills browse --source official            # Browse only official optional skills
+hermes skills browse                              # Browse all hub skills
 hermes skills search kubernetes                   # Search all sources
 hermes skills search react --source skills-sh     # Search the skills.sh directory
 hermes skills search https://mintlify.com/docs --source well-known
 hermes skills inspect openai/skills/k8s           # Preview before installing
 hermes skills install openai/skills/k8s           # Install with security scan
-hermes skills install official/security/1password
 hermes skills install skills-sh/vercel-labs/json-render/json-render-react --force
 hermes skills install well-known:https://mintlify.com/docs/.well-known/skills/mintlify
 hermes skills install https://sharethis.chat/SKILL.md              # 直接 URL（含引用的支持文件）
@@ -409,7 +406,6 @@ hermes skills tap add myorg/skills-repo           # Add a custom GitHub source
 
 | 来源 | 示例 | 说明 |
 |--------|---------|-------|
-| `official` | `official/security/1password` | Hermes 随附的可选 skills。 |
 | `skills-sh` | `skills-sh/vercel-labs/agent-skills/vercel-react-best-practices` | 可通过 `hermes skills search <query> --source skills-sh` 搜索。当 skills.sh slug 与仓库文件夹不同时，Hermes 会解析别名式 skills。 |
 | `well-known` | `well-known:https://mintlify.com/docs/.well-known/skills/mintlify` | 直接从网站的 `/.well-known/skills/index.json` 提供的 skills。使用站点或文档 URL 搜索。 |
 | `url` | `https://sharethis.chat/SKILL.md` | 指向 `SKILL.md` 及其明确引用的支持文件的直接 HTTP(S) URL。名称解析顺序：frontmatter → URL slug → 交互式提示 → `--name` 标志。 |
@@ -420,20 +416,7 @@ hermes skills tap add myorg/skills-repo           # Add a custom GitHub source
 
 Hermes 目前与以下 skills 生态系统和发现来源集成：
 
-#### 1. 官方可选 skills（`official`）
-
-这些 skills 在 Hermes 仓库中维护，以内置信任级别安装。
-
-- 目录：[官方可选 Skills 目录](../../reference/optional-skills-catalog)
-- 仓库中的来源：`optional-skills/`
-- 示例：
-
-```bash
-hermes skills browse --source official
-hermes skills install official/security/1password
-```
-
-#### 2. skills.sh（`skills-sh`）
+#### 1. skills.sh（`skills-sh`）
 
 这是 Vercel 的公共 skills 目录。Hermes 可以直接搜索它、查看 skill 详情页、解析别名式 slug，并从底层源仓库安装。
 
@@ -448,7 +431,7 @@ hermes skills inspect skills-sh/vercel-labs/json-render/json-render-react
 hermes skills install skills-sh/vercel-labs/json-render/json-render-react --force
 ```
 
-#### 3. Well-known skill 端点（`well-known`）
+#### 2. Well-known skill 端点（`well-known`）
 
 这是基于 URL 的发现机制，来自发布 `/.well-known/skills/index.json` 的站点。它不是单一的集中式 hub——它是一种 Web 发现约定。
 
@@ -462,7 +445,7 @@ hermes skills inspect well-known:https://mintlify.com/docs/.well-known/skills/mi
 hermes skills install well-known:https://mintlify.com/docs/.well-known/skills/mintlify
 ```
 
-#### 4. 直接 GitHub skills（`github`）
+#### 3. 直接 GitHub skills（`github`）
 
 Hermes 可以直接从 GitHub 仓库和基于 GitHub 的 tap 安装。当你已知仓库/路径或想添加自己的自定义源仓库时非常有用。
 
@@ -481,14 +464,14 @@ hermes skills install openai/skills/k8s
 hermes skills tap add myorg/skills-repo
 ```
 
-#### 5. ClawHub（`clawhub`）
+#### 4. ClawHub（`clawhub`）
 
 作为社区来源集成的第三方 skills 市场。
 
 - 站点：[clawhub.ai](https://clawhub.ai/)
 - Hermes 来源 id：`clawhub`
 
-#### 6. LobeHub（`lobehub`）
+#### 5. LobeHub（`lobehub`）
 
 Hermes 可以从 LobeHub 的公共目录中搜索并将 agent 条目转换为可安装的 Hermes skills。
 
@@ -497,7 +480,7 @@ Hermes 可以从 LobeHub 的公共目录中搜索并将 agent 条目转换为可
 - 后端仓库：[lobehub/lobe-chat-agents](https://github.com/lobehub/lobe-chat-agents)
 - Hermes 来源 id：`lobehub`
 
-#### 7. browse.sh（`browse-sh`）
+#### 6. browse.sh（`browse-sh`）
 
 Hermes 与 [browse.sh](https://browse.sh) 集成，这是 Browserbase 的目录，包含 200+ 个针对特定站点的浏览器自动化 SKILL.md 文件（Airbnb、Amazon、arXiv、12306.cn、Etsy、Xero 等）。每个 skill 描述如何端到端驱动一个网站，适合与 Hermes 的浏览器工具以及你已安装的任何浏览器自动化 skills 配合使用。
 
@@ -514,7 +497,7 @@ hermes skills install browse-sh/airbnb.com/search-listings-ddgioa
 
 标识符使用 `browse-sh/<hostname>/<task-id>` 的形式，与 browse.sh 目录公开的 slug 匹配。内容通过每个 skill 的详情端点（`/api/skills/<slug>` → `skillMdUrl`）解析，而不是通过目录的 GitHub `sourceUrl`。
 
-#### 8. 直接 URL（`url`）
+#### 7. 直接 URL（`url`）
 
 直接从任何 HTTP(S) URL 安装 `SKILL.md`——当作者在自己的站点上托管 skill 时非常有用（无 hub 列表，无需输入 GitHub 路径）。Hermes 还会获取其中明确引用且位于 `references/`、`templates/`、`scripts/`、`assets/` 和 `examples/` 下的文件，然后扫描并安装完整捆绑包。
 
@@ -564,14 +547,12 @@ hermes skills install skills-sh/anthropics/skills/pdf --force
 重要行为：
 - `--force` 可以覆盖谨慎/警告类发现的策略阻止。
 - `--force` **不能**覆盖 `dangerous` 扫描结论。
-- 官方可选 skills（`official/...`）被视为内置信任，不显示第三方警告面板。
 
 ### 信任级别
 
 | 级别 | 来源 | 策略 |
 |-------|--------|--------|
 | `builtin` | 随 Hermes 附带 | 始终受信任 |
-| `official` | 仓库中的 `optional-skills/` | 内置信任，无第三方警告 |
 | `trusted` | 受信任的注册表/仓库，如 `openai/skills`、`anthropics/skills`、`huggingface/skills`、`NVIDIA/skills` | 比社区来源更宽松的策略 |
 | `community` | 其他所有来源（`skills.sh`、well-known 端点、自定义 GitHub 仓库、大多数市场） | 非危险性发现可用 `--force` 覆盖；`dangerous` 结论保持阻止 |
 
@@ -756,5 +737,3 @@ hermes skills reset google-workspace --restore --yes
 /skills reset google-workspace
 /skills list
 ```
-
-官方可选 skills 仍使用 `official/security/1password` 和 `official/migration/openclaw-migration` 等标识符。

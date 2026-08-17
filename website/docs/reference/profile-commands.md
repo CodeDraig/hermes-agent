@@ -250,7 +250,7 @@ hermes profile export <name> [options]
 
 Exports a profile as a compressed tar.gz archive — a portable snapshot you can back up, move to another machine, or hand to someone else. `auth.json` and `.env` are always excluded.
 
-Also available in chat as [`/export`](./slash-commands.md), and in the desktop app via **⌘K → Export profile…** or a profile square's right-click menu. A desktop export additionally stages `desktop.json` (skin, light/dark mode, custom themes, rail color, window layout) into the archive.
+Also available in chat as [`/export`](./slash-commands.md).
 
 | Argument / Option | Description |
 |-------------------|-------------|
@@ -276,7 +276,7 @@ hermes profile import <archive> [options]
 
 Imports a profile from a tar.gz archive, as a new profile. Refuses to overwrite an existing profile, and cannot import as `default` (the built-in root profile) — pass `--name` in either case. A shell wrapper is created when the name doesn't collide with an existing command.
 
-Also available in chat as [`/import`](./slash-commands.md), and in the desktop app via **⌘K → Import profile…** or the import button beside the profile rail's **+**. A desktop import also applies any bundled `desktop.json` overlay (theme, layout) and switches you into the new profile.
+Also available in chat as [`/import`](./slash-commands.md).
 
 | Argument / Option | Description |
 |-------------------|-------------|

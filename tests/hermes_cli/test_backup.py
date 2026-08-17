@@ -186,7 +186,7 @@ class TestBackup:
         assert all(d == str(out_dir) for d in staged_dirs), staged_dirs
 
     def test_pre_update_db_snapshots_staged_beside_output_zip(self, tmp_path, monkeypatch):
-        """The pre-update/pre-migration zip path (_write_full_zip_backup) must
+        """The pre-update zip path (_write_full_zip_backup) must
         also stage SQLite snapshots beside its output zip, not in /tmp."""
         hermes_home = tmp_path / ".hermes"
         hermes_home.mkdir()
@@ -1521,49 +1521,6 @@ class TestRunPreUpdateBackup:
 
 
 
-# ---------------------------------------------------------------------------
-# Pre-migration backup (hermes claw migrate safety net)
-# ---------------------------------------------------------------------------
-
-class TestPreMigrationBackup:
-    """Tests for create_pre_migration_backup — the auto-backup
-    ``hermes claw migrate`` runs before mutating ~/.hermes/."""
-
-    @pytest.fixture
-    def hermes_home(self, tmp_path):
-        root = tmp_path / ".hermes"
-        root.mkdir()
-        _make_hermes_tree(root)
-        return root
-
-
-    def test_restorable_with_hermes_import(self, hermes_home, tmp_path):
-        """The zip produced by pre-migration backup must be a valid Hermes
-        backup — `hermes import` should accept it."""
-        from hermes_cli.backup import create_pre_migration_backup, _validate_backup_zip
-        out = create_pre_migration_backup(hermes_home=hermes_home)
-        assert out is not None
-        with zipfile.ZipFile(out) as zf:
-            valid, _reason = _validate_backup_zip(zf)
-        assert valid, "pre-migration zip failed _validate_backup_zip"
-
-
-
-
-    def test_does_not_touch_pre_update_backups(self, hermes_home):
-        """Pre-migration rotation must only prune pre-migration-*.zip files,
-        leaving pre-update-*.zip backups untouched."""
-        from hermes_cli.backup import create_pre_update_backup, create_pre_migration_backup
-        update_backup = create_pre_update_backup(hermes_home=hermes_home, keep=5)
-        assert update_backup is not None and update_backup.exists()
-        # Spin up a lot of migration backups with keep=1
-        for _ in range(3):
-            out = create_pre_migration_backup(hermes_home=hermes_home, keep=1)
-            assert out is not None
-            _advance_backup_clock()
-        # Update backup must still be there
-        assert update_backup.exists(), "pre-migration rotation wrongly pruned the pre-update backup"
-
 
 # ---------------------------------------------------------------------------
 # Cron jobs auto-restore after silent migration loss (issue #34600)
@@ -1706,7 +1663,6 @@ class TestMemoryProviderExternalPaths:
         assert (restored.stat().st_mode & 0o777) == 0o600
         # External state did NOT leak into HERMES_HOME.
         assert not (hermes_home / "_external").exists()
-
 
 
 

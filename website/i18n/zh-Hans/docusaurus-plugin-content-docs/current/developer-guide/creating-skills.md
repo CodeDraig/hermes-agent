@@ -24,7 +24,7 @@ Skill 是为 Hermes Agent 添加新能力的首选方式。与 tool 相比，ski
 
 ## Skill 目录结构
 
-内置 skill 位于 `skills/` 目录下，按类别组织。官方可选 skill 在 `optional-skills/` 中使用相同结构：
+内置 skill 位于 `skills/` 目录下，按类别组织：
 
 ```text
 skills/
@@ -330,9 +330,7 @@ hermes chat --toolsets skills -q "Use the X skill to do Y"
 - 文档处理、网页研究、常见开发工作流、系统管理
 - 被广泛人群定期使用
 
-如果你的 skill 是官方的且有用，但并非所有人都需要（例如付费服务集成、重量级依赖），请放入 **`optional-skills/`**——它随仓库一起发布，可通过 `hermes skills browse` 发现（标记为"official"），并以内置信任级别安装。
-
-如果你的 skill 是专业化的、社区贡献的或小众的，更适合放在 **Skills Hub**——将其上传到注册表并通过 `hermes skills install` 分享。
+如果你的 skill 是专业化的、社区贡献的或小众的，请放在 **Skills Hub**、GitHub 仓库或自定义 tap 中，并通过 `hermes skills install` 分享。
 
 ## 发布 Skill
 
@@ -363,7 +361,6 @@ hermes skills tap add owner/repo
 
 信任级别：
 - `builtin`——随 Hermes 一起发布（始终受信任）
-- `official`——来自仓库中的 `optional-skills/`（内置信任，无第三方警告）
 - `trusted`——来自 openai/skills、anthropics/skills、huggingface/skills
 - `community`——非危险发现可通过 `--force` 覆盖；`dangerous` 判定仍会被阻止
 

@@ -25,15 +25,6 @@ class TestDoctorPlatformHints:
         assert doctor._system_package_install_cmd("ripgrep") == "pkg install ripgrep"
 
 
-    def test_sqlite_upgrade_hint_recreates_docker_containers(self, monkeypatch):
-        monkeypatch.setattr(doctor, "detect_install_method", lambda _root: "docker")
-
-        hint = doctor._sqlite_upgrade_hint()
-
-        assert "docker pull nousresearch/hermes-agent:latest" in hint
-        assert "recreate all Hermes containers" in hint
-        assert "hermes update" not in hint
-
     def test_sqlite_upgrade_hint_keeps_git_runtime_repair(self):
         hint = doctor._sqlite_upgrade_hint("git")
 
@@ -718,7 +709,7 @@ def _doctor_env_for_agent_browser(monkeypatch, tmp_path):
 def test_run_doctor_reports_agent_browser_resolves_via_npx(monkeypatch, tmp_path):
     """When agent-browser has no local/global install, _find_agent_browser
     falls through to 'npx agent-browser' — doctor must report that as OK
-    (#43564: agent-browser is no longer a root package.json dependency, so
+    (#43564: agent-browser is resolved lazily through npx, so
     this is the expected common case now, not a warning)."""
     _doctor_env_for_agent_browser(monkeypatch, tmp_path)
 

@@ -1550,7 +1550,6 @@ class APIServerAdapter(BasePlatformAdapter):
                 runner
                 and (
                     getattr(runner, "_draining", False)
-                    or getattr(runner, "_external_drain_active", False)
                 )
             )
         except Exception:
@@ -1820,8 +1819,7 @@ class APIServerAdapter(BasePlatformAdapter):
             # str containing non-ASCII characters, and ``token`` is the raw
             # client-supplied header. A stray non-ASCII byte in the key would
             # otherwise crash this handler (500) instead of returning a clean
-            # 401. Encoding both sides keeps the timing-safe comparison and
-            # matches web_server.py's dashboard-token check.
+            # 401. Encoding both sides keeps the timing-safe comparison.
             if hmac.compare_digest(token.encode(), expected_key.encode()):
                 return None  # Auth OK
 
@@ -2541,7 +2539,7 @@ class APIServerAdapter(BasePlatformAdapter):
     @staticmethod
     def _normalize_session_source(value: Any) -> str:
         text = str(value or "").strip().lower()
-        allowed = {"api_server", "hermes_browser", "browser", "cli", "telegram", "discord", "slack", "desktop", "dashboard"}
+        allowed = {"api_server", "hermes_browser", "browser", "cli", "telegram", "discord", "slack"}
         if text in allowed:
             return "hermes_browser" if text == "browser" else text
         return "api_server"

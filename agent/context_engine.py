@@ -440,7 +440,7 @@ class ContextEngine(ABC):
         # Clamp the -1 "compression just ran, awaiting real usage" sentinel
         # (set by conversation_compression) to 0 so status readers don't see a
         # raw -1 or a negative usage_percent on the transitional turn. Mirrors
-        # the CLI/gateway status-bar paths (cli.py, tui_gateway/server.py).
+        # the CLI/gateway status-bar paths (cli.py).
         last_prompt = self.last_prompt_tokens if self.last_prompt_tokens > 0 else 0
         return {
             "last_prompt_tokens": last_prompt,

@@ -4695,8 +4695,7 @@ def _save_xai_oauth_tokens(
     When *set_active* is True (default), also promote ``xai-oauth`` to
     ``active_provider`` — appropriate for intentional model/auth login.
     Pass ``set_active=False`` for side-tool credential bootstrap (TTS/setup,
-    tools config, dashboard token save, token refresh) so inference routing
-    is unchanged.
+    tools config, or token refresh) so inference routing is unchanged.
     """
     if last_refresh is None:
         last_refresh = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
@@ -5331,9 +5330,8 @@ def _poll_for_token(
         description = error_payload.get("error_description") or "Unknown authentication error"
         raise RuntimeError(f"{error_code}: {description}")
 
-    # Enriched at the SOURCE so every caller inherits the guidance:
-    # the CLI login (_nous_device_code_login) and the dashboard/desktop
-    # poller (web_server._nous_poller, which surfaces str(e) to the UI).
+    # Enriched at the source so every CLI device-login caller inherits the
+    # same recovery guidance.
     raise TimeoutError(_nous_device_auth_timeout_message(portal_base_url))
 
 
@@ -6847,9 +6845,9 @@ def get_nous_auth_status_local() -> Dict[str, Any]:
     persisted auth-store state, classifying the access token with a local
     invoke-JWT decode only.
 
-    Use this from status panels, doctor checks, and polled dashboard
-    endpoints. Explicit auth actions (login flows, portal operations that
-    need a live credential) should keep using ``get_nous_auth_status()``.
+    Use this from status and doctor checks. Explicit auth actions (login flows
+    and portal operations that need a live credential) should keep using
+    ``get_nous_auth_status()``.
 
     ``logged_in`` here means "a persisted login exists that the runtime can
     use or refresh": a currently-usable invoke JWT, or a refresh token that
@@ -6899,72 +6897,6 @@ def get_nous_auth_status_local() -> Dict[str, Any]:
         status["error_code"] = last_err.get("code")
         status["error"] = last_err.get("message") or "re-login required"
     return status
-
-
-# Enum values reported on the dashboard /api/status as ``nous_session_valid``.
-# NAS's health sweep re-mints the bootstrap session ONLY on "terminal"; "valid"
-# and "unknown" are no-ops. Keep this set small and stable — NAS parses it with
-# a permissive schema, so new members are non-breaking but should stay rare.
-NOUS_SESSION_VALID = "valid"
-NOUS_SESSION_TERMINAL = "terminal"
-NOUS_SESSION_UNKNOWN = "unknown"
-
-
-def get_nous_session_validity() -> str:
-    """Classify the Nous bootstrap session for the dashboard /api/status probe.
-
-    Returns one of:
-      - ``"valid"``    — a usable Nous credential is present (login healthy).
-      - ``"terminal"`` — the Nous session has taken a terminal auth failure
-        (invalid_grant / quarantined / relogin required). This is the sole
-        signal NAS acts on to re-mint a hosted-agent bootstrap session.
-      - ``"unknown"``  — indeterminate (no Nous provider state, or a transient/
-        non-terminal error). Never triggers a re-mint.
-
-    Determinable with NO working token — it reads local auth-store state only,
-    which is exactly the condition a dead hosted box is in. This function is
-    called by the frequently-polled public ``/api/status`` endpoint, so it must
-    never resolve credentials or perform an OAuth refresh.
-
-    ANTI-FLAP CONTRACT: only a *terminal* failure maps to "terminal". A normal
-    mid-rotation blip, a transient network error, or a merely-expiring token
-    must NOT report "terminal" (that would trigger a spurious NAS re-mint on a
-    healthy box). We key "terminal" on the auth layer's own terminal signal
-    (`relogin_required`) plus a persisted quarantine marker, never on a bare
-    "not logged in".
-    """
-    # A persisted quarantine marker is the strongest, most stable terminal
-    # signal: the refresh path writes `last_auth_error.relogin_required=True`
-    # into the Nous provider state when it clears dead tokens (the exact path
-    # that produced the incident's "No access token found"). Read it directly
-    # so we report "terminal" even after the in-memory AuthError is long gone.
-    try:
-        state = get_provider_auth_state("nous")
-    except Exception:
-        return NOUS_SESSION_UNKNOWN
-
-    if not state:
-        return NOUS_SESSION_UNKNOWN
-
-    last_err = state.get("last_auth_error")
-    if isinstance(last_err, dict) and last_err.get("relogin_required"):
-        # Only terminal while there is no usable credential left. If a later
-        # successful login repopulated tokens, the stale marker must not
-        # keep reporting terminal.
-        if not (state.get("access_token") or state.get("refresh_token")):
-            return NOUS_SESSION_TERMINAL
-
-    if _nous_invoke_jwt_status(
-        state.get("access_token"),
-        scope=state.get("scope"),
-        expires_at=state.get("expires_at"),
-    ) is None:
-        return NOUS_SESSION_VALID
-
-    # Missing, malformed, expired, or merely expiring credentials are not proof
-    # of a terminal session. Runtime inference/keepalive paths own refreshes;
-    # the health endpoint remains side-effect free and reports indeterminate.
-    return NOUS_SESSION_UNKNOWN
 
 
 def get_codex_auth_status() -> Dict[str, Any]:

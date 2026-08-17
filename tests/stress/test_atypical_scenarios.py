@@ -978,62 +978,6 @@ def _(home, kb):
         conn.close()
 
 
-@scenario("dashboard_rest_with_weird_inputs")
-def _(home, kb):
-    """FastAPI TestClient POST /tasks with atypical JSON bodies."""
-    kb.init_db()
-    # Set a session token so the ws check doesnt bomb on import
-    try:
-        from hermes_cli import web_server as ws  # noqa
-    except Exception:
-        pass
-
-    from fastapi import FastAPI
-    from fastapi.testclient import TestClient
-    from plugins.kanban.dashboard.plugin_api import router as kanban_router
-    app = FastAPI()
-    app.include_router(kanban_router, prefix="/api/plugins/kanban")
-    client = TestClient(app)
-
-    # Empty title
-    r = client.post("/api/plugins/kanban/tasks", json={"title": ""})
-    assert r.status_code in {400, 422}, f"empty title should 4xx, got {r.status_code}"
-
-    # Title only
-    r = client.post("/api/plugins/kanban/tasks", json={"title": "x"})
-    assert r.status_code == 200, r.text
-
-    # Huge title
-    r = client.post("/api/plugins/kanban/tasks", json={"title": "x" * 10000})
-    # Should succeed — kernel doesn't cap title length
-    assert r.status_code == 200
-
-    # Unicode + emoji
-    r = client.post("/api/plugins/kanban/tasks", json={
-        "title": "📋 deploy 🚀 to 生产",
-        "body": "日本語 body",
-        "assignee": "deploy-bot",
-    })
-    assert r.status_code == 200
-    tid = r.json()["task"]["id"]
-    assert r.json()["task"]["title"] == "📋 deploy 🚀 to 生产"
-
-    # Invalid JSON schema — unknown field, pydantic should either ignore or 422
-    r = client.post("/api/plugins/kanban/tasks", json={
-        "title": "fine", "nonexistent_field": "whatever",
-    })
-    assert r.status_code in {200, 422}
-
-    # Priority as non-int
-    r = client.post("/api/plugins/kanban/tasks", json={"title": "prio", "priority": "high"})
-    assert r.status_code == 422, f"string priority should 422, got {r.status_code}"
-
-    # PATCH with empty body (no changes requested)
-    r = client.patch(f"/api/plugins/kanban/tasks/{tid}", json={})
-    # Accept either success-no-op or 400
-    assert r.status_code in {200, 400}
-    print("  dashboard REST handles weird inputs correctly")
-
 # =============================================================================
 # RUN ALL
 # =============================================================================

@@ -9,7 +9,6 @@ description: "掌握 Hermes Agent 终端界面——命令、快捷键、人格�
 Hermes Agent 的 CLI 是一个完整的终端用户界面（TUI），而非 Web UI。它支持多行编辑、斜杠命令自动补全、对话历史、中断并重定向，以及流式工具输出。专为常驻终端的用户而生。
 
 :::tip
-Hermes 还提供了一个现代 TUI，支持模态覆盖层、鼠标选择和非阻塞输入。使用 `hermes --tui` 启动——参见 [TUI](tui.md) 指南。
 :::
 
 ## 运行 CLI
@@ -121,7 +120,7 @@ hermes -w -z "Fix issue #123"     # 在 worktree 中以单次查询模式运行
 | `/help` | 显示命令帮助 |
 | `/model` | 显示或更改当前模型 |
 | `/tools` | 列出当前可用工具 |
-| `/skills browse` | 浏览 skill 中心和官方可选 skill |
+| `/skills browse` | 浏览外部 skill 中心 |
 | `/background <prompt>` | 在独立后台会话中运行一个 prompt |
 | `/skin` | 显示或切换当前 CLI 皮肤 |
 | `/voice on` | 启用 CLI 语音模式（按 `Ctrl+B` 录音） |

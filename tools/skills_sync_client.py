@@ -228,8 +228,7 @@ def _decode_jwt_payload_unverified(token: str) -> Dict[str, Any]:
 
     Safe here: we never trust these claims for authz -- the server re-verifies
     every call. We only read the dev-gate claim to decide whether to attempt
-    sync at all. Mirrors the diagnostic decode in
-    plugins/dashboard_auth/nous/__init__.py:463.
+    sync at all.
     """
     try:
         import jwt  # PyJWT, a core dependency

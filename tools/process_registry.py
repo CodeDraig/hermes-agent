@@ -493,7 +493,6 @@ class ProcessRegistry:
         # (session_or_none, process_id) when the agent asks to close a read-only
         # terminal tab. Distinct from kill — the process keeps running; only the
         # UI view is dropped (the user can reopen it from the status stack).
-        self.on_close = None
 
     @staticmethod
     def _clean_shell_noise(text: str) -> str:
@@ -1664,7 +1663,7 @@ class ProcessRegistry:
         When a routing filter is supplied, addressed notifications must not be
         drained into the wrong session. Async-delegation events always require
         conversation payload; ordinary notifications require routing when they
-        carry ``session_key`` or ``origin_ui_session_id`` metadata. Two filter
+        carry ``session_key`` metadata. Two filter
         modes are supported, strongest first:
 
         - ``owns_event(evt) -> bool``: positive-proof ownership callback.
@@ -1695,10 +1694,7 @@ class ProcessRegistry:
             # legacy single-session delivery.
             is_async_delegation = evt.get("type") == "async_delegation"
             evt_session_key = str(evt.get("session_key") or "")
-            evt_origin_sid = str(evt.get("origin_ui_session_id") or "")
-            requires_positive_proof = is_async_delegation or bool(
-                evt_session_key or evt_origin_sid
-            )
+            requires_positive_proof = is_async_delegation or bool(evt_session_key)
             if owns_event is not None and requires_positive_proof:
                 try:
                     owned = bool(owns_event(evt))
@@ -2242,37 +2238,6 @@ class ProcessRegistry:
         )
         line_ending = "\r\n" if is_windows_pty else "\n"
         return self.write_stdin(session_id, data + line_ending)
-
-    def request_close_terminal(self, session_id: str) -> dict:
-        """Ask the desktop GUI to close the read-only terminal tab mirroring this
-        background process.
-
-        This does NOT kill the process — it only drops the view. Output keeps
-        streaming into the (capped) buffer and the user can reopen the tab from
-        the status stack. Desktop-only: returns an error if no UI close sink is
-        wired (e.g. CLI / messaging)."""
-        sink = self.on_close
-        if sink is None:
-            return {
-                "status": "error",
-                "error": "close_terminal is only available in the Hermes desktop app.",
-            }
-        # The session may already be finished (or pruned) — the tab can still
-        # linger and be closed, so a missing session is not an error here.
-        session = self.get(session_id)
-        try:
-            sink(session, session_id)
-        except Exception as e:
-            return {"status": "error", "error": str(e)}
-        return {
-            "status": "ok",
-            "closed": session_id,
-            "note": (
-                "Closed the read-only terminal tab. The process was not killed; "
-                "its output remains available and the user can reopen the tab "
-                "from the status stack."
-            ),
-        }
 
     def close_stdin(self, session_id: str) -> dict:
         """Close a running process's stdin / send EOF without killing the process."""

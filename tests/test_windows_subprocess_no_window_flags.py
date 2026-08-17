@@ -21,10 +21,8 @@ def _spawns(captured, *needles):
     """Captured ``subprocess.run`` calls whose argv contains every needle.
 
     These tests patch ``<module>.subprocess.run``, which is the shared
-    ``subprocess`` module singleton — so the patch is process-wide. Importing
-    ``tui_gateway.server`` kicks off ``prefetch_update_check`` (a daemon thread
-    that shells out to ``git ... origin`` with ``text=True, timeout=5``), and
-    that call can land in ``captured`` mid-test. Matching the distinctive argv
+    ``subprocess`` module singleton — so the patch is process-wide. A daemon
+    thread can land an unrelated call in ``captured`` mid-test. Matching the distinctive argv
     tokens of the call under test (e.g. ``--show-toplevel``, ``ls-files``) keeps
     each assertion scoped to its own contract and immune to that cross-talk —
     otherwise a stray ``git`` spawn trips a bare ``KeyError: 'creationflags'``
@@ -227,11 +225,8 @@ def test_agent_browser_npx_warmup_hides_npx_window(monkeypatch):
 
 # ── #56747 GUI-reachable exec paths + provider transports (PR #56877) ──────
 #
-# These six sites are the desktop-GUI-reachable spawns that still flashed a
-# console on Windows after the #54220 sweep: the TUI gateway's cli.exec /
-# shell.exec / quick-command exec RPCs, the interactive CLI's quick-command
-# exec handler, and the Copilot ACP + Codex app-server stdio transports.
-# All are hide-only (creationflags) — PIPE stdio must stay intact.
+# These retained subprocess sites must not flash a console on Windows. All are
+# hide-only (creationflags), so PIPE stdio must stay intact.
 
 
 def _patch_hide_flags(monkeypatch):
@@ -246,35 +241,6 @@ def _patch_hide_flags(monkeypatch):
     import hermes_cli._subprocess_compat as subprocess_compat
 
     monkeypatch.setattr(subprocess_compat, "windows_hide_flags", lambda: _CREATE_NO_WINDOW)
-
-
-
-
-def test_tui_shell_exec_rpc_hides_console_window(monkeypatch):
-    from tui_gateway import server
-
-    captured = []
-
-    def fake_run(cmd, **kwargs):
-        captured.append((cmd, kwargs))
-        return _Completed(stdout="ok\n")
-
-    _patch_hide_flags(monkeypatch)
-    monkeypatch.setattr(server.subprocess, "run", fake_run)
-
-    resp = server.handle_request(
-        {"id": "2", "method": "shell.exec", "params": {"command": "echo shellexec-56747"}}
-    )
-    assert resp["result"]["code"] == 0
-
-    spawns = _spawns(captured, "shellexec-56747")
-    assert len(spawns) == 1, captured
-    assert spawns[0][1]["creationflags"] == _CREATE_NO_WINDOW
-
-
-
-
-
 
 
 

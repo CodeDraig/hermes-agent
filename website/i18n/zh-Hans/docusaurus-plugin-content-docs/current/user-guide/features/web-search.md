@@ -436,7 +436,7 @@ web:
 对于需要直接通过 `curl` 使用 SearXNG 的 agent（例如作为网页工具集不可用时的回退），请安装 `searxng-search` 可选技能：
 
 ```bash
-hermes skills install official/research/searxng-search
+hermes skills search searxng
 ```
 
 这将添加一个技能，教 agent 如何：

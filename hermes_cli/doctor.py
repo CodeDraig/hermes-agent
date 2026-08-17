@@ -16,7 +16,6 @@ from hermes_cli.config import (
     get_env_path,
     get_hermes_home,
     get_project_root,
-    recommended_update_command_for_method,
 )
 from hermes_cli.env_loader import load_hermes_dotenv
 from hermes_constants import display_hermes_home
@@ -86,14 +85,7 @@ def _system_package_install_cmd(pkg: str) -> str:
 
 def _sqlite_upgrade_hint(install_method: str | None = None) -> str:
     """Return an actionable SQLite upgrade hint for this install layout."""
-    method = install_method or detect_install_method(PROJECT_ROOT)
-    if method == "docker":
-        command = recommended_update_command_for_method(method)
-        action = f"run `{command}`, then recreate all Hermes containers"
-    elif method in {"nix", "nixos"}:
-        action = recommended_update_command_for_method(method)
-    else:
-        action = "run `hermes update`"
+    action = "run `hermes update`"
     return (
         f"({action}; fixed versions: 3.51.3+ / 3.50.7 / 3.44.6 — "
         "see https://sqlite.org/wal.html#walresetbug)"
@@ -147,8 +139,8 @@ def _read_journal_mode(db_path: Path) -> tuple[str | None, str | None]:
     a bare ``open()``: closing *any* descriptor for a database file cancels
     this process's POSIX advisory locks on it, so a raw read would drop the
     locks a live connection is holding (see ``hermes_cli.sqlite_safe_read``).
-    ``run_doctor`` is also called in-process by the dashboard console, which
-    holds live ``SessionDB`` connections. The helper refuses in that case and
+    A caller can also hold live ``SessionDB`` connections. The helper refuses
+    in that case and
     the mode is reported as unreadable instead.
     """
     from hermes_cli.sqlite_safe_read import (
@@ -626,54 +618,6 @@ def _check_version_consistency(issues: list[str]) -> None:
         )
 
 
-def _check_s6_supervision(issues: list[str]) -> None:
-    """Inside a container under our s6 /init, surface what s6 sees.
-
-    Runs as a counterpart to :func:`_check_gateway_service_linger` for
-    the systemd-on-host case. No-op everywhere except in the s6
-    container so host runs aren't cluttered with irrelevant output.
-
-    Reports:
-      - Whether the main-hermes and dashboard static services are up
-      - How many per-profile gateway slots are registered (via
-        ``S6ServiceManager.list_profile_gateways()``) and how many are
-        currently supervised as ``up``
-    """
-    try:
-        from hermes_cli.service_manager import (
-            S6ServiceManager,
-            detect_service_manager,
-        )
-    except Exception:
-        return
-
-    if detect_service_manager() != "s6":
-        return
-
-    _section("s6 Supervision")
-
-    mgr = S6ServiceManager()
-
-    # Static services. They live under /run/service/ via s6-rc symlinks,
-    # so the same s6-svstat probe works.
-    for static in ("main-hermes", "dashboard"):
-        if mgr.is_running(static):
-            check_ok(f"{static}: up")
-        else:
-            check_info(f"{static}: down (expected if not enabled via env)")
-
-    profiles = mgr.list_profile_gateways()
-    if not profiles:
-        check_info("No per-profile gateways registered yet — create one with `hermes profile create <name>`")
-        return
-
-    up_count = sum(1 for p in profiles if mgr.is_running(f"gateway-{p}"))
-    check_ok(
-        f"Per-profile gateways: {up_count}/{len(profiles)} supervised up"
-        + (f" ({', '.join(sorted(profiles))})" if len(profiles) <= 8 else "")
-    )
-
-
 def check_certificates(should_fix: bool = False, issues: "list | None" = None) -> None:
     """Verify the certifi CA bundle is loadable.
 
@@ -762,11 +706,6 @@ def check_certificates(should_fix: bool = False, issues: "list | None" = None) -
 
 def _check_gateway_service_linger(issues: list[str]) -> None:
     """Warn when a systemd user gateway service will stop after logout.
-
-    Skipped inside a container running under s6 — the linger concept
-    (user-systemd surviving SSH logout) doesn't apply there, and the
-    s6 supervision state is surfaced separately by
-    ``_check_s6_supervision``.
     """
     try:
         from hermes_cli.gateway import (
@@ -774,18 +713,11 @@ def _check_gateway_service_linger(issues: list[str]) -> None:
             get_systemd_unit_path,
             is_linux,
         )
-        from hermes_cli.service_manager import detect_service_manager
     except Exception as e:
         check_warn("Gateway service linger", f"(could not import gateway helpers: {e})")
         return
 
     if not is_linux():
-        return
-
-    # Inside a container under our s6 /init, _check_s6_supervision
-    # reports the live supervision state; the linger warning would be
-    # confusing here (no systemd, no logout, no "lingering" concept).
-    if detect_service_manager() == "s6":
         return
 
     unit_path = get_systemd_unit_path()
@@ -1874,7 +1806,6 @@ def run_doctor(args):
             pass
 
     _check_gateway_service_linger(issues)
-    _check_s6_supervision(issues)
 
     if sys.platform != "win32":
         _section("Command Installation")
@@ -2138,7 +2069,7 @@ def run_doctor(args):
     # Node.js + agent-browser (for browser automation tools)
     if _safe_which("node"):
         check_ok("Node.js")
-        # agent-browser is no longer a root package.json dependency (#43564)
+        # agent-browser is resolved lazily through npx (#43564)
         # — it resolves lazily via npx (or a global/Hermes-managed install)
         # at first use. Mirror tools.browser_tool._find_agent_browser's own
         # resolution cascade here so doctor can't diverge from what browser
@@ -2242,14 +2173,9 @@ def run_doctor(args):
     else:
         check_warn("Node.js not found", "(optional, needed for browser tools)")
     
-    # npm audit for all Node.js packages
+    # Audit the independently packaged WhatsApp bridge when installed.
     _npm_bin = _safe_which("npm")
     if _npm_bin:
-        # Each entry: (cwd, label, extra_audit_args)
-        # PROJECT_ROOT is audited with --workspaces=false so that the apps/*
-        # glob (which pulls in Electron, node-pty, etc.) is never resolved
-        # for a routine security check. The web and ui-tui workspaces are
-        # audited separately via --workspace flags. See #38772.
         # The WhatsApp bridge may live under a writable HERMES_HOME mirror
         # instead of the (possibly read-only) install tree in Docker — resolve
         # it through the shared helper so we audit the dir that actually holds
@@ -2259,12 +2185,7 @@ def run_doctor(args):
             _whatsapp_bridge_dir = resolve_whatsapp_bridge_dir()
         except Exception:
             _whatsapp_bridge_dir = PROJECT_ROOT / "scripts" / "whatsapp-bridge"
-        npm_audit_targets = [
-            (PROJECT_ROOT, "Browser tools (agent-browser)", ["--workspaces=false"]),
-            (PROJECT_ROOT, "web workspace", ["--workspace", "web"]),
-            (PROJECT_ROOT, "ui-tui workspace", ["--workspace", "ui-tui"]),
-            (_whatsapp_bridge_dir, "WhatsApp bridge", []),
-        ]
+        npm_audit_targets = [(_whatsapp_bridge_dir, "WhatsApp bridge", [])]
         for npm_dir, label, audit_extra in npm_audit_targets:
             # For workspace-scoped audits run from PROJECT_ROOT the
             # node_modules check must use the workspace root; standalone dirs
@@ -2317,17 +2238,6 @@ def run_doctor(args):
                         f"{label} deps",
                         f"({vuln_detail})"
                     )
-                    if audit_extra and audit_extra[0] == "--workspace":
-                        # The web/ui-tui workspace advisories are in build-time
-                        # tooling (esbuild/vite, etc.), not runtime code that ships
-                        # to users. Manual npm remediation may error with a known
-                        # arborist crash (edgesOut / isDescendantOf) on this monorepo
-                        # tree — in that case it is an npm bug, not a Hermes one.
-                        check_info(
-                            "  ^ build-time tooling (not runtime); if manual npm remediation "
-                            "errors with an arborist crash it's a known npm bug — clears "
-                            "via a lockfile bump"
-                        )
                     issues.append(
                         f"{label} has {total} npm "
                         f"{'vulnerability' if total == 1 else 'vulnerabilities'}"

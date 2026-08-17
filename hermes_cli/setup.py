@@ -24,7 +24,6 @@ from typing import Optional, Dict, Any
 
 from hermes_cli.nous_subscription import get_nous_subscription_features
 from tools.tool_backend_helpers import managed_nous_tools_enabled
-from hermes_constants import get_optional_skills_dir
 
 logger = logging.getLogger(__name__)
 
@@ -282,13 +281,10 @@ def prompt_choice(question: str, choices: list, default: int = 0, description: s
 def is_noninteractive() -> bool:
     """True when no human is available to answer a prompt.
 
-    The dashboard/desktop spawn CLI actions with ``stdin=DEVNULL`` and
-    ``HERMES_NONINTERACTIVE=1`` (see ``hermes_cli/web_server.py``). In that
-    context an ``input()`` raises ``EOFError`` immediately, so a prompt that
-    aborts on EOF kills the spawned action — this is what made the desktop
-    "restart gateway" fail when the Windows gateway service was not yet
-    installed (the start path asks "Install it now?" with no one to answer).
-    Honour the explicit env flag here so callers fall back to their default.
+    Automation can run CLI actions with ``stdin=DEVNULL`` and
+    ``HERMES_NONINTERACTIVE=1``. In that context an ``input()`` raises
+    ``EOFError`` immediately, so honour the explicit flag and let callers use
+    their non-interactive default.
     """
     return os.environ.get("HERMES_NONINTERACTIVE", "").strip().lower() in {
         "1",
@@ -2343,403 +2339,6 @@ def setup_telemetry(config: dict):
         print_info("Local shared metrics disabled.")
 
 
-# =============================================================================
-# Post-Migration Section Skip Logic
-# =============================================================================
-
-
-def _model_section_has_credentials(config: dict) -> bool:
-    """Return True when any known inference provider has usable credentials.
-
-    Sources of truth:
-      * ``PROVIDER_REGISTRY`` in ``hermes_cli.auth`` — lists every supported
-        provider along with its ``api_key_env_vars``.
-      * ``active_provider`` in the auth store — covers OAuth device-code /
-        external-OAuth providers (Nous, Codex, Qwen, Gemini CLI, ...).
-      * The legacy OpenRouter aggregator env vars, which route generic
-        ``OPENAI_API_KEY`` / ``OPENROUTER_API_KEY`` values through OpenRouter.
-    """
-    try:
-        from hermes_cli.auth import get_active_provider
-        if get_active_provider():
-            return True
-    except Exception:
-        pass
-
-    try:
-        from hermes_cli.auth import PROVIDER_REGISTRY
-    except Exception:
-        PROVIDER_REGISTRY = {}  # type: ignore[assignment]
-
-    def _has_key(pconfig) -> bool:
-        for env_var in pconfig.api_key_env_vars:
-            # CLAUDE_CODE_OAUTH_TOKEN is set by Claude Code itself, not by
-            # the user — mirrors is_provider_explicitly_configured in auth.py.
-            if env_var == "CLAUDE_CODE_OAUTH_TOKEN":
-                continue
-            if get_env_value(env_var):
-                return True
-        return False
-
-    # Prefer the provider declared in config.yaml, avoids false positives
-    # from stray env vars (GH_TOKEN, etc.) when the user has already picked
-    # a different provider.
-    model_cfg = config.get("model") if isinstance(config, dict) else None
-    if isinstance(model_cfg, dict):
-        provider_id = (model_cfg.get("provider") or "").strip().lower()
-        if provider_id in PROVIDER_REGISTRY:
-            if _has_key(PROVIDER_REGISTRY[provider_id]):
-                return True
-        if provider_id == "openrouter":
-            for env_var in ("OPENROUTER_API_KEY", "OPENAI_API_KEY"):
-                if get_env_value(env_var):
-                    return True
-
-    # OpenRouter aggregator fallback (no provider declared in config).
-    for env_var in ("OPENROUTER_API_KEY", "OPENAI_API_KEY"):
-        if get_env_value(env_var):
-            return True
-
-    for pid, pconfig in PROVIDER_REGISTRY.items():
-        # Skip copilot in auto-detect: GH_TOKEN / GITHUB_TOKEN are
-        # commonly set for git tooling.  Mirrors resolve_provider in auth.py.
-        if pid == "copilot":
-            continue
-        if _has_key(pconfig):
-            return True
-    return False
-
-
-def _gateway_platform_short_label(label: str) -> str:
-    """Strip trailing parenthetical qualifiers from a gateway platform label."""
-    base = label.split("(", 1)[0].strip()
-    return base or label
-
-
-def _get_section_config_summary(config: dict, section_key: str) -> Optional[str]:
-    """Return a short summary if a setup section is already configured, else None.
-
-    Used after OpenClaw migration to detect which sections can be skipped.
-    ``get_env_value`` is the module-level import from hermes_cli.config
-    so that test patches on ``setup_mod.get_env_value`` take effect.
-    """
-    if section_key == "model":
-        if not _model_section_has_credentials(config):
-            return None
-        model = config.get("model")
-        if isinstance(model, str) and model.strip():
-            return model.strip()
-        if isinstance(model, dict):
-            return str(model.get("default") or model.get("model") or "configured")
-        return "configured"
-
-    elif section_key == "terminal":
-        backend = cfg_get(config, "terminal", "backend", default="local")
-        return f"backend: {backend}"
-
-    elif section_key == "agent":
-        max_turns = cfg_get(config, "agent", "max_turns", default=90)
-        return f"max turns: {max_turns}"
-
-    elif section_key == "gateway":
-        from hermes_cli.gateway import _all_platforms, _platform_status
-        # Count any non-empty status other than the "not configured" sentinel —
-        # platforms like WhatsApp ("enabled, not paired"), Matrix ("configured
-        # + E2EE"), and Signal ("partially configured") all indicate the user
-        # has already started setup and we shouldn't force the section to rerun.
-        configured = [
-            _gateway_platform_short_label(plat["label"])
-            for plat in _all_platforms()
-            if _platform_status(plat) and _platform_status(plat) != "not configured"
-        ]
-        if configured:
-            return ", ".join(configured)
-        return None  # No platforms configured — section must run
-
-    elif section_key == "tools":
-        tools = []
-        if get_env_value("ELEVENLABS_API_KEY"):
-            tools.append("TTS/ElevenLabs")
-        if get_env_value("BROWSERBASE_API_KEY"):
-            tools.append("Browser")
-        if get_env_value("FIRECRAWL_API_KEY"):
-            tools.append("Firecrawl")
-        if tools:
-            return ", ".join(tools)
-        return None
-
-    return None
-
-
-def _skip_configured_section(
-    config: dict, section_key: str, label: str
-) -> bool:
-    """Show an already-configured section summary and offer to skip.
-
-    Returns True if the user chose to skip, False if the section should run.
-    """
-    summary = _get_section_config_summary(config, section_key)
-    if not summary:
-        return False
-    print()
-    print_success(f"  {label}: {summary}")
-    return not prompt_yes_no(f"  Reconfigure {label.lower()}?", default=False)
-
-
-# =============================================================================
-# OpenClaw Migration
-# =============================================================================
-
-
-_OPENCLAW_SCRIPT = (
-    get_optional_skills_dir(PROJECT_ROOT / "optional-skills")
-    / "migration"
-    / "openclaw-migration"
-    / "scripts"
-    / "openclaw_to_hermes.py"
-)
-
-
-def _load_openclaw_migration_module():
-    """Load the openclaw_to_hermes migration script as a module.
-
-    Returns the loaded module, or None if the script can't be loaded.
-    """
-    if not _OPENCLAW_SCRIPT.exists():
-        return None
-
-    spec = importlib.util.spec_from_file_location(
-        "openclaw_to_hermes", _OPENCLAW_SCRIPT
-    )
-    if spec is None or spec.loader is None:
-        return None
-
-    mod = importlib.util.module_from_spec(spec)
-    # Register in sys.modules so @dataclass can resolve the module
-    # (Python 3.11+ requires this for dynamically loaded modules)
-    import sys as _sys
-    _sys.modules[spec.name] = mod
-    try:
-        spec.loader.exec_module(mod)
-    except Exception:
-        _sys.modules.pop(spec.name, None)
-        raise
-    return mod
-
-
-# Item kinds that represent high-impact changes warranting explicit warnings.
-# Gateway tokens/channels can hijack messaging platforms from the old agent.
-# Config values may have different semantics between OpenClaw and Hermes.
-# Instruction/context files (.md) can contain incompatible setup procedures.
-_HIGH_IMPACT_KIND_KEYWORDS = {
-    "gateway": "⚠ Gateway/messaging — this will configure Hermes to use your OpenClaw messaging channels",
-    "telegram": "⚠ Telegram — this will point Hermes at your OpenClaw Telegram bot",
-    "slack": "⚠ Slack — this will point Hermes at your OpenClaw Slack workspace",
-    "discord": "⚠ Discord — this will point Hermes at your OpenClaw Discord bot",
-    "whatsapp": "⚠ WhatsApp — this will point Hermes at your OpenClaw WhatsApp connection",
-    "config": "⚠ Config values — OpenClaw settings may not map 1:1 to Hermes equivalents",
-    "soul": "⚠ Instruction file — may contain OpenClaw-specific setup/restart procedures",
-    "memory": "⚠ Memory/context file — may reference OpenClaw-specific infrastructure",
-    "context": "⚠ Context file — may contain OpenClaw-specific instructions",
-}
-
-
-def _print_migration_preview(report: dict):
-    """Print a detailed dry-run preview of what migration would do.
-
-    Groups items by category and adds explicit warnings for high-impact
-    changes like gateway token takeover and config value differences.
-    """
-    items = report.get("items", [])
-    if not items:
-        print_info("Nothing to migrate.")
-        return
-
-    migrated_items = [i for i in items if i.get("status") == "migrated"]
-    conflict_items = [i for i in items if i.get("status") == "conflict"]
-    skipped_items = [i for i in items if i.get("status") == "skipped"]
-
-    warnings_shown = set()
-
-    if migrated_items:
-        print(color("  Would import:", Colors.GREEN))
-        for item in migrated_items:
-            kind = item.get("kind", "unknown")
-            dest = item.get("destination", "")
-            if dest:
-                dest_short = str(dest).replace(str(Path.home()), "~")
-                print(f"      {kind:<22s} → {dest_short}")
-            else:
-                print(f"      {kind}")
-
-            # Check for high-impact items and collect warnings
-            kind_lower = kind.lower()
-            dest_lower = str(dest).lower()
-            for keyword, warning in _HIGH_IMPACT_KIND_KEYWORDS.items():
-                if keyword in kind_lower or keyword in dest_lower:
-                    warnings_shown.add(warning)
-        print()
-
-    if conflict_items:
-        print(color("  Would overwrite (conflicts with existing Hermes config):", Colors.YELLOW))
-        for item in conflict_items:
-            kind = item.get("kind", "unknown")
-            reason = item.get("reason", "already exists")
-            print(f"      {kind:<22s}  {reason}")
-        print()
-
-    if skipped_items:
-        print(color("  Would skip:", Colors.DIM))
-        for item in skipped_items:
-            kind = item.get("kind", "unknown")
-            reason = item.get("reason", "")
-            print(f"      {kind:<22s}  {reason}")
-        print()
-
-    # Print collected warnings
-    if warnings_shown:
-        print(color("  ── Warnings ──", Colors.YELLOW))
-        for warning in sorted(warnings_shown):
-            print(color(f"    {warning}", Colors.YELLOW))
-        print()
-        print(color("  Note: OpenClaw config values may have different semantics in Hermes.", Colors.YELLOW))
-        print(color("  For example, OpenClaw's tool_call_execution: \"auto\" ≠ Hermes's yolo mode.", Colors.YELLOW))
-        print(color("  Instruction files (.md) from OpenClaw may contain incompatible procedures.", Colors.YELLOW))
-        print()
-
-
-def _offer_openclaw_migration(hermes_home: Path) -> bool:
-    """Detect ~/.openclaw and offer to migrate during first-time setup.
-
-    Runs a dry-run first to show the user exactly what would be imported,
-    overwritten, or taken over. Only executes after explicit confirmation.
-
-    Returns True if migration ran successfully, False otherwise.
-    """
-    openclaw_dir = Path.home() / ".openclaw"
-    if not openclaw_dir.is_dir():
-        return False
-
-    if not _OPENCLAW_SCRIPT.exists():
-        return False
-
-    print()
-    print_header("OpenClaw Installation Detected")
-    print_info(f"Found OpenClaw data at {openclaw_dir}")
-    print_info("Hermes can preview what would be imported before making any changes.")
-    print()
-
-    if not prompt_yes_no("Would you like to see what can be imported?", default=True):
-        print_info(
-            "Skipping migration. You can run it later with: hermes claw migrate --dry-run"
-        )
-        return False
-
-    # Ensure config.yaml exists before migration tries to read it
-    config_path = get_config_path()
-    if not config_path.exists():
-        save_config(load_config())
-
-    # Load the migration module
-    try:
-        mod = _load_openclaw_migration_module()
-        if mod is None:
-            print_warning("Could not load migration script.")
-            return False
-    except Exception as e:
-        print_warning(f"Could not load migration script: {e}")
-        logger.debug("OpenClaw migration module load error", exc_info=True)
-        return False
-
-    # ── Phase 1: Dry-run preview ──
-    try:
-        selected = mod.resolve_selected_options(None, None, preset="full")
-        dry_migrator = mod.Migrator(
-            source_root=openclaw_dir.resolve(),
-            target_root=hermes_home.resolve(),
-            execute=False,  # dry-run — no files modified
-            workspace_target=None,
-            overwrite=True,  # show everything including conflicts
-            migrate_secrets=True,
-            output_dir=None,
-            selected_options=selected,
-            preset_name="full",
-        )
-        preview_report = dry_migrator.migrate()
-    except Exception as e:
-        print_warning(f"Migration preview failed: {e}")
-        logger.debug("OpenClaw migration preview error", exc_info=True)
-        return False
-
-    # Display the full preview
-    preview_summary = preview_report.get("summary", {})
-    preview_count = preview_summary.get("migrated", 0)
-
-    if preview_count == 0:
-        print()
-        print_info("Nothing to import from OpenClaw.")
-        return False
-
-    print()
-    print_header(f"Migration Preview — {preview_count} item(s) would be imported")
-    print_info("No changes have been made yet. Review the list below:")
-    print()
-    _print_migration_preview(preview_report)
-
-    # ── Phase 2: Confirm and execute ──
-    if not prompt_yes_no("Proceed with migration?", default=False):
-        print_info(
-            "Migration cancelled. You can run it later with: hermes claw migrate"
-        )
-        print_info(
-            "Use --dry-run to preview again, or --preset minimal for a lighter import."
-        )
-        return False
-
-    # Execute the migration — overwrite=False so existing Hermes configs are
-    # preserved. The user saw the preview; conflicts are skipped by default.
-    try:
-        migrator = mod.Migrator(
-            source_root=openclaw_dir.resolve(),
-            target_root=hermes_home.resolve(),
-            execute=True,
-            workspace_target=None,
-            overwrite=False,  # preserve existing Hermes config
-            migrate_secrets=True,
-            output_dir=None,
-            selected_options=selected,
-            preset_name="full",
-        )
-        report = migrator.migrate()
-    except Exception as e:
-        print_warning(f"Migration failed: {e}")
-        logger.debug("OpenClaw migration error", exc_info=True)
-        return False
-
-    # Print final summary
-    summary = report.get("summary", {})
-    migrated = summary.get("migrated", 0)
-    skipped = summary.get("skipped", 0)
-    conflicts = summary.get("conflict", 0)
-    errors = summary.get("error", 0)
-
-    print()
-    if migrated:
-        print_success(f"Imported {migrated} item(s) from OpenClaw.")
-    if conflicts:
-        print_info(f"Skipped {conflicts} item(s) that already exist in Hermes (use hermes claw migrate --overwrite to force).")
-    if skipped:
-        print_info(f"Skipped {skipped} item(s) (not found or unchanged).")
-    if errors:
-        print_warning(f"{errors} item(s) had errors — check the migration report.")
-
-    output_dir = report.get("output_dir")
-    if output_dir:
-        print_info(f"Full report saved to: {output_dir}")
-
-    print_success("Migration complete! Continuing with setup...")
-    return True
-
 
 # =============================================================================
 # Main Wizard Orchestrator
@@ -2853,10 +2452,6 @@ def run_setup_wizard(args):
       hermes setup telemetry — just local shared metrics
       hermes setup agent     — just agent settings
     """
-    from hermes_cli.config import is_managed, managed_error
-    if is_managed():
-        managed_error("run setup wizard")
-        return
     ensure_hermes_home()
 
     reset_requested = bool(getattr(args, "reset", False))
@@ -2975,14 +2570,11 @@ def run_setup_wizard(args):
         )
     )
 
-    migration_ran = False
-
     if is_existing:
         # Existing install — default is the full-wizard reconfigure flow.
         # Every prompt shows the current value as its default, so pressing
-        # Enter keeps it.  Opt into `--quick` for the narrow "just fill in
-        # missing items" flow (useful after a partial OpenClaw migration
-        # or when a required API key got cleared).
+        # Enter keeps it. Opt into `--quick` for the narrow "just fill in
+        # missing items" flow.
         if quick_requested:
             _run_quick_setup(config, hermes_home)
             return
@@ -3007,11 +2599,6 @@ def run_setup_wizard(args):
         if reconfigure_requested or quick_requested:
             print_info("No existing configuration found — running first-time setup.")
             print()
-
-        # Offer OpenClaw migration before configuration begins
-        migration_ran = _offer_openclaw_migration(hermes_home)
-        if migration_ran:
-            config = load_config()
 
         setup_mode = prompt_choice(
             "How would you like to set up Hermes?",
@@ -3039,19 +2626,11 @@ def run_setup_wizard(args):
     print()
     print_info("You can edit these files directly or use 'hermes config edit'")
 
-    if migration_ran:
-        print()
-        print_info("Settings were imported from OpenClaw.")
-        print_info("Each section below will show what was imported — press Enter to keep,")
-        print_info("or choose to reconfigure if needed.")
-
     # Section 1: Model & Provider
-    if not (migration_ran and _skip_configured_section(config, "model", "Model & Provider")):
-        setup_model_provider(config)
+    setup_model_provider(config)
 
     # Section 2: Terminal Backend
-    if not (migration_ran and _skip_configured_section(config, "terminal", "Terminal Backend")):
-        setup_terminal_backend(config)
+    setup_terminal_backend(config)
 
     # Section 3: Agent Settings — no longer prompted. First installs get the
     # recommended defaults silently; existing installs keep whatever they have.
@@ -3060,17 +2639,10 @@ def run_setup_wizard(args):
         _apply_default_agent_settings(config)
 
     # Section 4: Messaging Platforms
-    if not (migration_ran and _skip_configured_section(config, "gateway", "Messaging Platforms")):
-        setup_gateway(config)
-    else:
-        # Section skipped (migrated config) — still make sure the gateway
-        # service exists so cron jobs and migrated platforms actually run.
-        from hermes_cli.gateway import ensure_gateway_service
-        ensure_gateway_service(context="setup")
+    setup_gateway(config)
 
     # Section 5: Tools
-    if not (migration_ran and _skip_configured_section(config, "tools", "Tools")):
-        setup_tools(config, first_install=not is_existing)
+    setup_tools(config, first_install=not is_existing)
 
     # Save and show summary
     save_config(config)

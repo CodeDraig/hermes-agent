@@ -48,7 +48,7 @@ else
     if _hermes_env="${HERMES_HOME:-$HOME/.hermes}/.env"; [ -f "$_hermes_env" ] && grep -q "^GITHUB_TOKEN=" "$_hermes_env"; then
       GITHUB_TOKEN=$(grep "^GITHUB_TOKEN=" "$_hermes_env" | head -1 | cut -d= -f2 | tr -d '\n\r')
     elif grep -q "github.com" ~/.git-credentials 2>/dev/null; then
-      GITHUB_TOKEN=$(uv run python3 "${HERMES_HOME:-$HOME/.hermes}/skills/github/github-auth/scripts/git-credential-token.py")
+      GITHUB_TOKEN=$(uv run python "${HERMES_HOME:-$HOME/.hermes}/skills/github/github-auth/scripts/git-credential-token.py")
     fi
   fi
 fi
@@ -57,7 +57,7 @@ fi
 if [ "$AUTH" = "gh" ]; then
   GH_USER=$(gh api user --jq '.login')
 else
-  GH_USER=$(curl -s -H "Authorization: token $GITHUB_TOKEN" https://api.github.com/user | python3 -c "import sys,json; print(json.load(sys.stdin)['login'])")
+  GH_USER=$(curl -s -H "Authorization: token $GITHUB_TOKEN" https://api.github.com/user | python -c "import sys,json; print(json.load(sys.stdin)['login'])")
 fi
 ```
 
@@ -231,7 +231,7 @@ gh search repos "machine learning" --language python --sort stars
 curl -s \
   -H "Authorization: token $GITHUB_TOKEN" \
   https://api.github.com/repos/$OWNER/$REPO \
-  | python3 -c "
+  | python -c "
 import sys, json
 r = json.load(sys.stdin)
 print(f\"Name: {r['full_name']}\")
@@ -244,7 +244,7 @@ print(f\"Language: {r['language']}\")"
 curl -s \
   -H "Authorization: token $GITHUB_TOKEN" \
   "https://api.github.com/user/repos?per_page=20&sort=updated" \
-  | python3 -c "
+  | python -c "
 import sys, json
 for r in json.load(sys.stdin):
     vis = 'private' if r['private'] else 'public'
@@ -253,7 +253,7 @@ for r in json.load(sys.stdin):
 # Search repos
 curl -s \
   "https://api.github.com/search/repositories?q=machine+learning+language:python&sort=stars&per_page=10" \
-  | python3 -c "
+  | python -c "
 import sys, json
 for r in json.load(sys.stdin)['items']:
     print(f\"  {r['full_name']:40}  ★{r['stargazers_count']:6}  {r['description'][:60] if r['description'] else ''}\")"
@@ -339,7 +339,7 @@ curl -s \
   https://api.github.com/repos/$OWNER/$REPO/actions/secrets/public-key
 
 # Encrypt and set (requires Python with PyNaCl)
-python3 -c "
+python -c "
 from base64 import b64encode
 from nacl import encoding, public
 import json, sys
@@ -367,7 +367,7 @@ curl -s -X PUT \
 curl -s \
   -H "Authorization: token $GITHUB_TOKEN" \
   https://api.github.com/repos/$OWNER/$REPO/actions/secrets \
-  | python3 -c "
+  | python -c "
 import sys, json
 for s in json.load(sys.stdin)['secrets']:
     print(f\"  {s['name']:30}  updated: {s['updated_at']}\")"
@@ -407,7 +407,7 @@ curl -s -X POST \
 curl -s \
   -H "Authorization: token $GITHUB_TOKEN" \
   https://api.github.com/repos/$OWNER/$REPO/releases \
-  | python3 -c "
+  | python -c "
 import sys, json
 for r in json.load(sys.stdin):
     tag = r.get('tag_name', 'no tag')
@@ -444,7 +444,7 @@ gh workflow run deploy.yml -f environment=staging
 curl -s \
   -H "Authorization: token $GITHUB_TOKEN" \
   https://api.github.com/repos/$OWNER/$REPO/actions/workflows \
-  | python3 -c "
+  | python -c "
 import sys, json
 for w in json.load(sys.stdin)['workflows']:
     print(f\"  {w['id']:10}  {w['name']:30}  {w['state']}\")"
@@ -453,7 +453,7 @@ for w in json.load(sys.stdin)['workflows']:
 curl -s \
   -H "Authorization: token $GITHUB_TOKEN" \
   "https://api.github.com/repos/$OWNER/$REPO/actions/runs?per_page=10" \
-  | python3 -c "
+  | python -c "
 import sys, json
 for r in json.load(sys.stdin)['workflow_runs']:
     print(f\"  Run {r['id']}  {r['name']:30}  {r['conclusion'] or r['status']}\")"
@@ -512,7 +512,7 @@ curl -s -X POST \
 curl -s \
   -H "Authorization: token $GITHUB_TOKEN" \
   https://api.github.com/gists \
-  | python3 -c "
+  | python -c "
 import sys, json
 for g in json.load(sys.stdin):
     files = ', '.join(g['files'].keys())

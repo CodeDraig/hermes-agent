@@ -93,7 +93,7 @@ def _seed_drifted_session(db: SessionDB, session_id: str):
     instruction.  The DB meanwhile carries TWO extra rows written by a
     concurrent writer, so ``len(durable_parent) > len(messages)``.
     """
-    db.create_session(session_id, source="desktop")
+    db.create_session(session_id, source="cli")
     db.append_message(session_id, "user", "persisted question")
     db.append_message(session_id, "assistant", "persisted answer")
 

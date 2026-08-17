@@ -1442,7 +1442,6 @@ class TestDockerAwareGateway:
         """'hermes gateway install' inside Docker exits 0 with container guidance."""
         import pytest
 
-        monkeypatch.setattr(gateway_cli, "is_managed", lambda: False)
         monkeypatch.setattr(gateway_cli, "is_termux", lambda: False)
         monkeypatch.setattr(gateway_cli, "supports_systemd_services", lambda: False)
         monkeypatch.setattr(gateway_cli, "is_macos", lambda: False)
@@ -1455,7 +1454,7 @@ class TestDockerAwareGateway:
 
         assert exc_info.value.code == 0
         out = capsys.readouterr().out
-        assert "Docker" in out or "docker" in out
+        assert "container" in out.lower()
         assert "restart" in out.lower()
 
 

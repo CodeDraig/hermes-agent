@@ -6,12 +6,11 @@ description: "Hands-free 'Hey Hermes' wake word — start a voice session by spe
 
 # Wake Word ("Hey Hermes")
 
-The wake word turns Hermes into a hands-free assistant across the CLI, TUI, and
-desktop app: with one setting on, Hermes listens in the background for a spoken
+The wake word turns the Hermes CLI into a hands-free assistant: with one setting
+on, Hermes listens in the background for a spoken
 trigger phrase. Say it, and Hermes starts a fresh session, opens the microphone,
 captures your command via the normal [voice pipeline](/user-guide/features/voice-mode),
-and answers — exactly like "Hey Siri" or "Alexa". Use `surface` to pick which
-one listens.
+and answers — exactly like "Hey Siri" or "Alexa".
 
 Detection runs **entirely on-device**. The always-on listener only watches for
 the wake phrase; no audio leaves your machine until you actually speak a command
@@ -29,48 +28,6 @@ to the agent.
 
 It is **off by default** — nothing listens until you turn it on.
 
-On the desktop app, a hands-free voice conversation can be ended by simply
-**saying "stop"** (or "never mind", "goodbye", "cancel", "that's all") — the
-spoken command ends the conversation instead of being sent to the agent. Only a
-whole-utterance stop command matches, so a real request like "stop the docker
-container" still goes through normally.
-
-
-
-## Remote desktop (client capture)
-
-When the desktop app connects to a **remote** Hermes backend (for example a
-headless Docker host or a machine in another room), the backend often has **no
-microphone**. Server-side PortAudio then fails with “Failed to open the
-wake-word microphone.”
-
-Hermes supports **client capture** for that case:
-
-1. The desktop arms wake with `capture: client` (automatic for the GUI when the
-   backend has no local input device, or set explicitly below).
-2. openWakeWord still runs **on the backend** (same engines, same models).
-3. The desktop opens the **local Mac/PC microphone**, resamples to 16 kHz mono
-   int16, and streams short frames via the `wake.feed` RPC.
-4. On detection the backend emits `wake.detected` as usual; the desktop starts
-   the normal voice pipeline on the client mic.
-
-```yaml
-wake_word:
-  enabled: true
-  capture: auto    # auto | local | client
-  # auto   — local PortAudio unless the desktop arms with client_capture
-  # local  — always open the backend mic (CLI/TUI default)
-  # client — always expect wake.feed PCM from the desktop (remote-friendly)
-```
-
-The desktop GUI always passes `client_capture: true` on `wake.start`, so remote
-backends without a mic arm in client mode automatically. CLI and TUI keep local
-capture unless you set `capture: client` explicitly.
-
-Privacy note: with client capture, wake PCM travels over the authenticated
-desktop↔backend WebSocket (same channel as the rest of the session). Detection
-still does not send audio to third-party wake APIs; the engine is local to the
-backend process.
 
 ## Engines
 
@@ -84,9 +41,8 @@ By default the phrase is **"hey hermes"** — a model for it ships with Hermes, 
 it works out of the box with no training. (On first use, openWakeWord downloads
 its shared feature-extraction models — a small one-time fetch.)
 
-Both are lazy-installed the first time you enable the wake word (desktop
-installs made with `--include-desktop` pre-install them, so the ear works
-instantly). To install ahead of time:
+The engines are lazy-installed the first time you enable the wake word. To
+install ahead of time:
 
 ```bash
 cd ~/.hermes/hermes-agent && uv pip install -e ".[wake]"
@@ -101,10 +57,8 @@ cd ~/.hermes/hermes-agent && uv pip install -e ".[wake]"
 /wake off       # stop listening
 ```
 
-In the desktop app, click the ear icon in the composer.
-
-The toggle IS the setting: turning the wake word on or off — via `/wake` or the
-desktop ear button — also writes `wake_word.enabled` to `~/.hermes/config.yaml`,
+The toggle IS the setting: turning the wake word on or off via `/wake` also
+writes `wake_word.enabled` to `~/.hermes/config.yaml`,
 so your choice persists across sessions. You can also flip it by hand:
 
 ```yaml
@@ -117,9 +71,7 @@ wake_word:
 ```yaml
 wake_word:
   enabled: false
-  surface: auto               # eligible surface: "auto" | "cli" | "tui" | "gui"
   input_device: null           # PortAudio input index or device-name substring; null = process default
-  capture: auto               # auto | local | client — where PCM is captured (see Remote desktop)
   provider: openwakeword      # "openwakeword" (free, local) | "sherpa" (free, any phrase) | "porcupine"
   phrase: "hey hermes"        # cosmetic label only — detection is keyed by the model/keyword below
   sensitivity: 0.6            # 0.0-1.0 — higher = stricter (fewer false triggers), consistent across all engines
@@ -137,8 +89,7 @@ wake_word:
 
 `input_device` is passed directly to the wake listener's PortAudio
 (`sounddevice`) stream. Use either a numeric device index or an unambiguous
-device-name substring. This setting only changes wake-word capture; desktop
-push-to-talk still uses the desktop application's microphone path.
+device-name substring. This setting only changes wake-word capture.
 
 ### Reducing false triggers on ambient speech
 
@@ -173,26 +124,6 @@ so a listener pinned to `onnx` there will arm, show as listening, and never
 fire. The tflite backend needs `ai-edge-litert` on macOS, which Hermes installs
 on demand alongside the other wake-word deps.
 
-### Surfaces (CLI, TUI, GUI)
-
-The wake word works in all three Hermes surfaces, and `surface` picks which one
-owns the listener and opens the new session when it fires:
-
-| `surface` | Behavior |
-|-----------|----------|
-| `auto` (default) | All local surfaces are eligible; the first one to arm owns the listener. |
-| `cli` | Only the classic `hermes` CLI. |
-| `tui` | Only `hermes --tui`. |
-| `gui` | Only the desktop app. |
-
-The detector is on-device and single-mic, so only one surface listens at a time,
-including when Hermes surfaces run in separate processes. Ownership is sticky:
-the first eligible claimant keeps the listener until it stops, disconnects, or
-its process exits. Hermes does not silently fail over to another open surface.
-Set `surface` when you want to pin ownership instead of using first-claim wins.
-The TUI and desktop GUI share the same Python backend (`tui_gateway`), which
-runs the detector server-side and yields the mic to voice capture while a
-command records.
 
 ## Using a different phrase
 
@@ -215,21 +146,20 @@ wake_word:
 The small English KWS model (~13 MB) downloads once on first use. Each
 profile can set its own phrase — "hey \<profile\>" for every profile you run.
 
-### Waking a specific profile (desktop)
+### Waking a specific profile
 
 With the sherpa engine, ONE listener can wake ANY profile. Every profile
 whose config has `wake_word.enabled: true` is enrolled automatically; its
-phrase defaults to `hey <profile name>` when unset. Say a profile's phrase
-and the desktop app live-switches to that profile, opens a fresh session
-there, and starts hands-free voice:
+phrase defaults to `hey <profile name>` when unset. In the CLI, a phrase for
+another profile prints the command needed to switch:
 
 - "hey hermes" → default profile
 - "hey coder" → the `coder` profile
 - "hey trader" → the `trader` profile
 
 Set `wake_word.profile_routing: false` on the listener's profile to opt out
-and listen only for its own phrase. The CLI and TUI are single-profile
-processes: a wake phrase belonging to another profile prints the switch
+and listen only for its own phrase. The CLI is a single-profile process: a
+wake phrase belonging to another profile prints the switch
 command (`hermes -p <profile>`) instead of routing.
 
 Names are matched acoustically by their English subword sounds: two-word
@@ -299,41 +229,17 @@ PORCUPINE_ACCESS_KEY=your-key-here
 
 ### "Listening" but never wakes (macOS)
 
-macOS grants microphone access per **process**. STT working in the desktop app
-proves the *renderer* has mic access — the wake listener runs in the Python
-*backend*, which needs its own grant. Without it, CoreAudio hands the backend a
-"working" stream that only ever delivers silence, so the ear shows listening
-but the phrase never fires. Hermes detects this (`/wake status` shows
-"mic delivers only silence"; the desktop ear tooltip carries the same hint).
-Fix: System Settings → Privacy & Security → Microphone → enable the Hermes
-backend (it may appear as your terminal, `python`, or Hermes), then toggle the
-wake word off and on.
+macOS grants microphone access per **process**. The Python CLI process needs its
+own grant. Without it, CoreAudio can return a "working" stream that only ever
+delivers silence. Hermes detects this (`/wake status` shows "mic delivers only
+silence"). Fix: System Settings → Privacy & Security → Microphone → enable your
+terminal or Python process, then toggle the wake word off and on.
 
-### "Listening" but receives silence (Windows)
-
-Desktop push-to-talk and wake-word capture use different microphone paths.
-Push-to-talk uses the desktop application's browser capture, while the
-wake-word listener opens a PortAudio stream in the Python backend. One can work
-while the other selects a silent or unusable Windows input.
-
-`/wake status` reports the selected input device and Windows audio host API.
-When it reports silence, set `wake_word.input_device` to the numeric index or an
-unambiguous name of the working PortAudio input, then toggle the wake word:
-
-```bash
-hermes config set wake_word.input_device "Microphone Array"
-```
-
-Use `null` to return to the process default:
-
-```bash
-hermes config set wake_word.input_device null
-```
 
 ## Notes & limits
 
-- **Local surfaces only.** The wake word runs in the CLI, TUI, and desktop GUI —
-  wherever a local microphone is available. It does not run in the messaging
+- **CLI only.** The wake word runs wherever the CLI has a local microphone. It
+  does not run in the messaging
   gateway (Telegram, Discord, …), which has no mic.
 - **One mic at a time.** The detector releases the microphone while a command is
   recording and reclaims it once the turn ends, so it won't fight voice capture.

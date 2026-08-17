@@ -1,6 +1,6 @@
 """Tests for atomic_roundtrip_yaml_save() — comment-preserving full-state writes.
 
-This helper backs tui_gateway/server.py:_save_cfg(), which used to call
+This helper backs atomic configuration saves, which used to call
 yaml.safe_dump and silently clobber user-edited config files on every
 TUI/gateway setting change (e.g. /personality, /reasoning, /details_mode).
 """
@@ -144,7 +144,7 @@ class TestAtomicRoundtripYamlSave:
         assert result["agent"]["system_prompt"] == "you are noir"
 
     def test_deletes_keys_missing_from_new_state(self, config_path):
-        """Mirrors the cfg.pop()-then-_save_cfg(cfg) pattern in tui_gateway:
+        """Mirrors the cfg.pop()-then-save pattern:
         e.g. /prompt clear removes custom_prompt entirely."""
         config_path.write_text(
             "model:\n"

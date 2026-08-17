@@ -2730,14 +2730,13 @@ def _migrate_add_optional_columns(conn: sqlite3.Connection) -> None:
             # originating session unconditionally whenever the task carried a
             # session_id — every pre-existing gateway subscription had de
             # facto active wake. Defaulting them to plain 'notify' would
-            # silently disable that behavior on upgrade. TUI/CLI rows keep
-            # 'notify' (matching _maybe_auto_subscribe, which only requests
-            # 'notify+wake' for gateway sessions). Runs ONLY on first-add of
+            # silently disable that behavior on upgrade. Rows without a chat
+            # delivery target keep 'notify'. Runs ONLY on first-add of
             # the column, so a user's later explicit downgrade is never
             # overwritten by a re-migration.
             conn.execute(
                 "UPDATE kanban_notify_subs SET delivery_mode = 'notify+wake' "
-                "WHERE platform != 'tui'"
+                "WHERE COALESCE(chat_id, '') != ''"
             )
         if "chat_type" not in notify_cols:
             _add_column_if_missing(
@@ -9783,12 +9782,36 @@ def count_running_tasks_other_boards(board: Optional[str] = None) -> int:
     return total
 
 
+def _classify_memory_pressure(available_kib: Any, total_kib: Any) -> str:
+    """Map MemAvailable/MemTotal to the dispatcher's pressure bands."""
+    if (
+        isinstance(available_kib, bool)
+        or not isinstance(available_kib, int)
+        or available_kib < 0
+    ):
+        return "unknown"
+    fraction = None
+    if (
+        not isinstance(total_kib, bool)
+        and isinstance(total_kib, int)
+        and total_kib > 0
+    ):
+        fraction = available_kib / total_kib
+    if available_kib < 64 * 1024 or (
+        fraction is not None and fraction < 0.05
+    ):
+        return "critical"
+    if available_kib < 128 * 1024 or (
+        fraction is not None and fraction < 0.15
+    ):
+        return "elevated"
+    return "ok"
+
+
 def _memory_pressure_level(sample: Optional[Mapping[str, Any]] = None) -> str:
     """Classify current system memory pressure: ok/elevated/critical/unknown.
 
-    Reuses :func:`gateway.memory_status.classify_pressure` so the dispatcher's
-    idea of "critical" matches the memory banner users see on the dashboard
-    and the lifecycle ledger's OOM-suspicion heuristics (NS-608/NS-656).
+    Uses the lifecycle ledger's OOM-suspicion thresholds.
     ``unknown`` (non-Linux, read failure) imposes no restriction — the guard
     must never brick dispatch on hosts where /proc isn't available.
     """
@@ -9796,13 +9819,9 @@ def _memory_pressure_level(sample: Optional[Mapping[str, Any]] = None) -> str:
         sample = _system_memory_sample()
     if not sample:
         return "unknown"
-    try:
-        from gateway.memory_status import classify_pressure
-        return classify_pressure(
-            sample.get("mem_available_kib"), sample.get("mem_total_kib")
-        )
-    except Exception:
-        return "unknown"
+    return _classify_memory_pressure(
+        sample.get("mem_available_kib"), sample.get("mem_total_kib")
+    )
 
 
 def dispatch_once(
@@ -10829,14 +10848,6 @@ def _default_spawn(
     # what the tool reads — set it explicitly here so comments are
     # attributed correctly regardless of how the child loads config.
     env["HERMES_PROFILE"] = profile_arg
-
-    # A worker must NEVER boot the interactive TUI: an inherited HERMES_TUI=1
-    # or a `display.interface: tui` in the profile's config would send the
-    # quiet chat run into the Ink TUI, whose no-TTY bail-out exits 0 without
-    # doing the task → "protocol violation" on every attempt. `--cli` is the
-    # highest-precedence interface override; dropping the env var covers
-    # older hermes builds on PATH that predate the flag's precedence.
-    env.pop("HERMES_TUI", None)
 
     cmd = [
         *_resolve_hermes_argv(),

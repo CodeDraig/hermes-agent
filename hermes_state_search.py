@@ -99,7 +99,7 @@ class SessionSearchMixin:
         Shape: {"pending": True, "total": <rows at drop time>,
         "indexed": <rows backfilled>, "percent": <0-100 int>}.
         Consumed by search_messages() notes and by status surfaces
-        (dashboard/desktop can poll this to render a progress indicator).
+        (callers can poll this to render a progress indicator).
 
         Reads state_meta directly via _read_ctx instead of calling
         get_meta() (which takes self._lock) so search_messages doesn't

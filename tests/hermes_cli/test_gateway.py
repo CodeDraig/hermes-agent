@@ -245,7 +245,6 @@ def test_gateway_run_subprocess_preserves_daemon_exit_codes(
 def _clear_supervisor_markers(monkeypatch):
     """Make ``_running_under_gateway_supervisor()`` report a plain shell."""
     monkeypatch.delenv("INVOCATION_ID", raising=False)
-    monkeypatch.delenv("HERMES_S6_SUPERVISED_CHILD", raising=False)
     # Interactive macOS shells inherit XPC_SERVICE_NAME="0"; launchd jobs get
     # the real label. Default to the shell sentinel so the guard can fire.
     monkeypatch.setenv("XPC_SERVICE_NAME", "0")
@@ -255,33 +254,6 @@ def _running_snapshot(manager="systemd (user)"):
     return gateway.GatewayRuntimeSnapshot(
         manager=manager, service_installed=True, service_running=True
     )
-
-
-def test_s6_runtime_snapshot_reports_supervised_service(monkeypatch, tmp_path):
-    service_dir = tmp_path / "gateway-default"
-    service_dir.mkdir()
-
-    class FakeS6Manager:
-        scandir = tmp_path
-
-        def is_running(self, name):
-            assert name == "gateway-default"
-            return True
-
-    monkeypatch.setattr(gateway, "is_linux", lambda: True)
-    monkeypatch.setattr("hermes_constants.is_container", lambda: True)
-    monkeypatch.setattr("hermes_cli.service_manager.detect_service_manager", lambda: "s6")
-    monkeypatch.setattr("hermes_cli.service_manager.get_service_manager", lambda: FakeS6Manager())
-    monkeypatch.setattr(gateway, "find_gateway_pids", lambda: [123])
-    monkeypatch.setattr(gateway, "_profile_suffix", lambda: "")
-
-    snapshot = gateway.get_gateway_runtime_snapshot()
-
-    assert snapshot.manager == "s6 (container supervisor)"
-    assert snapshot.service_installed is True
-    assert snapshot.service_running is True
-    assert snapshot.service_scope == "s6"
-    assert snapshot.gateway_pids == (123,)
 
 
 
@@ -565,9 +537,8 @@ class TestReapUnsupervisedGatewayOrphansMacOS:
     """Tests that the orphan reaper excludes launchd-managed PIDs on macOS.
 
     Regression guard: without the ``is_macos()`` exclusion of
-    ``_get_service_pids()``, the reaper would SIGTERM the launchd-supervised
-    gateway every time Hermes Desktop opens (``hermes serve`` calls
-    ``_reap_unsupervised_gateway_orphans`` during startup).
+    ``_get_service_pids()``, the reaper could SIGTERM the launchd-supervised
+    gateway during an orphan scan.
     """
 
     def test_macos_excludes_launchd_pid_from_kill(self, monkeypatch):
@@ -637,10 +608,9 @@ class TestReapUnsupervisedGatewayOrphansWindows:
     supervision chain on Windows.
 
     Regression guard: without the Windows exemption of the recorded healthy
-    gateway PID (and its parent chain), the reaper would SIGTERM/SIGKILL a
-    Scheduled-Task-supervised gateway every time Hermes Desktop opens
-    (``hermes serve`` calls ``_reap_unsupervised_gateway_orphans`` during
-    startup). The Scheduled-Task bootstrap's argv matches the gateway scan,
+    gateway PID (and its parent chain), the reaper could SIGTERM/SIGKILL a
+    Scheduled-Task-supervised gateway during an orphan scan. The
+    Scheduled-Task bootstrap's argv matches the gateway scan,
     so it is reaped as an "orphan" — and when the bootstrap dies, the
     detached gateway it spawned exits with it (#86098).
     """

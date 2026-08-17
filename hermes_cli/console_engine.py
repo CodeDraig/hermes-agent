@@ -1,8 +1,8 @@
 """Safe Hermes Console command engine.
 
 This module backs ``hermes console`` and is intentionally narrower than the
-full Hermes CLI. It exposes a curated set of native adapters that can later be
-shared by the dashboard console websocket without becoming a raw shell.
+full Hermes CLI. It exposes a curated set of native adapters without becoming
+a raw shell.
 """
 
 from __future__ import annotations
@@ -221,9 +221,8 @@ def _noop_console_command(_args: argparse.Namespace) -> None:
 
 # The CLI surface these helpers reflect is process-static: they import a
 # subcommand module and build a throwaway argparse tree purely to extract help
-# summaries. Nothing about the result changes across engine instances, but the
-# dashboard opens a fresh HermesConsoleEngine per /api/console connection, so
-# without memoization every reconnect re-imports + re-parses the whole surface.
+# summaries. Nothing about the result changes across engine instances, so
+# without memoization repeated callers re-import and re-parse the whole surface.
 # Cache by args (all hashable strings); callers only read the returned map.
 @functools.lru_cache(maxsize=None)
 def _extracted_summaries(
@@ -709,7 +708,6 @@ class HermesConsoleEngine:
                     ("reset",),
                     ("opt-in",),
                     ("opt-out",),
-                    ("repair-official",),
                     ("snapshot", "export"),
                     ("snapshot", "import"),
                     ("tap", "list"),
@@ -724,7 +722,6 @@ class HermesConsoleEngine:
                     ("reset",),
                     ("opt-in",),
                     ("opt-out",),
-                    ("repair-official",),
                     ("snapshot", "export"),
                     ("snapshot", "import"),
                     ("tap", "add"),
@@ -1183,13 +1180,9 @@ class HermesConsoleEngine:
         blocked_top = {
             "acp",
             "chat",
-            "claw",
             "completion",
-            "dashboard",
-            "desktop",
             "fallback",
             "gateway",
-            "gui",
             "login",
             "logout",
             "model",
@@ -1273,7 +1266,6 @@ def _apply_confirmed_defaults(args: argparse.Namespace) -> None:
         "install",
         "reset",
         "opt-out",
-        "repair-official",
     }:
         setattr(args, "yes", True)
     if getattr(args, "memory_command", None) == "reset":
@@ -1365,7 +1357,7 @@ def _sessions_stats(_engine: HermesConsoleEngine, args: list[str]) -> str:
             f"Listable sessions: {listable}",
             f"Total messages: {messages}",
         ]
-        for source in ["cli", "tui", "telegram", "discord", "slack", "cron"]:
+        for source in ["cli", "telegram", "discord", "slack", "cron"]:
             count = db.session_count(source=source)
             if count:
                 lines.append(f"  {source}: {count}")

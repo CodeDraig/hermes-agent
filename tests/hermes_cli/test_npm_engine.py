@@ -216,8 +216,8 @@ class TestRepairDecision:
         assert Path(upgrade_cmd[prefix_index + 1]) == managed_npm.parent.parent
 
     def test_upgrade_runs_outside_the_checkout(self, managed_npm, monkeypatch):
-        """The repo .npmrc sets min-release-age, which would gate the very npm
-        release we need; the upgrade must not run under it."""
+        """A user npmrc may set min-release-age and gate the npm release the
+        recovery needs; the upgrade must neutralize it."""
         seen = {}
 
         def fake_run(cmd, **kwargs):
@@ -311,7 +311,7 @@ class TestRepairDecision:
     ):
         """A too-old system NODE can't be fixed by any npm upgrade, but the
         managed tree ships a supported Node — provisioning covers it. The
-        managed npm is still upgraded to the repo's own engines.npm range."""
+        managed tree can still provide a supported Node runtime."""
         home = tmp_path / ".hermes"
         monkeypatch.setenv("HERMES_HOME", str(home))
         system_npm = tmp_path / "usr-bin-npm"
@@ -345,10 +345,9 @@ class TestRepairDecision:
 
         repaired = maybe_repair_npm_engine(str(system_npm), node_only, quiet=True)
         assert repaired == str(managed)
-        # No range in npm's error → fall back to the repo's own engines.npm
-        # so the fresh tree's bundled npm doesn't fail the retry identically.
-        repo_range = npm_engine._repo_npm_range()
-        assert upgrades == ([repo_range] if repo_range else [])
+        # A Node-only mismatch carries no npm requirement, so provisioning must
+        # leave the bundled npm alone.
+        assert upgrades == []
 
     def test_node_only_mismatch_on_managed_npm_does_not_upgrade(
         self, managed_npm, monkeypatch
@@ -365,24 +364,3 @@ class TestRepairDecision:
 
         monkeypatch.setattr(subprocess, "run", explode)
         assert not maybe_repair_npm_engine(str(managed_npm), node_only, quiet=True)
-
-
-class TestRepoRangeIsSatisfiable:
-    """Invariant: whatever the root package.json demands, the recovery can
-    parse and act on it — a malformed range would make the repair a no-op."""
-
-    def test_root_engines_npm_range_is_a_usable_constraint(self):
-        repo_root = Path(__file__).resolve().parents[2]
-        package_json = repo_root / "package.json"
-        engines = json.loads(package_json.read_text(encoding="utf-8")).get("engines", {})
-        npm_range = engines.get("npm")
-        if not npm_range:
-            pytest.skip("root package.json does not pin engines.npm")
-
-        synthetic = (
-            "npm error code EBADENGINE\n"
-            'npm error notsup Required: '
-            + json.dumps({"node": ">=20.0.0", "npm": npm_range})
-            + "\n"
-        )
-        assert required_npm_range(synthetic) == npm_range

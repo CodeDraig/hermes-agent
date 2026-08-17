@@ -717,7 +717,7 @@ def cmd_reload(args: argparse.Namespace) -> int:
 
 
 def format_status_text(*, show_tokens: bool = False) -> str:
-    """Plain-text egress status for slash commands, Dashboard, and Desktop."""
+    """Plain-text egress status for CLI and slash-command callers."""
     cfg = load_config()
     proxy_cfg = cfg.get("proxy") or {}
     status = ip.get_status()

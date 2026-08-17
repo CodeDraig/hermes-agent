@@ -7,8 +7,7 @@ stuck blocked for too long, etc. Each one carries:
 * A **kind** (canonical code; UI/tests match on this).
 * A **severity** (``warning`` / ``error`` / ``critical``).
 * A **title** (one-line human description) and **detail** (longer text).
-* A list of **suggested actions** — structured entries the dashboard
-  turns into buttons and the CLI turns into hints.
+* A list of **suggested actions** that the CLI turns into hints.
 
 Rules run over (task, recent events, recent runs, optional graph context) and
 emit diagnostics. They are stateless and read-only — no DB writes. Callers compute
@@ -56,8 +55,7 @@ class DiagnosticAction:
 
     The ``kind`` determines how both the UI and CLI render it:
 
-    * ``reclaim`` / ``reassign`` — POST to the matching /tasks/:id/*
-      endpoint; dashboard wires into the existing recovery popover.
+    * ``reclaim`` / ``reassign`` — structured recovery operations.
     * ``unblock`` — PATCH status back to ``ready`` (for stuck-blocked
       diagnostics).
     * ``cli_hint`` — print/copy a shell command (e.g.
@@ -244,8 +242,8 @@ def _aux_slot_explicit(slot: Any) -> bool:
 def _main_model_visible(raw_config: Any) -> bool:
     """Best-effort check that a main model is configured.
 
-    Diagnostics runs in the dashboard process which may not share the CLI's
-    runtime state, so we read the raw config dict. If we cannot prove the
+    Diagnostics may run outside the CLI's runtime state, so we read the raw
+    config dict. If we cannot prove the
     main model is set, we err on the side of NOT firing the diagnostic.
     """
     if not isinstance(raw_config, dict):
@@ -533,8 +531,8 @@ def _rule_repeated_failures(task, events, runs, now, cfg) -> list[Diagnostic]:
 
     Terminal statuses are exempt: a done/archived card has nothing left
     to retry, so a lingering failure streak is history, not a signal.
-    (``complete_task`` resets the counter, but a manual done — e.g. a
-    dashboard drag — ends no run and used to leave the flag stuck.)
+    (``complete_task`` resets the counter, but a direct manual completion ends
+    no run and used to leave the flag stuck.)
 
     A fresh attempt in flight (``running``) is also exempt: retrying a
     task should clear the stale failure banner until this attempt also
@@ -665,9 +663,8 @@ def _rule_repeated_crashes(task, events, runs, now, cfg) -> list[Diagnostic]:
 
     Terminal statuses are exempt for the same reason as
     ``repeated_failures`` — with one extra wrinkle: this rule reads run
-    history, and a manual done (dashboard drag) appends no ``completed``
-    run to break the crash streak, so the flag was permanent (#kanban
-    desktop dogfood). Done means done.
+    history, and a manual completion appends no ``completed`` run to break the
+    crash streak, so the flag was permanent. Done means done.
 
     ``running`` is exempt too: a fresh attempt is in flight, and its
     in-flight run (no outcome yet) doesn't break the trailing crash scan,
@@ -1128,7 +1125,7 @@ def config_from_kanban_config(kanban_cfg: Optional[dict]) -> dict:
 
     ``kanban.diagnostics.failure_threshold`` remains an explicit override.
     Otherwise, derive the repeated-failure threshold from
-    ``kanban.failure_limit`` so CLI/dashboard diagnostics match the
+    ``kanban.failure_limit`` so CLI diagnostics match the
     dispatcher's actual circuit-breaker threshold.
     """
     kanban_cfg = kanban_cfg or {}
@@ -1202,9 +1199,8 @@ def compute_task_diagnostics(
         try:
             out.extend(rule(task, events, runs, now_ts, cfg))
         except Exception:
-            # A broken rule must never crash the dashboard. Rule bugs
-            # get caught in tests; in production we'd rather drop the
-            # diagnostic than 500 a whole /board request.
+            # A broken rule must never crash diagnostics. Rule bugs get caught
+            # in tests; in production we'd rather drop one diagnostic.
             continue
     severity_idx = {s: i for i, s in enumerate(SEVERITY_ORDER)}
     out.sort(

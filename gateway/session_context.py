@@ -47,7 +47,7 @@ _UNSET: Any = object()
 
 # Process-level flag: has any code in this process bound a session via
 # set_session_vars()? Concurrent multi-session hosts (the messaging gateway, the
-# ACP adapter, the API server, the TUI, cron) all do; a pure single-process
+# ACP adapter, API server, and cron) all do; a pure single-process
 # CLI/one-shot that never engages the session-context system does not.
 #
 # The subprocess-env bridge (tools/environments/local.py) reads this to choose
@@ -89,13 +89,6 @@ _SESSION_USER_NAME: ContextVar = ContextVar("HERMES_SESSION_USER_NAME", default=
 _SESSION_SCOPE_ID: ContextVar = ContextVar("HERMES_SESSION_SCOPE_ID", default=_UNSET)
 _SESSION_KEY: ContextVar = ContextVar("HERMES_SESSION_KEY", default=_UNSET)
 _SESSION_ID: ContextVar = ContextVar("HERMES_SESSION_ID", default=_UNSET)
-# In-process UI session/window id for multi-session desktop/TUI hosts. This is
-# intentionally separate from HERMES_SESSION_ID: the latter is the durable
-# conversation/session-db id, while the UI id is the live frontend tab/window
-# that commissioned a detached completion. Background completions use it as a
-# precise return address so a stale/rotated durable session key cannot be
-# consumed by whichever desktop poller wakes first.
-_SESSION_UI_SESSION_ID: ContextVar = ContextVar("HERMES_UI_SESSION_ID", default=_UNSET)
 # ID of the message that triggered the current turn. Used as a reply anchor
 # so background-process notifications stay inside the originating Telegram
 # private-chat topic (those lanes route only with thread id + reply anchor).
@@ -148,7 +141,6 @@ _VAR_MAP = {
     "HERMES_SESSION_SCOPE_ID": _SESSION_SCOPE_ID,
     "HERMES_SESSION_KEY": _SESSION_KEY,
     "HERMES_SESSION_ID": _SESSION_ID,
-    "HERMES_UI_SESSION_ID": _SESSION_UI_SESSION_ID,
     "HERMES_SESSION_MESSAGE_ID": _SESSION_MESSAGE_ID,
     "HERMES_SESSION_PROFILE": _SESSION_PROFILE,
     "HERMES_CRON_SESSION": _CRON_SESSION,
@@ -230,7 +222,6 @@ def set_session_vars(
     profile: str = "",
     cwd: str = "",
     async_delivery: bool = True,
-    ui_session_id: str = "",
     cron_session: Any = _UNSET,
 ) -> list:
     """Set all session context variables and return reset tokens.
@@ -270,7 +261,6 @@ def set_session_vars(
         _SESSION_SCOPE_ID.set(scope_id),
         _SESSION_KEY.set(session_key),
         _SESSION_ID.set(session_id),
-        _SESSION_UI_SESSION_ID.set(ui_session_id),
         _SESSION_MESSAGE_ID.set(message_id),
         _SESSION_PROFILE.set(profile),
         _CRON_SESSION.set(cron_session),
@@ -309,7 +299,6 @@ def clear_session_vars(tokens: list) -> None:
         _SESSION_SCOPE_ID,
         _SESSION_KEY,
         _SESSION_ID,
-        _SESSION_UI_SESSION_ID,
         _SESSION_MESSAGE_ID,
         _SESSION_PROFILE,
         _CRON_SESSION,
@@ -403,29 +392,25 @@ def get_session_env(name: str, default: str = "") -> str:
 
 
 # Surfaces that are not a human chat channel. The gateway binds a platform
-# value (``telegram``) to HERMES_SESSION_PLATFORM, while the CLI, TUI, and
-# desktop bind HERMES_SESSION_SOURCE (``cli``, ``tui``, ``desktop``) and leave
+# value (``telegram``) to HERMES_SESSION_PLATFORM, while the CLI binds
+# HERMES_SESSION_SOURCE (``cli``) and leaves
 # the platform empty — so both have to be consulted. ``local``, ``api_server``,
 # ``webhook``, and ``msgraph_webhook`` are real Platform values that reach
 # HERMES_SESSION_PLATFORM but have no attachment channel behind them.
 # Default-deny: an unrecognized identity counts as messaging so a newly added
 # chat platform is never treated as a private surface before this set is
-# updated. Mirrors LOCAL_SESSION_SOURCE_IDS in
-# apps/desktop/src/lib/session-source.ts; keep roughly in sync when adding a
-# local or programmatic surface.
+# updated when adding a local or programmatic surface.
 NON_MESSAGING_SESSION_SURFACES = frozenset(
     {
         "",
         "api_server",
         "cli",
         "codex",
-        "desktop",
         "gateway",
         "kanban",
         "local",
         "msgraph_webhook",
         "tool",
-        "tui",
         "webhook",
     }
 )

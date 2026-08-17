@@ -1054,14 +1054,6 @@ def _try_dispatch_background_run(
             pass
         return {"claimed": True, "dispatched": False, "success": False, "error": str(e)}
 
-    origin_ui_session_id = ""
-    try:
-        from gateway.session_context import get_session_env
-
-        origin_ui_session_id = get_session_env("HERMES_UI_SESSION_ID", "") or ""
-    except Exception:
-        pass
-
     try:
         from tools.async_delegation import (
             _current_origin_session_id,
@@ -1129,7 +1121,6 @@ def _try_dispatch_background_run(
         session_key=session_key,
         parent_session_id=str(session_id) if session_id else None,
         runner=_runner,
-        origin_ui_session_id=origin_ui_session_id,
         origin_session_id=origin_session_id,
         max_async_children=max_async,
     )

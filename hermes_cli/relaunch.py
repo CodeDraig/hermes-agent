@@ -1,7 +1,7 @@
 """
 Unified self-relaunch for Hermes CLI.
 
-Preserves critical flags (--tui, --dev, --profile, --model, etc.) across
+Preserves critical flags (--profile, --model, etc.) across
 process replacement so that ``hermes sessions browse`` or post-setup relaunch
 doesn't silently drop the user's UI mode or other preferences.
 
@@ -131,7 +131,7 @@ def build_relaunch_argv(
 
     Args:
         extra_args: Arguments to append (e.g. ``["--resume", id]``).
-        preserve_inherited: Whether to carry over UI / behaviour flags
+        preserve_inherited: Whether to carry over behaviour flags
             tagged with ``inherit_on_relaunch`` in the parser.
         original_argv: The original argv to scan for flags (defaults to
             ``sys.argv[1:]``).

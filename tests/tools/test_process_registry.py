@@ -249,30 +249,8 @@ class TestGetAndPoll:
         assert result["exit_code"] == 0
 
 
-def test_request_close_terminal_invokes_sink_without_killing(registry):
-    """With a sink wired, close routes (session, process_id) to the UI and leaves
-    the process running — close is a view drop, not a kill."""
-    s = _make_session(sid="proc_close_live")
-    registry._running[s.id] = s
-    calls = []
-    registry.on_close = lambda session, pid: calls.append((session, pid))
-
-    result = registry.request_close_terminal(s.id)
-
-    assert result["status"] == "ok"
-    assert result["closed"] == "proc_close_live"
-    assert calls == [(s, "proc_close_live")]
-    # Still tracked as running — closing the tab must not reap the process.
-    assert s.id in registry._running
-
-
 def test_reader_loop_streams_incremental_chunks_from_read1(registry, monkeypatch):
-    """Local reader must emit live chunks, not one EOF burst.
-
-    Regression for desktop agent terminals: ``stdout.read(4096)`` can buffer
-    until process exit for small periodic output. ``buffer.read1(4096)`` should
-    surface each chunk as it arrives.
-    """
+    """Local readers must emit live chunks rather than one EOF burst."""
 
     class _FakeBuffer:
         def __init__(self, chunks):

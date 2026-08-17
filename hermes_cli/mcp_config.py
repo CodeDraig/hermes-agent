@@ -839,11 +839,10 @@ def _reauth_oauth_server(name: str, server_config: dict) -> bool:
     # Honor the server's configured connect_timeout so a human has enough
     # time to complete the browser sign-in; the 30s default is too tight for
     # an interactive OAuth round-trip. Floor at 315s — the OAuth callback
-    # window (300s in mcp_oauth) plus headroom — matching the GUI re-auth
-    # path in web_server.py so CLI and dashboard behave identically.
+    # window (300s in mcp_oauth) plus headroom.
     #
     # force_interactive_oauth: `hermes mcp login` is *explicitly* user-
-    # initiated even when stdin isn't a TTY (Hermes desktop / agent-
+    # initiated even when stdin isn't a TTY (agent-
     # spawned terminals). Without this, OAuth refuses before opening a
     # browser because _is_interactive() only checks sys.stdin.isatty().
     try:

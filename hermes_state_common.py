@@ -400,7 +400,6 @@ CREATE TABLE IF NOT EXISTS session_turn_leases (
 CREATE TABLE IF NOT EXISTS async_delegations (
     delegation_id TEXT PRIMARY KEY,
     origin_session TEXT NOT NULL,
-    origin_ui_session_id TEXT NOT NULL DEFAULT '',
     parent_session_id TEXT,
     state TEXT NOT NULL,
     dispatched_at REAL NOT NULL,

@@ -70,13 +70,6 @@ class TestFilterMCPChildren:
         import tools.mcp_tool as mcp_tool
 
         cmdlines = {
-            101: [
-                "/usr/bin/python3",
-                "-m",
-                "tui_gateway.slash_worker",
-                "--session-key",
-                "abc",
-            ],
             102: [
                 "/usr/bin/java",
                 "-jar",
@@ -99,7 +92,7 @@ class TestFilterMCPChildren:
         )
         monkeypatch.setitem(sys.modules, "psutil", fake_psutil)
 
-        assert mcp_tool._filter_mcp_children({101, 102, 103}) == {103}
+        assert mcp_tool._filter_mcp_children({102, 103}) == {103}
 
 
 # ---------------------------------------------------------------------------

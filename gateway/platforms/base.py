@@ -1624,7 +1624,7 @@ def _translate_docker_container_media_path(candidate: Path) -> Optional[Path]:
     if not candidate.is_absolute():
         return None
 
-    # In-process gateways (Desktop backend, `hermes serve`) may not have
+    # In-process gateways may not have
     # bridged terminal.* config into TERMINAL_* env vars — run the idempotent
     # bridge so the mount parsing below sees the active backend and volumes
     # (same guard _binary_reference_block applies for inbound attachments).

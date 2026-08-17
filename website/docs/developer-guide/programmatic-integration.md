@@ -11,7 +11,6 @@ Hermes ships three protocols for driving the agent from external programs — ID
 | Protocol | Transport | Best for | Defined by |
 |----------|-----------|----------|------------|
 | **ACP** | JSON-RPC over stdio | IDE clients (VS Code, Zed, JetBrains) that already speak the [Agent Client Protocol](https://github.com/zed-industries/agent-client-protocol) | `acp_adapter/` |
-| **TUI gateway** | JSON-RPC over stdio (or WebSocket) | Custom hosts that want fine-grained control of sessions, slash commands, approvals, and streaming events | `tui_gateway/server.py` |
 | **API server** | HTTP + Server-Sent Events | OpenAI-compatible frontends (Open WebUI, LobeChat, LibreChat…) and language-agnostic web clients | `gateway/platforms/api_server.py` |
 
 All three drive the same `AIAgent` core. They differ only in wire format and which set of features they expose.
@@ -34,67 +33,6 @@ hermes acp --setup          # interactive provider/model setup for ACP terminal 
 
 ---
 
-## TUI Gateway JSON-RPC
-
-`tui_gateway/server.py` is the protocol the Ink TUI (`hermes --tui`) and the embedded dashboard PTY bridge talk to. Any external host can speak the same protocol over stdio (or WebSocket via `tui_gateway/ws.py`).
-
-### Method catalog (selected)
-
-```
-prompt.submit           prompt.background       session.steer
-session.create          session.list            session.active_list
-session.activate        session.close           session.interrupt
-session.history         session.compress        session.branch
-session.title           session.usage           session.status
-clarify.respond         sudo.respond            secret.respond
-approval.respond        config.set / config.get commands.catalog
-command.resolve         command.dispatch        cli.exec
-reload.mcp              reload.env              process.stop
-delegation.status       subagent.interrupt      subagent.steer
-spawn_tree.save / list / load
-terminal.resize         clipboard.paste         image.attach
-```
-
-`session.active_list`, `session.activate`, and `session.close` are the process-local live-session controls used by the TUI session switcher. Use `session.list` / `/resume` for saved transcript discovery; use the active-session methods only for sessions that are currently open in the TUI gateway process.
-
-### Rewinding history on `prompt.submit`
-
-A rewind / edit / regenerate is a `prompt.submit` that drops part of the stored transcript before running the new turn. Because that write is a destructive rewrite of the session's durable rows, the gateway honors it only when the client states its intent:
-
-| Parameter | Meaning |
-|-----------|---------|
-| `truncate_before_user_ordinal` | Zero-based index of the user turn to cut at. Everything from that turn onward is dropped. Display-only timeline rows (`display_kind`) are not counted. Must be a real integer — a JSON boolean is refused with code `4004`. |
-| `truncate_before_row_id` | Integer SQLite row ID (`messages.id` / `row_id`) of the target user turn to cut at. Preferred durable address. When both ordinal and row ID are provided, gateway verifies they match (returning `4030` on mismatch). An unknown/stale row ID is refused with `4018` — it does **not** fall back to the ordinal. |
-| `confirm_truncate` | Required whenever an ordinal, message ID, or row ID is sent. Declares that this submit really is a rewind, not an ordinary send that happens to carry leftover parameters. Sending it without a target is refused with code `4004`. |
-| `confirm_empty_truncate` | Additionally required when the cut would leave the transcript empty (ordinal `0`). |
-
-A truncation parameter without `confirm_truncate` is refused with code `4004` or `4029` and nothing is written. Hosts that implement rewind must set the flag at the moment the user asks for it, and must never keep truncation parameters in state across ordinary submits. Prefer `truncate_before_row_id` (from resume `row_id` / `_row_id`) over ordinals; keep the ordinal as a back-compat / optimistic-row path only when no durable id is available yet.
-
-On a successful truncating submit against a durable session, the `prompt.submit` result additionally carries `survivor_user_row_ids` — the fresh post-rewrite row IDs of the surviving user turns, in visible-user-ordinal order. The rewrite re-inserts the kept prefix as new rows, so every row ID the host cached before the rewind is stale afterward; rebind cached IDs from this list (a `null` entry means that turn has no durable ID — drop the cached one) or the next rewind targeting an older surviving turn will be refused with `4018`.
-
-### Events streamed back
-
-`message.delta`, `message.complete`, `tool.start`, `tool.progress`, `tool.complete`, `approval.request`, `clarify.request`, `sudo.request`, `sudo.expire`, `secret.request`, `secret.expire`, `gateway.ready`, plus session lifecycle and error events. Expiry events carry the original `{ request_id }`; external hosts should clear only the matching pending prompt.
-
-### Pi-style RPC mapping
-
-Every command in the Pi-mono RPC spec ([issue #360](https://github.com/NousResearch/hermes-agent/issues/360)) has a TUI-gateway equivalent:
-
-| Pi command | Hermes equivalent |
-|------------|-------------------|
-| `prompt` | `prompt.submit` (or ACP `session/prompt`) |
-| `steer` | `session.steer` |
-| `follow_up` | `prompt.submit` queued after current turn |
-| `abort` | `session.interrupt` |
-| `set_model` | `command.dispatch` for `/model <provider:model>` (mid-session, persistent) |
-| `compact` | `session.compress` |
-| `get_state` | `session.status` |
-| `get_messages` | `session.history` |
-| `switch_session` | `session.resume` |
-| `fork` | `session.branch` |
-| `ui_request` / `ui_response` | `clarify.respond` / `sudo.respond` / `secret.respond` / `approval.respond` |
-
----
 
 ## OpenAI-Compatible API Server
 

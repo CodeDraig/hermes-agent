@@ -1,4 +1,4 @@
-"""Petdex pet engine — shared core for the CLI, TUI, and desktop surfaces.
+"""Petdex pet engine for the prompt-toolkit CLI.
 
 Petdex (https://github.com/crafter-station/petdex) is a public gallery of
 animated sprite "pets" for coding agents.  Each pet is a ``pet.json`` plus a
@@ -8,7 +8,7 @@ Hermes infers the row taxonomy from the sheet and maps agent activity onto
 idle/run/review/failed/wave/jump.
 
 This package is the **single source of truth** for the feature so the base
-CLI (Python) and TUI (Ink, via ``tui_gateway``) never duplicate the hard
+CLI renderers never duplicate the hard
 parts:
 
 - :mod:`agent.pet.constants` — frame geometry + the :class:`PetState` enum.
@@ -20,9 +20,6 @@ parts:
                                terminal (kitty / iTerm2 / sixel graphics
                                protocols, with a Unicode half-block
                                fallback).
-
-Rendering in the Electron desktop is necessarily TypeScript (canvas), but it
-reuses the same on-disk store and the same state semantics.
 
 The whole feature is a *display* concern: it adds no model tool, mutates no
 system prompt or toolset, and therefore has zero effect on prompt caching.

@@ -99,7 +99,7 @@ def _ra():
 
 
 AGENT_RUNTIME_POST_HOOK_TOOL_NAMES = frozenset(
-    {"todo", "session_search", "memory", "clarify", "read_terminal", "read_preview", "read_window_below", "setup_mcp", "delegate_task"}
+    {"todo", "session_search", "memory", "clarify", "delegate_task"}
 )
 
 
@@ -2630,7 +2630,7 @@ def switch_model(agent, new_model, new_provider, api_key='', base_url='', api_mo
     # failure, etc.) we restore these atomically so the agent isn't left with a
     # new model/provider name paired with the OLD client — that mismatch causes
     # HTTP 400s like "claude-sonnet-4-6 is not supported on openai-codex" on the
-    # next turn.  Callers in cli.py / gateway/run.py / tui_gateway/server.py
+    # next turn.  Callers in cli.py and gateway/run.py
     # catch the re-raised exception and show the user a warning; without this
     # rollback the warning is misleading because the swap partially succeeded.
     # Use a sentinel so we can distinguish "attribute was unset" from
@@ -2841,7 +2841,7 @@ def switch_model(agent, new_model, new_provider, api_key='', base_url='', api_mo
         # Rollback every mutated field to the pre-swap snapshot so the agent
         # is left consistent (old model + old provider + old client) and the
         # caller's exception handler can surface a meaningful warning.  The
-        # exception is re-raised; cli.py / gateway/run.py / tui_gateway catch
+        # exception is re-raised; cli.py and gateway/run.py catch
         # it and print "Agent swap failed; change applied to next session".
         _restore_snapshot()
         raise
@@ -3201,49 +3201,6 @@ def invoke_tool(agent, function_name: str, function_args: dict, effective_task_i
                     choices=next_args.get("choices"),
                     multi_select=next_args.get("multi_select", False),
                     callback=agent.clarify_callback,
-                ),
-                next_args,
-            )
-    elif function_name == "read_terminal":
-        def _execute(next_args: dict) -> Any:
-            from tools.read_terminal_tool import read_terminal_tool as _read_terminal_tool
-            return _finish_agent_tool(
-                _read_terminal_tool(
-                    start_line=next_args.get("start_line"),
-                    count=next_args.get("count"),
-                    callback=getattr(agent, "read_terminal_callback", None),
-                ),
-                next_args,
-            )
-    elif function_name == "read_preview":
-        def _execute(next_args: dict) -> Any:
-            from tools.read_preview_tool import read_preview_tool as _read_preview_tool
-            return _finish_agent_tool(
-                _read_preview_tool(
-                    start=next_args.get("start"),
-                    count=next_args.get("count"),
-                    callback=getattr(agent, "read_preview_callback", None),
-                ),
-                next_args,
-            )
-    elif function_name == "read_window_below":
-        def _execute(next_args: dict) -> Any:
-            from tools.read_window_tool import read_window_below_tool as _read_window_below_tool
-            return _finish_agent_tool(
-                _read_window_below_tool(
-                    callback=getattr(agent, "read_window_below_callback", None),
-                ),
-                next_args,
-            )
-    elif function_name == "setup_mcp":
-        def _execute(next_args: dict) -> Any:
-            from tools.setup_mcp_tool import setup_mcp_tool as _setup_mcp_tool
-            return _finish_agent_tool(
-                _setup_mcp_tool(
-                    server=next_args.get("server", ""),
-                    action=next_args.get("action", "install"),
-                    reason=next_args.get("reason", ""),
-                    callback=getattr(agent, "setup_mcp_callback", None),
                 ),
                 next_args,
             )

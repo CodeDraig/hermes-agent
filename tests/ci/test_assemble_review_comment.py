@@ -235,10 +235,10 @@ def test_assemble_review_status_detail_renders_sensitive_file_links():
     assert "[`ci.yml`](https://example.test/ci.yml)" in body
 
 
-def test_assemble_info_keeps_screenshot_details_visible_below_its_summary():
-    statuses = _status("playwright e2e", [{
+def test_assemble_info_keeps_details_visible_below_its_summary():
+    statuses = _status("artifact check", [{
         "kind": "info",
-        "title": "Desktop E2E screenshots",
+        "title": "Captured artifacts",
         "summary": "1 screenshot captured; 0 visual diffs.",
         "detail": "<details>\n<summary>1 captured screenshot</summary>\n\n- [`proof.png`](https://example.test/artifact)\n\n</details>",
     }])
@@ -353,5 +353,4 @@ def test_render_both_emitted_link_and_job_url():
     assert "[View job](https://github.com/run/1/job/5)" in body
     # Both links on the same line, separated by ·
     assert " · " in body
-
 

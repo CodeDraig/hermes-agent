@@ -3,13 +3,13 @@
 # Hermes Agent Setup Script
 # ============================================================================
 # Quick setup for developers who cloned the repo manually.
-# Uses uv for desktop/server setup and Python's stdlib venv + pip on Termux.
+# Uses uv for workstation/server setup and Python's stdlib venv + pip on Termux.
 #
 # Usage:
 #   ./setup-hermes.sh
 #
 # This script:
-# 1. Detects desktop/server vs Android/Termux setup path
+# 1. Detects workstation/server vs Android/Termux setup path
 # 2. Creates a Python 3.11 virtual environment
 # 3. Installs the appropriate dependency set for the platform
 # 4. Creates .env from template (if not exists)

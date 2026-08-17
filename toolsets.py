@@ -33,13 +33,6 @@ _HERMES_CORE_TOOLS = [
     "web_search", "web_extract",
     # Terminal + process management
     "terminal", "process",
-    # NOTE: the desktop GUI affordances (read_terminal, open_preview, …) are
-    # deliberately NOT here, for the same reason as the `project` tools below:
-    # they only work where a GUI renderer can answer them. They live in the
-    # `desktop_ui` toolset and are enabled solely by the GUI gateway for a
-    # session whose SOURCE is the desktop app (tui_gateway/server.py::
-    # _load_enabled_toolsets) — never keyed on a process env var, which is
-    # blind to a desktop client talking to a remote/cloud backend.
     # File manipulation
     "read_file", "write_file", "patch", "search_files",
     # Vision + image generation
@@ -61,11 +54,6 @@ _HERMES_CORE_TOOLS = [
     "text_to_speech",
     # Planning & memory
     "todo", "memory",
-    # NOTE: the desktop Project tools (project_list/create/switch) are
-    # deliberately NOT here. They only make sense where a GUI can follow the
-    # move, so they live in the `project` toolset and are enabled solely by the
-    # GUI gateway (tui_gateway/server.py::_load_enabled_toolsets) — keeping them
-    # off every CLI/messaging/cron schema (narrow waist).
     # Session history search
     "session_search",
     # Clarifying questions
@@ -257,33 +245,6 @@ TOOLSETS = {
         "includes": []
     },
 
-    "project": {
-        "description": "Desktop Projects — create/switch named workspaces (GUI sessions only)",
-        "tools": ["project_list", "project_create", "project_switch"],
-        "includes": []
-    },
-
-    # Affordances that only exist because a GUI renderer is on the other end of
-    # the connection: read/close the embedded terminal pane, open and read the
-    # in-app browser, focus a pane, tapback a message.
-    #
-    # Enabled by the GUI gateway for a session whose SOURCE is the desktop app
-    # (tui_gateway/server.py::_load_enabled_toolsets), NOT by a process env var.
-    # The renderer is a CLIENT — it can be driving a local, SSH, URL, or cloud
-    # backend — so "was this process spawned by Electron?" is the wrong
-    # question and silently strips these tools from every remote gateway.
-    "desktop_ui": {
-        "description": "Desktop GUI affordances — in-app terminal/browser panes, pane focus, reactions (GUI sessions only)",
-        "tools": [
-            "read_terminal", "close_terminal",
-            "open_preview", "read_preview",
-            "read_window_below",
-            "focus_pane", "react_to_message",
-            "setup_mcp",
-        ],
-        "includes": []
-    },
-    
     "clarify": {
         "description": "Ask the user clarifying questions (multiple-choice or open-ended)",
         "tools": ["clarify"],
@@ -396,15 +357,10 @@ TOOLSETS = {
         "includes": ["web", "vision", "image_gen"]
     },
 
-    # Coding posture (base Hermes — CLI/TUI/desktop/ACP). Auto-selected in a
+    # Coding posture (base Hermes — CLI/ACP). Auto-selected in a
     # code workspace; see agent/coding_context.py. Keeps everything you reach
     # for while pairing on code and drops the rest (messaging, tts, image_gen,
     # spotify, home-assistant, cron, computer-use).
-    #
-    # The GUI pane/browser affordances are NOT listed here: they belong to the
-    # client surface, not the posture, so the GUI gateway folds `desktop_ui`
-    # in alongside this selection for a desktop-sourced session (see
-    # tui_gateway/server.py::_load_enabled_toolsets).
     "coding": {
         "description": "Coding-focused toolset: files, terminal, search, web docs, skills, todo, delegate, vision, browser",
         "tools": [

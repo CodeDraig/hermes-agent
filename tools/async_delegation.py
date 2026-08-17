@@ -147,7 +147,6 @@ def _initialize_schema(conn: sqlite3.Connection) -> None:
         """CREATE TABLE IF NOT EXISTS async_delegations (
             delegation_id TEXT PRIMARY KEY,
             origin_session TEXT NOT NULL,
-            origin_ui_session_id TEXT NOT NULL DEFAULT '',
             parent_session_id TEXT,
             state TEXT NOT NULL,
             dispatched_at REAL NOT NULL,
@@ -254,13 +253,13 @@ def _persist_dispatch(record: Dict[str, Any]) -> None:
     with _DB_LOCK, _transaction() as conn:
         conn.execute(
             """INSERT OR REPLACE INTO async_delegations
-               (delegation_id, origin_session, origin_ui_session_id,
-                parent_session_id, state, dispatched_at, updated_at,
+               (delegation_id, origin_session, parent_session_id,
+                state, dispatched_at, updated_at,
                 delivery_state, delivery_attempts, owner_pid,
                 owner_started_at, task_json, origin_session_id)
-               VALUES (?, ?, ?, ?, 'running', ?, ?, 'pending', 0, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, 'running', ?, ?, 'pending', 0, ?, ?, ?, ?)""",
             (record["delegation_id"], record.get("session_key", ""),
-             record.get("origin_ui_session_id", ""), record.get("parent_session_id"),
+             record.get("parent_session_id"),
              record["dispatched_at"], now, __import__("os").getpid(),
              owner_started_at, json.dumps(task_payload),
              record.get("origin_session_id", "")),
@@ -342,13 +341,13 @@ def recover_abandoned_delegations() -> int:
     recovered = 0
     with _DB_LOCK, _transaction() as conn:
         rows = conn.execute(
-            """SELECT delegation_id, origin_session, origin_ui_session_id,
-                      parent_session_id, dispatched_at, owner_pid,
+            """SELECT delegation_id, origin_session, parent_session_id,
+                      dispatched_at, owner_pid,
                       owner_started_at, task_json, origin_session_id
                FROM async_delegations WHERE state IN ('running','finalizing')"""
         ).fetchall()
         for row in rows:
-            (delegation_id, session_key, origin_ui, parent_id, dispatched_at,
+            (delegation_id, session_key, parent_id, dispatched_at,
              pid, started, task_json, origin_session_id) = row
             live = False
             if pid:
@@ -360,7 +359,7 @@ def recover_abandoned_delegations() -> int:
             task = json.loads(task_json or "{}")
             event = {
                 "type": "async_delegation", "delegation_id": delegation_id,
-                "session_key": session_key, "origin_ui_session_id": origin_ui,
+                "session_key": session_key,
                 # Restore the durable wake target so completions recovered
                 # after a restart remain routable to api_server sessions.
                 "origin_session_id": origin_session_id or "",
@@ -624,20 +623,6 @@ def active_count() -> int:
         )
 
 
-def active_for_session(origin_ui_session_id: str) -> int:
-    """Number of live async delegations owned by one UI session."""
-    if not origin_ui_session_id:
-        return 0
-    with _records_lock:
-        return sum(
-            1
-            for r in _records.values()
-            if r.get("status") in {"running", "stalling", "finalizing"}
-            and str(r.get("origin_ui_session_id") or "")
-            == origin_ui_session_id
-        )
-
-
 def active_task_count() -> int:
     """Number of async delegation TASKS (child subagents) currently running.
 
@@ -665,19 +650,16 @@ def _matches_session_selectors(
     record: Dict[str, Any],
     *,
     session_key: str = "",
-    origin_ui_session_id: str = "",
     parent_session_id: str = "",
 ) -> bool:
     return (
-        (origin_ui_session_id and str(record.get("origin_ui_session_id") or "") == origin_ui_session_id)
-        or (session_key and str(record.get("session_key") or "") == session_key)
+        (session_key and str(record.get("session_key") or "") == session_key)
         or (parent_session_id and str(record.get("parent_session_id") or "") == parent_session_id)
     )
 
 
 def has_live_for_session(
     session_key: str = "",
-    origin_ui_session_id: str = "",
     parent_session_id: str = "",
 ) -> bool:
     """Whether a session still owns any live async delegation.
@@ -685,7 +667,7 @@ def has_live_for_session(
     Live = running / stalling / finalizing — the same states the reapers'
     keepalive treats as active work.
     """
-    if not session_key and not origin_ui_session_id and not parent_session_id:
+    if not session_key and not parent_session_id:
         return False
     with _records_lock:
         return any(
@@ -693,7 +675,6 @@ def has_live_for_session(
             and _matches_session_selectors(
                 r,
                 session_key=session_key,
-                origin_ui_session_id=origin_ui_session_id,
                 parent_session_id=parent_session_id,
             )
             for r in _records.values()
@@ -760,7 +741,6 @@ def dispatch_async_delegation(
     session_key: str,
     parent_session_id: Optional[str] = None,
     runner: Callable[[], Dict[str, Any]],
-    origin_ui_session_id: str = "",
     origin_session_id: str = "",
     interrupt_fn: Optional[Callable[[], None]] = None,
     max_async_children: int = _DEFAULT_MAX_ASYNC_CHILDREN,
@@ -818,7 +798,6 @@ def dispatch_async_delegation(
         "role": role,
         "model": model,
         "session_key": session_key,
-        "origin_ui_session_id": origin_ui_session_id,
         "origin_session_id": origin_session_id,
         "parent_session_id": parent_session_id,
         **_capture_routing_origin(),
@@ -966,7 +945,6 @@ def _push_completion_event(
         # session_key routes the completion back to the originating gateway
         # session; empty string => CLI (single-session) path.
         "session_key": record.get("session_key", ""),
-        "origin_ui_session_id": record.get("origin_ui_session_id", ""),
         "origin_session_id": record.get("origin_session_id", ""),
         "parent_session_id": record.get("parent_session_id"),
         "goal": record.get("goal", ""),
@@ -1022,7 +1000,6 @@ def dispatch_async_delegation_batch(
     session_key: str,
     parent_session_id: Optional[str] = None,
     runner: Callable[[], Dict[str, Any]],
-    origin_ui_session_id: str = "",
     origin_session_id: str = "",
     interrupt_fn: Optional[Callable[[], None]] = None,
     max_async_children: int = _DEFAULT_MAX_ASYNC_CHILDREN,
@@ -1065,7 +1042,6 @@ def dispatch_async_delegation_batch(
         "role": role,
         "model": model,
         "session_key": session_key,
-        "origin_ui_session_id": origin_ui_session_id,
         "origin_session_id": origin_session_id,
         "parent_session_id": parent_session_id,
         **_capture_routing_origin(),
@@ -1178,7 +1154,6 @@ def _push_batch_completion_event(
         "type": "async_delegation",
         "delegation_id": event_record.get("delegation_id"),
         "session_key": event_record.get("session_key", ""),
-        "origin_ui_session_id": event_record.get("origin_ui_session_id", ""),
         "origin_session_id": event_record.get("origin_session_id", ""),
         "parent_session_id": event_record.get("parent_session_id"),
         "goal": event_record.get("goal", ""),
@@ -1530,7 +1505,6 @@ def interrupt_all(reason: str = "shutdown") -> int:
 
 def interrupt_for_session(
     session_key: str = "",
-    origin_ui_session_id: str = "",
     parent_session_id: str = "",
     reason: str = "session_end",
 ) -> int:
@@ -1543,7 +1517,6 @@ def interrupt_for_session(
     with no one listening (#55578).
 
     Selectors (any matching field claims the record):
-    - ``origin_ui_session_id``: the live TUI tab/window that commissioned it.
     - ``session_key``: the durable routing key captured at dispatch.
     - ``parent_session_id``: the spawning agent's durable session-db id —
       the right selector for gateway chats, whose ``session_key`` (the
@@ -1552,7 +1525,7 @@ def interrupt_for_session(
 
     Returns how many were interrupted.
     """
-    if not session_key and not origin_ui_session_id and not parent_session_id:
+    if not session_key and not parent_session_id:
         return 0
     count = 0
     with _records_lock:
@@ -1562,7 +1535,6 @@ def interrupt_for_session(
             and _matches_session_selectors(
                 r,
                 session_key=session_key,
-                origin_ui_session_id=origin_ui_session_id,
                 parent_session_id=parent_session_id,
             )
         ]

@@ -10,9 +10,8 @@ A provider API key can live in up to THREE stores at once:
        custom-endpoint flows (``model.api_key``, ``auxiliary.<task>.api_key``,
        ``custom_providers[*].api_key``)
 
-Historically the desktop/dashboard endpoints (PUT/DELETE ``/api/env``) and the
-TUI-gateway RPCs only mutated store 1. That divergence is the root cause of a
-whole bug family:
+Historically some credential writers only mutated store 1. That divergence is
+the root cause of a whole bug family:
 
     * #51071 / #59761 — deleting a key removes it from ``.env`` but the stale
       ``credential_pool`` entry (and ``provider_models_cache.json`` row)
@@ -21,7 +20,7 @@ whole bug family:
     * #62269 — updating a key rewrites ``.env`` but leaves the OLD key in a
       higher-precedence ``config.yaml`` mirror (``model.api_key`` wins over
       env at client construction), producing persistent 401s with a key the
-      UI no longer shows.
+      configured source no longer shows.
 
 This module is the single choke point: every surface that saves or removes a
 provider credential should route through :func:`save_provider_env_credential`

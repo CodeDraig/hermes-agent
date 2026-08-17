@@ -76,8 +76,7 @@ def _resolve_short_name(name: str, sources, console: Console) -> str:
         table.add_column("Identifier", style="bold cyan", overflow="fold", no_wrap=False)
         for r in exact:
             trust_style = {"builtin": "bright_cyan", "trusted": "green", "community": "yellow"}.get(r.trust_level, "dim")
-            trust_label = "official" if r.source == "official" else r.trust_level
-            table.add_row(r.source, f"[{trust_style}]{trust_label}[/]", r.identifier)
+            table.add_row(r.source, f"[{trust_style}]{r.trust_level}[/]", r.identifier)
         c.print(table)
         c.print("[bold]Use the full identifier to install a specific one.[/]\n")
         return ""
@@ -301,12 +300,11 @@ def do_search(query: str, source: str = "all", limit: int = 10,
 
     for r in results:
         trust_style = {"builtin": "bright_cyan", "trusted": "green", "community": "yellow"}.get(r.trust_level, "dim")
-        trust_label = "official" if r.source == "official" else r.trust_level
         table.add_row(
             r.name,
             r.description[:60] + ("..." if len(r.description) > 60 else ""),
             _display_source(r),
-            f"[{trust_style}]{trust_label}[/]",
+            f"[{trust_style}]{r.trust_level}[/]",
             r.identifier,
         )
 
@@ -318,10 +316,7 @@ def do_search(query: str, source: str = "all", limit: int = 10,
 
 def do_browse(page: int = 1, page_size: int = 20, source: str = "all",
               console: Optional[Console] = None) -> None:
-    """Browse all available skills across registries, paginated.
-
-    Official skills are always shown first, regardless of source filter.
-    """
+    """Browse all available skills across registries, paginated."""
     from tools.skills_hub import (
         GitHubAuth, create_source_router, parallel_search_sources,
     )
@@ -348,7 +343,7 @@ def do_browse(page: int = 1, page_size: int = 20, source: str = "all",
     # cache populates).
     _PER_SOURCE_LIMIT = {
         "hermes-index": 1000000,
-        "official": 200, "skills-sh": 200, "well-known": 50,
+        "skills-sh": 200, "well-known": 50,
         "github": 200, "clawhub": 500,
         "lobehub": 500, "browse-sh": 500,
     }
@@ -402,10 +397,9 @@ def do_browse(page: int = 1, page_size: int = 20, source: str = "all",
             seen[r.identifier] = r
     deduped = list(seen.values())
 
-    # Sort: official first, then by trust level (desc), then alphabetically
+    # Sort by trust level (desc), then alphabetically.
     deduped.sort(key=lambda r: (
         -_TRUST_RANK.get(r.trust_level, 0),
-        r.source != "official",
         r.name.lower(),
     ))
 
@@ -417,9 +411,6 @@ def do_browse(page: int = 1, page_size: int = 20, source: str = "all",
     end = min(start + page_size, total)
     page_items = deduped[start:end]
 
-    # Count official vs other
-    official_count = sum(1 for r in deduped if r.source == "official")
-
     # Build header
     source_label = f"— {source}" if source != "all" else "— all sources"
     loaded_label = f"{total} skills loaded"
@@ -427,8 +418,6 @@ def do_browse(page: int = 1, page_size: int = 20, source: str = "all",
         loaded_label += f", {len(timed_out)} source(s) still loading"
     c.print(f"\n[bold]Skills Hub — Browse {source_label}[/]"
             f"  [dim]({loaded_label}, page {page}/{total_pages})[/]")
-    if official_count > 0 and page == 1:
-        c.print(f"[bright_cyan]★ {official_count} official optional skill(s) from Nous Research[/]")
     c.print()
 
     # Build table
@@ -446,8 +435,6 @@ def do_browse(page: int = 1, page_size: int = 20, source: str = "all",
     for i, r in enumerate(page_items, start=start + 1):
         trust_style = {"builtin": "bright_cyan", "trusted": "green",
                        "community": "yellow"}.get(r.trust_level, "dim")
-        trust_label = "★ official" if r.source == "official" else r.trust_level
-
         desc = r.description[:44]
         if len(r.description) > 44:
             desc += "..."
@@ -457,7 +444,7 @@ def do_browse(page: int = 1, page_size: int = 20, source: str = "all",
             r.name,
             desc,
             _display_source(r),
-            f"[{trust_style}]{trust_label}[/]",
+            f"[{trust_style}]{r.trust_level}[/]",
             r.identifier,
         )
 
@@ -616,14 +603,6 @@ def do_install(identifier: str, category: str = "", force: bool = False,
     if bundle.source == "url" and not category and not skip_confirm:
         category = _prompt_for_category(c, _existing_categories())
 
-    # Auto-detect the full parent path for official skills. Optional skills
-    # can be nested (e.g. "official/mlops/training/trl-fine-tuning"), so keep
-    # every identifier segment between "official" and the final skill slug.
-    if bundle.source == "official" and not category:
-        id_parts = bundle.identifier.split("/")
-        if len(id_parts) >= 3:
-            category = "/".join(id_parts[1:-1])
-
     # Check if already installed
     lock = HubLockFile()
     existing = lock.get_installed(bundle.name)
@@ -649,14 +628,11 @@ def do_install(identifier: str, category: str = "", force: bool = False,
 
     # Scan
     c.print("[bold]Running security scan...[/]")
-    if bundle.source == "official":
-        scan_source = "official"
-    else:
-        scan_source = (
-            getattr(bundle, "identifier", "")
-            or getattr(meta, "identifier", "")
-            or identifier
-        )
+    scan_source = (
+        getattr(bundle, "identifier", "")
+        or getattr(meta, "identifier", "")
+        or identifier
+    )
     from tools.skills_hub import HUB_DIR, source_url_for_bundle
     result, scan_provenance = scan_skill_cached(
         q_path,
@@ -694,25 +670,15 @@ def do_install(identifier: str, category: str = "", force: bool = False,
             c.print(Panel("\n".join(metadata_lines), title="Upstream Metadata", border_style="blue"))
 
     # Confirm with user — show appropriate warning based on source
-    # skip_confirm bypasses the prompt (needed in TUI mode where input() hangs)
+    # skip_confirm bypasses the prompt for non-interactive callers.
     if not force and not skip_confirm:
         c.print()
-        if bundle.source == "official":
-            c.print(Panel(
-                "[bold bright_cyan]This is an official optional skill maintained by Nous Research.[/]\n\n"
-                "It ships with hermes-agent but is not activated by default.\n"
-                "Installing will copy it to your skills directory where the agent can use it.\n\n"
-                f"Files will be at: [cyan]{display_hermes_home()}/skills/{category + '/' if category else ''}{bundle.name}/[/]",
-                title="Official Skill",
-                border_style="bright_cyan",
-            ))
-        else:
-            c.print(Panel(
-                "[bold yellow]You are installing a third-party skill at your own risk.[/]\n\n"
-                "External skills can contain instructions that influence agent behavior,\n"
-                "shell commands, and scripts. Even after automated scanning, you should\n"
-                "review the installed files before use.\n\n"
-                f"Files will be at: [cyan]{display_hermes_home()}/skills/{category + '/' if category else ''}{bundle.name}/[/]",
+        c.print(Panel(
+            "[bold yellow]You are installing a third-party skill at your own risk.[/]\n\n"
+            "External skills can contain instructions that influence agent behavior,\n"
+            "shell commands, and scripts. Even after automated scanning, you should\n"
+            "review the installed files before use.\n\n"
+            f"Files will be at: [cyan]{display_hermes_home()}/skills/{category + '/' if category else ''}{bundle.name}/[/]",
                 title="Disclaimer",
                 border_style="yellow",
             ))
@@ -814,13 +780,11 @@ def do_inspect(identifier: str, console: Optional[Console] = None) -> None:
 
     c.print()
     trust_style = {"builtin": "bright_cyan", "trusted": "green", "community": "yellow"}.get(meta.trust_level, "dim")
-    trust_label = "official" if meta.source == "official" else meta.trust_level
-
     info_lines = [
         f"[bold]Name:[/] {meta.name}",
         f"[bold]Description:[/] {meta.description}",
         f"[bold]Source:[/] {meta.source}",
-        f"[bold]Trust:[/] [{trust_style}]{trust_label}[/]",
+        f"[bold]Trust:[/] [{trust_style}]{meta.trust_level}[/]",
         f"[bold]Identifier:[/] {meta.identifier}",
     ]
     if meta.tags:
@@ -857,7 +821,7 @@ def browse_skills(page: int = 1, page_size: int = 20, source: str = "all") -> di
     # "hermes-index" must carry a high limit: when the index is available the
     # router skips external API sources and serves everything from it, so a
     # low cap here silently truncates the whole hub (see do_browse note).
-    _PER_SOURCE_LIMIT = {"hermes-index": 5000, "official": 100, "skills-sh": 100,
+    _PER_SOURCE_LIMIT = {"hermes-index": 5000, "skills-sh": 100,
                          "well-known": 25, "github": 100, "clawhub": 50,
                          "lobehub": 50, "browse-sh": 500}
     auth = GitHubAuth()
@@ -877,7 +841,7 @@ def browse_skills(page: int = 1, page_size: int = 20, source: str = "all") -> di
         if r.identifier not in seen or rank > _TRUST_RANK.get(seen[r.identifier].trust_level, 0):
             seen[r.identifier] = r
     deduped = list(seen.values())
-    deduped.sort(key=lambda r: (-_TRUST_RANK.get(r.trust_level, 0), r.source != "official", r.name.lower()))
+    deduped.sort(key=lambda r: (-_TRUST_RANK.get(r.trust_level, 0), r.name.lower()))
     total = len(deduped)
     total_pages = max(1, (total + page_size - 1) // page_size)
     page = max(1, min(page, total_pages))
@@ -1016,8 +980,7 @@ def do_list(source_filter: str = "all",
             status_cell = "[dim red]disabled[/]"
 
         trust_style = {"builtin": "bright_cyan", "trusted": "green", "community": "yellow", "local": "dim"}.get(trust, "dim")
-        trust_label = "official" if source_display == "official" else trust
-        table.add_row(name, category, source_display, f"[{trust_style}]{trust_label}[/]", status_cell)
+        table.add_row(name, category, source_display, f"[{trust_style}]{trust}[/]", status_cell)
 
     c.print(table)
     summary = f"[dim]{hub_count} hub-installed, {builtin_count} builtin, {local_count} local"
@@ -1415,47 +1378,6 @@ def do_opt_in(sync: bool = False,
     c.print()
 
 
-def do_repair_official(name: str, restore: bool = False,
-                       console: Optional[Console] = None,
-                       skip_confirm: bool = False,
-                       invalidate_cache: bool = True) -> None:
-    """Backfill or restore official optional skills from repo source."""
-    from tools.skills_sync import restore_official_optional_skill
-
-    c = console or _console
-    if restore and not skip_confirm:
-        c.print(f"\n[bold]Restore official optional skill '{name}' from repo source?[/]")
-        c.print("[dim]Existing matching active copies will be moved to a restore backup before copying the official source.[/]")
-        try:
-            answer = input("Confirm [y/N]: ").strip().lower()
-        except (EOFError, KeyboardInterrupt):
-            answer = "n"
-        if answer not in {"y", "yes"}:
-            c.print("[dim]Cancelled.[/]\n")
-            return
-
-    result = restore_official_optional_skill(name, restore=restore)
-    if not result.get("ok"):
-        c.print(f"[bold red]Error:[/] {result.get('message', 'Repair failed')}\n")
-        return
-
-    c.print(f"[bold green]{result['message']}[/]")
-    if result.get("restored"):
-        c.print(f"[dim]Restored: {', '.join(result['restored'])}[/]")
-    if result.get("backfilled"):
-        c.print(f"[dim]Backfilled provenance: {', '.join(result['backfilled'])}[/]")
-    if result.get("backed_up"):
-        c.print(f"[dim]Backed up: {', '.join(result['backed_up'])}[/]")
-        c.print(f"[dim]Backup dir: {result.get('backup_dir')}[/]")
-    c.print()
-
-    if invalidate_cache:
-        try:
-            from agent.prompt_builder import clear_skills_system_prompt_cache
-            clear_skills_system_prompt_cache(clear_snapshot=True)
-        except Exception:
-            pass
-
 
 def do_tap(action: str, repo: str = "", console: Optional[Console] = None) -> None:
     """Manage taps (custom GitHub repo sources)."""
@@ -1800,9 +1722,6 @@ def skills_command(args) -> None:
                    skip_confirm=getattr(args, "yes", False))
     elif action == "opt-in":
         do_opt_in(sync=getattr(args, "sync", False))
-    elif action == "repair-official":
-        do_repair_official(args.name, restore=getattr(args, "restore", False),
-                           skip_confirm=getattr(args, "yes", False))
     elif action == "publish":
         do_publish(
             args.skill_path,
@@ -1897,7 +1816,7 @@ def handle_skills_slash(cmd: str, console: Optional[Console] = None) -> None:
 
     elif action == "search":
         if not args:
-            c.print("[bold red]Usage:[/] /skills search <query> [--source skills-sh|github|official|nvidia|openai|anthropic|huggingface] [--limit N] [--json]\n")
+            c.print("[bold red]Usage:[/] /skills search <query> [--source skills-sh|github|nvidia|openai|anthropic|huggingface] [--limit N] [--json]\n")
             return
         source = "all"
         limit = 25
@@ -2055,7 +1974,7 @@ def _print_skills_help(console: Console) -> None:
     """Print help for the /skills slash command."""
     console.print(Panel(
         "[bold]Skills Hub Commands:[/]\n\n"
-        "  [cyan]browse[/] [--source official]   Browse all available skills (paginated)\n"
+        "  [cyan]browse[/] [--source <source>]  Browse available skills (paginated)\n"
         "  [cyan]search[/] <query>              Search registries for skills\n"
         "  [cyan]install[/] <identifier>        Install a skill (with security scan)\n"
         "  [cyan]inspect[/] <identifier>        Preview a skill without installing\n"

@@ -44,10 +44,10 @@ excalidraw        Create hand-drawn style diagrams using Excalidraw...
 
 ### Skills Hub
 
-官方可选 skills（较重或小众、默认未激活的 skills）可通过 Hub 获取：
+外部 skills 可通过 Hub 获取：
 
 ```bash
-# 浏览官方可选 skills
+# 浏览外部 skills
 /skills browse
 
 # 搜索 Hub
@@ -86,14 +86,14 @@ Skills 采用 token 高效的加载模式，agent 不会一次性加载所有内
 
 ## 从 Hub 安装
 
-官方可选 skills 随 Hermes 一起发布，但默认未激活，需显式安装：
+可以从注册表、GitHub 或直接 URL 安装外部 skills：
 
 ```bash
-# 安装官方可选 skill
-hermes skills install official/research/arxiv
+# 从 skills.sh 安装
+hermes skills install skills-sh/anthropics/skills/pdf
 
 # 在聊天会话中从 Hub 安装
-/skills install official/creative/songwriting-and-ai-music
+/skills install openai/skills/skill-creator
 
 # 从 HTTP(S) URL 安装 SKILL.md 及其引用的支持文件
 hermes skills install https://sharethis.chat/SKILL.md

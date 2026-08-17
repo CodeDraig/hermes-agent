@@ -43,9 +43,7 @@ Las habilidades incluidas (en `skills/`) se envían con cada instalación de Her
 - Manejo de documentos, investigación web, flujos de trabajo de desarrollo comunes, administración de sistemas
 - Usadas regularmente por una amplia gama de personas
 
-Si tu habilidad es oficial y útil pero no universalmente necesaria (ej., una integración de servicio de pago, una dependencia pesada), ponla en **`optional-skills/`** — se envía con el repositorio pero no está activada por defecto. Los usuarios pueden descubrirla a través de `hermes skills browse` (etiquetada como "oficial") e instalarla con `hermes skills install` (sin advertencia de terceros, confianza integrada).
-
-Si tu habilidad es especializada, contribuida por la comunidad o de nicho, es mejor para un **Skills Hub** — súbela a un registro de habilidades y compártela en el [Discord de Nous Research](https://discord.gg/NousResearch). Los usuarios pueden instalarla con `hermes skills install`.
+Si tu habilidad es especializada, contribuida por la comunidad o de nicho, publícala mediante un registro de **Skills Hub** y compártela en el [Discord de Nous Research](https://discord.gg/NousResearch). Los usuarios pueden instalarla con `hermes skills install`.
 
 ---
 
@@ -136,7 +134,7 @@ pytest tests/ -v
 ```
 hermes-agent/
 ├── run_agent.py              # Clase AIAgent — bucle de conversación central, despacho de herramientas, persistencia de sesión
-├── cli.py                    # Clase HermesCLI — TUI interactiva, integración prompt_toolkit
+├── cli.py                    # Clase HermesCLI — cliente interactivo prompt_toolkit
 ├── model_tools.py            # Orquestación de herramientas (capa delgada sobre tools/registry.py)
 ├── toolsets.py               # Agrupaciones y presets de herramientas (hermes-cli, hermes-telegram, etc.)
 ├── hermes_state.py           # Base de datos de sesiones SQLite con búsqueda de texto completo FTS5, títulos de sesión
@@ -192,7 +190,6 @@ hermes-agent/
 │   └── whatsapp-bridge/          # Puente WhatsApp Node.js (Baileys)
 │
 ├── skills/                   # Habilidades incluidas (copiadas a ~/.hermes/skills/ en la instalación)
-├── optional-skills/          # Habilidades opcionales oficiales (descubribles vía hub, no activadas por defecto)
 ├── tests/                    # Suite de tests
 ├── website/                  # Sitio de documentación (hermes-agent.nousresearch.com)
 │
@@ -321,7 +318,7 @@ orientación sobre plugins vs. núcleo.
 
 ## Añadir una Habilidad
 
-Las habilidades incluidas viven en `skills/` organizadas por categoría. Las habilidades opcionales oficiales usan la misma estructura en `optional-skills/`:
+Las habilidades incluidas viven en `skills/` organizadas por categoría:
 
 ```
 skills/

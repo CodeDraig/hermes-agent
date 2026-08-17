@@ -44,10 +44,10 @@ excalidraw        Create hand-drawn style diagrams using Excalidraw...
 
 ### The Skills Hub
 
-Official optional skills (heavier or niche skills not active by default) are available via the Hub:
+External skills are available through configured Hub sources:
 
 ```bash
-# Browse official optional skills
+# Browse Hub sources
 /skills browse
 
 # Search the hub
@@ -86,14 +86,14 @@ This means skills don't cost tokens until they're actually used.
 
 ## Installing from the Hub
 
-Official optional skills ship with Hermes but aren't active by default. Install them explicitly:
+Install a skill from a Hub source, GitHub, or a direct URL:
 
 ```bash
-# Install an official optional skill
-hermes skills install official/research/arxiv
+# Install from a GitHub skills repository
+hermes skills install openai/skills/spreadsheets
 
 # Install from the hub in a chat session
-/skills install official/creative/songwriting-and-ai-music
+/skills install openai/skills/spreadsheets
 
 # Install SKILL.md and its referenced support files from an HTTP(S) URL
 hermes skills install https://sharethis.chat/SKILL.md

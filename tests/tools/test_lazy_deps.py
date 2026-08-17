@@ -414,11 +414,11 @@ class TestRefreshActiveFeatures:
 
 
 # ---------------------------------------------------------------------------
-# install_specs — manifest-driven installs (dashboard memory providers etc.)
+# install_specs — manifest-driven installs
 #
-# NS-605: the dashboard's memory-provider setup endpoint used to shell out
-# to `uv pip install --python sys.executable`, which fails with a permission
-# error on the sealed hosted venv. install_specs routes those installs
+# Memory-provider setup used to shell out to
+# `uv pip install --python sys.executable`, which fails with a permission
+# error on the sealed hosted venv. install_specs routes installs
 # through the same environment-aware pipeline as ensure(): venv-scoped on
 # normal installs, redirected to the durable target on immutable images,
 # and cleanly refused (with a reason) when installs are gated off.

@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
-"""Generate per-skill Docusaurus pages from skills/ and optional-skills/ SKILL.md files.
+"""Generate per-skill Docusaurus pages from bundled ``skills/`` files.
 
 Each skill gets website/docs/user-guide/skills/<source>/<category>/<skill-name>.md
-where <source> is "bundled" or "optional".
+where <source> is ``bundled``.
 
 Also regenerates:
 - website/docs/reference/skills-catalog.md
-- website/docs/reference/optional-skills-catalog.md
-(so their table rows link to the new dedicated pages)
+(so its table rows link to the new dedicated pages)
 
-Sidebar is updated to nest all per-skill pages under Skills → Bundled / Optional.
+Sidebar is updated to nest all per-skill pages under Skills → Bundled.
 """
 
 from __future__ import annotations
@@ -24,10 +23,7 @@ REPO = Path(__file__).resolve().parent.parent.parent
 DOCS = REPO / "website" / "docs"
 SKILLS_PAGES = DOCS / "user-guide" / "skills"
 
-SKILL_SOURCES = [
-    ("bundled", REPO / "skills"),
-    ("optional", REPO / "optional-skills"),
-]
+SKILL_SOURCES = [("bundled", REPO / "skills")]
 
 # Pages the user had previously hand-written in user-guide/skills/.
 # We leave these alone (they get first-class sidebar treatment separately).
@@ -231,8 +227,7 @@ def rewrite_relative_links(body: str, meta: dict[str, Any]) -> str:
     are NOT copied into docs/, so we rewrite these to absolute GitHub URLs
     pointing to the file in the repo.
     """
-    source_dir = "skills" if meta["source_kind"] == "bundled" else "optional-skills"
-    base = f"https://github.com/NousResearch/hermes-agent/blob/main/{source_dir}/{meta['rel_path']}"
+    base = f"https://github.com/NousResearch/hermes-agent/blob/main/skills/{meta['rel_path']}"
 
     def sub_link(m: re.Match) -> str:
         text = m.group(1)
@@ -279,7 +274,6 @@ def derive_skill_meta(skill_path: Path, source_dir: Path, source_kind: str) -> d
 
     skills/<cat>/<skill>/SKILL.md           -> cat=<cat>, slug=<skill>
     skills/<cat>/<sub>/<skill>/SKILL.md     -> cat=<cat>, sub=<sub>, slug=<skill>
-    optional-skills/<cat>/<skill>/SKILL.md  -> cat=<cat>, slug=<skill>
     """
     rel = skill_path.parent.relative_to(source_dir)
     parts = rel.parts
@@ -296,7 +290,7 @@ def derive_skill_meta(skill_path: Path, source_dir: Path, source_kind: str) -> d
     else:
         raise ValueError(f"Unexpected skill layout: {skill_path}")
     return {
-        "source_kind": source_kind,  # bundled | optional
+        "source_kind": source_kind,
         "category": category,
         "sub": sub,
         "slug": slug,
@@ -352,21 +346,8 @@ def render_skill_page(
 
     # Build metadata info block
     info_rows: list[tuple[str, str]] = []
-    if meta["source_kind"] == "bundled":
-        info_rows.append(("Source", "Bundled (installed by default)"))
-    else:
-        info_rows.append(
-            (
-                "Source",
-                "Optional — install with `hermes skills install official/"
-                + meta["category"]
-                + "/"
-                + meta["slug"]
-                + "`",
-            )
-        )
-    source_dir = "skills" if meta["source_kind"] == "bundled" else "optional-skills"
-    info_rows.append(("Path", f"`{source_dir}/{meta['rel_path']}`"))
+    info_rows.append(("Source", "Bundled (installed by default)"))
+    info_rows.append(("Path", f"`skills/{meta['rel_path']}`"))
     if version:
         info_rows.append(("Version", f"`{version}`"))
     if author:
@@ -505,78 +486,6 @@ def build_catalog_md_bundled(entries: list[tuple[dict[str, Any], dict[str, Any]]
     return "\n".join(lines).rstrip() + "\n"
 
 
-def build_catalog_md_optional(entries: list[tuple[dict[str, Any], dict[str, Any]]]) -> str:
-    by_cat: dict[str, list[tuple[dict[str, Any], dict[str, Any]]]] = defaultdict(list)
-    for meta, parsed in entries:
-        if meta["source_kind"] != "optional":
-            continue
-        by_cat[meta["category"]].append((meta, parsed))
-    for k in by_cat:
-        by_cat[k].sort(key=lambda e: e[0]["slug"])
-
-    lines = [
-        "---",
-        "sidebar_position: 9",
-        'title: "Optional Skills Catalog"',
-        'description: "Official optional skills shipped with hermes-agent — install via hermes skills install official/<category>/<skill>"',
-        "---",
-        "",
-        "# Optional Skills Catalog",
-        "",
-        "Optional skills ship with hermes-agent under `optional-skills/` but are **not active by default**. Install them explicitly:",
-        "",
-        "```bash",
-        "hermes skills install official/<category>/<skill>",
-        "```",
-        "",
-        "For example:",
-        "",
-        "```bash",
-        "hermes skills install official/blockchain/solana",
-        "hermes skills install official/mlops/flash-attention",
-        "```",
-        "",
-        "Each skill below links to a dedicated page with its full definition, setup, and usage.",
-        "",
-        "To uninstall:",
-        "",
-        "```bash",
-        "hermes skills uninstall <skill-name>",
-        "```",
-        "",
-    ]
-    for category in sorted(by_cat):
-        lines.append(f"## {category}")
-        lines.append("")
-        lines.append("| Skill | Description |")
-        lines.append("|-------|-------------|")
-        for meta, parsed in by_cat[category]:
-            fm = parsed["frontmatter"]
-            name = fm.get("name", meta["slug"])
-            desc = (fm.get("description") or "").strip()
-            if len(desc) > 240:
-                desc = desc[:237].rstrip() + "..."
-            link_target = f"/docs/user-guide/skills/optional/{meta['category']}/{page_id(meta)}"
-            desc_esc = mdx_escape_body(desc).replace("|", "\\|").replace("\n", " ")
-            lines.append(f"| [**{name}**]({link_target}) | {desc_esc} |")
-        lines.append("")
-
-    lines.extend(
-        [
-            "---",
-            "",
-            "## Contributing Optional Skills",
-            "",
-            "To add a new optional skill to the repository:",
-            "",
-            "1. Create a directory under `optional-skills/<category>/<skill-name>/`",
-            "2. Add a `SKILL.md` with standard frontmatter (name, description, version, author)",
-            "3. Include any supporting files in `references/`, `templates/`, or `scripts/` subdirectories",
-            "4. Submit a pull request — the skill will appear in this catalog and get its own docs page once merged",
-        ]
-    )
-    return "\n".join(lines).rstrip() + "\n"
-
 
 def build_sidebar_items(entries: list[tuple[dict[str, Any], dict[str, Any]]]) -> dict:
     """Build a dict representing the Skills sidebar tree.
@@ -589,16 +498,10 @@ def build_sidebar_items(entries: list[tuple[dict[str, Any], dict[str, Any]]]) ->
     │   │   ├── apple-apple-notes
     │   │   └── ...
     │   └── ...
-    └── Optional
-        └── ...
     """
     bundled = defaultdict(list)
-    optional = defaultdict(list)
     for meta, _ in entries:
-        if meta["source_kind"] == "bundled":
-            bundled[meta["category"]].append(meta)
-        else:
-            optional[meta["category"]].append(meta)
+        bundled[meta["category"]].append(meta)
 
     def cat_section(bucket: dict[str, list[dict[str, Any]]], source: str) -> list[dict]:
         result = []
@@ -608,12 +511,7 @@ def build_sidebar_items(entries: list[tuple[dict[str, Any], dict[str, Any]]]) ->
                 {
                     "type": "category",
                     "label": category,
-                    # Docusaurus generates a translation key from the label by
-                    # default (e.g. sidebar.docs.category.productivity). When
-                    # the same category name appears under both Bundled and
-                    # Optional, the duplicate keys break i18n extraction and
-                    # fail the build. Scope each category by source to keep
-                    # the keys unique.
+                    # Scope category translation keys to the source.
                     "key": f"skills-{source}-{category}",
                     "collapsed": True,
                     "items": [sidebar_doc_id(m) for m in items],
@@ -621,10 +519,7 @@ def build_sidebar_items(entries: list[tuple[dict[str, Any], dict[str, Any]]]) ->
             )
         return result
 
-    return {
-        "bundled_categories": cat_section(bundled, "bundled"),
-        "optional_categories": cat_section(optional, "optional"),
-    }
+    return {"bundled_categories": cat_section(bundled, "bundled")}
 
 
 def _render_sidebar_item(item: Any, indent: int) -> list[str]:
@@ -654,17 +549,14 @@ def write_sidebar(entries):
     # Sidebar layout:
     #   Skills
     #   ├── reference/skills-catalog
-    #   ├── reference/optional-skills-catalog
     #   ├── Bundled
     #   │   ├── apple/
     #   │   │   ├── apple-apple-notes
     #   │   │   └── ...
     #   │   └── ...
-    #   └── Optional
-    #       └── ...
     #
-    # The two catalog index pages stay at the top of the Skills section so
-    # the at-a-glance table view is one click away, and the per-category
+    # The catalog index stays at the top of the Skills section so the
+    # at-a-glance table view is one click away, and the per-category
     # subtrees give individual skill pages real sidebar navigation when
     # users land on them directly.
     tree = build_sidebar_items(entries)
@@ -675,15 +567,9 @@ def write_sidebar(entries):
             "collapsed": True,
             "items": tree["bundled_categories"],
         },
-        {
-            "label": "Optional",
-            "collapsed": True,
-            "items": tree["optional_categories"],
-        },
     ]
     skills_items: list[Any] = [
         "reference/skills-catalog",
-        "reference/optional-skills-catalog",
         *skills_block,
     ]
 
@@ -740,9 +626,7 @@ def main():
     skill_index: dict[str, dict[str, Any]] = {}
     for meta, parsed in entries:
         name = parsed["frontmatter"].get("name", meta["slug"])
-        # Prefer bundled over optional if a name collision exists
-        if name not in skill_index or meta["source_kind"] == "bundled":
-            skill_index[name] = meta
+        skill_index[name] = meta
 
     # Write per-skill pages
     written = 0
@@ -760,10 +644,6 @@ def main():
     bundled_catalog = build_catalog_md_bundled(entries)
     (DOCS / "reference" / "skills-catalog.md").write_text(bundled_catalog, encoding="utf-8")
     print("Updated reference/skills-catalog.md")
-
-    optional_catalog = build_catalog_md_optional(entries)
-    (DOCS / "reference" / "optional-skills-catalog.md").write_text(optional_catalog, encoding="utf-8")
-    print("Updated reference/optional-skills-catalog.md")
 
     # Update sidebar
     write_sidebar(entries)

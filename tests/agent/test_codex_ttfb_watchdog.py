@@ -189,7 +189,7 @@ def test_moa_heartbeat_survives_infinite_stale_timeout(monkeypatch):
     notices: list[str] = []
     response = SimpleNamespace(ok=True)
     agent = SimpleNamespace(
-        platform="desktop",
+        platform="cli",
         api_mode="chat_completions",
         provider="moa",
         _consecutive_stale_streams=0,
@@ -240,7 +240,7 @@ def test_wait_notice_formatting_error_does_not_abort_request(monkeypatch):
 
     response = SimpleNamespace(ok=True)
     agent = SimpleNamespace(
-        platform="desktop",
+        platform="cli",
         api_mode="chat_completions",
         provider="moa",
         _consecutive_stale_streams=0,
@@ -345,7 +345,6 @@ def test_large_codex_request_hard_ceiling_reclaims_silent_stall(tmp_path, monkey
         assert "with no response" in str(excinfo.value)
     finally:
         stop["flag"] = True
-
 
 
 

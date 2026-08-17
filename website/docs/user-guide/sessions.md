@@ -164,7 +164,7 @@ Pass `--in <dir>` to change into a directory before starting or resuming. Combin
 hermes --resume latest --in ./my-project
 
 # Works with the TUI too
-hermes --tui --resume latest --in ./my-project
+hermes --resume latest --in ./my-project
 ```
 
 `--in` also pins the session to that directory: the resumed session's recorded working directory is not restored (as if `--no-restore-cwd` were passed).

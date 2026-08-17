@@ -21,7 +21,6 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, Optional, Tuple
 
 from utils import is_truthy_value
-from hermes_constants import INDICATOR_STYLES
 
 # mtime-keyed memo of the /personality completion source. load_cli_config()
 # does a full YAML parse + deep merge of the built-in defaults on every call,
@@ -286,9 +285,6 @@ COMMAND_REGISTRY: list[CommandDef] = [
                subcommands=("normal", "fast", "status", "on", "off", "--global")),
     CommandDef("skin", "Show or change the display skin/theme", "Configuration",
                cli_only=True, args_hint="[name]"),
-    CommandDef("indicator", "Pick the TUI busy-indicator style", "Configuration",
-               cli_only=True, args_hint=f"[{'|'.join(INDICATOR_STYLES)}]",
-               subcommands=INDICATOR_STYLES),
     CommandDef("voice", "Toggle voice mode", "Configuration",
                args_hint="[on|off|tts|status]", subcommands=("on", "off", "tts", "status")),
     CommandDef("wake", "Toggle the 'Hey Hermes' wake word listener", "Configuration",

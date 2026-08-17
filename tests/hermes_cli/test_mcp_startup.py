@@ -39,7 +39,6 @@ def _agent_args(**overrides) -> Namespace:
         "cron_command": None,
         "gateway_command": None,
         "mcp_action": None,
-        "tui": False,
     }
     base.update(overrides)
     return Namespace(**base)
@@ -197,5 +196,4 @@ def _install_retry_stubs(monkeypatch, *, connected: bool, calls: dict):
             get_mcp_status=lambda: [{"connected": connected}],
         ),
     )
-
 

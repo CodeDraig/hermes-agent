@@ -120,28 +120,12 @@ def test_every_session_deletion_path_reclaims_final_prompt_reference(db):
     assert db.delete_session_if_empty("single-empty") is True
     assert _prompt_count(db) == 0
 
-    seed("bulk")
-    assert db.delete_sessions(["bulk"]) == 1
-    assert _prompt_count(db) == 0
-
-    seed("ended-empty")
-    db.end_session("ended-empty", "user_exit")
-    assert db.delete_empty_sessions() == 1
-    assert _prompt_count(db) == 0
-
     seed("pruned")
     db.end_session("pruned", "user_exit")
     assert db.prune_sessions(
         older_than_days=None,
         started_before=time.time() + 1,
     ) == 1
-    assert _prompt_count(db) == 0
-
-    seed("ghost", source="tui")
-    db.end_session("ghost", "user_exit")
-    db._conn.execute("UPDATE sessions SET started_at = 0 WHERE id = 'ghost'")
-    db._conn.commit()
-    assert db.prune_empty_ghost_sessions() == 1
     assert _prompt_count(db) == 0
 
 

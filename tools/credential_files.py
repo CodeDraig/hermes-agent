@@ -396,11 +396,11 @@ _CACHE_DIRS: list[tuple[str, str]] = [
     ("cache/web", "web_cache"),
     ("cache/delegation", "delegation_cache"),
     # Desktop/clipboard/PDF uploads land in the flat top-level ``images/`` dir
-    # (tui_gateway attach RPCs), not under ``cache/``. Mount it so vision can
+    #, not under ``cache/``. Mount it so vision can
     # reach uploads inside sandbox containers (#69575). No legacy alias exists,
     # so both tuple slots are ``images``.
     ("images", "images"),
-    # Desktop non-image file attachments (tui_gateway ``file.attach`` staging)
+    # Desktop non-image file attachments
     # land in the flat top-level ``attachments/`` dir. Mount it so the agent's
     # file tools can read dropped binaries (zip/pdf/...) from inside sandbox
     # containers instead of dangling host paths (#76577).

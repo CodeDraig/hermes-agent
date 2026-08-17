@@ -2,7 +2,7 @@
 
 One fetch/parse per concern, consumed identically by the CLI handler
 (``cli.py::_show_billing``), the TUI JSON-RPC methods
-(``tui_gateway/server.py``), and any other surface. Mirrors the proven
+and other surfaces. Mirrors the proven
 ``agent/account_usage.py::build_credits_view`` pattern: parse the server payload
 into a frozen dataclass; **fail open** — when not logged in or the portal is
 unreachable, return a struct with ``logged_in=False`` and let the surface degrade

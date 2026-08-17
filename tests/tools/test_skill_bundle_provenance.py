@@ -227,19 +227,3 @@ def test_install_with_junctioned_skills_dir(served_repo, monkeypatch, tmp_path):
     # The post-install "Installed:" line (relative_to on the display path)
     # renders instead of raising.
     assert "Installed:" in sink.getvalue()
-
-
-def test_bundled_optional_source_still_includes_support_files(tmp_path, monkeypatch):
-    from tools.skills_hub import OptionalSkillSource
-
-    root = tmp_path / "optional-skills"
-    skill = root / "category" / "official-demo"
-    (skill / "references").mkdir(parents=True)
-    (skill / "SKILL.md").write_text("---\nname: official-demo\ndescription: demo\n---\n")
-    (skill / "references" / "all.md").write_text("all")
-    source = OptionalSkillSource()
-    source._optional_dir = root
-
-    bundle = source.fetch("official/category/official-demo")
-    assert bundle is not None
-    assert set(bundle.files) == {"SKILL.md", "references/all.md"}

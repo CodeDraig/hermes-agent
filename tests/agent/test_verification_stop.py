@@ -74,9 +74,9 @@ def test_verify_on_stop_env_can_enable(clear_verify_env):
 
 
 
-@pytest.mark.parametrize("source", ["cli", "tui", "desktop", "codex", "local"])
+@pytest.mark.parametrize("source", ["cli", "codex", "local"])
 def test_verify_on_stop_auto_on_for_interactive_surfaces(clear_verify_env, source):
-    # Under "auto", CLI/TUI/desktop coding surfaces resolve ON.
+    # Under "auto", local coding surfaces resolve ON.
     clear_verify_env.setenv("HERMES_SESSION_SOURCE", source)
     assert verify_on_stop_enabled({"agent": {"verify_on_stop": "auto"}}) is True
 

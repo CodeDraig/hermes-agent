@@ -1,6 +1,6 @@
 """CI enforcement of the skill authoring standards (AGENTS.md hardline).
 
-Every bundled (skills/) and optional (optional-skills/) SKILL.md must satisfy
+Every bundled ``skills/`` SKILL.md must satisfy
 the programmatically-checkable subset of the authoring standards. Judgment
 calls (tier placement, router-skill smell, prose quality) stay with review;
 everything here is mechanical.
@@ -31,10 +31,7 @@ GRANDFATHER: dict[str, set[str]] = {
 
 
 def _skill_paths():
-    return sorted(
-        list(REPO.glob("skills/**/SKILL.md"))
-        + list(REPO.glob("optional-skills/**/SKILL.md"))
-    )
+    return sorted(REPO.glob("skills/**/SKILL.md"))
 
 
 def _rel(p: Path) -> str:
@@ -73,9 +70,8 @@ def _all_names():
 
 
 def test_at_least_the_expected_population():
-    # sanity: the globs actually find the trees (not a count snapshot)
+    # Sanity: the glob actually finds the bundled tree (not a count snapshot).
     paths = _skill_paths()
-    assert any("optional-skills" in str(p) for p in paths)
     assert any(str(p.parent).startswith(str(REPO / "skills")) for p in paths)
 
 

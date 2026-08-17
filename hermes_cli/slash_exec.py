@@ -2,8 +2,8 @@
 
 Shared, surface-independent executors for informational slash commands.
 ``CommandDef.execute`` (hermes_cli/commands.py) names a key in
-:data:`EXECUTORS`; each surface (CLI REPL, gateway, TUI slash worker via the
-CLI) resolves that key through :func:`run_execute` and applies only its own
+:data:`EXECUTORS`; each surface (CLI REPL or gateway) resolves that key through
+:func:`run_execute` and applies only its own
 decoration (Rich markup, emoji/markdown, ``_telegramize_command_mentions``)
 to the canonical :class:`CommandReply`.
 
@@ -41,7 +41,7 @@ __all__ = [
 class CommandContext:
     """Surface-provided inputs for a shared command executor."""
 
-    surface: str = "cli"                # "cli" | "gateway" | "tui" — decoration only
+    surface: str = "cli"                # "cli" | "gateway" — decoration only
     args: str = ""                      # raw argument string after the command word
     options: Mapping[str, Any] = field(default_factory=dict)  # surface params (page_size, ...)
     config_get: Callable[[str, Any], Any] | None = None       # optional config accessor

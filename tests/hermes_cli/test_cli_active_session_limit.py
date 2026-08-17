@@ -10,7 +10,7 @@ def test_cli_claim_active_session_respects_global_limit(tmp_path, monkeypatch):
     cfg = {"max_concurrent_sessions": 1}
     held, message = try_acquire_active_session(
         session_id="held-session",
-        surface="tui",
+        surface="gateway",
         config=cfg,
     )
     assert message is None
@@ -27,8 +27,8 @@ def test_cli_claim_active_session_respects_global_limit(tmp_path, monkeypatch):
         assert cli._claim_active_session("cli") is False
         assert len(printed) == 1
         assert "active session limit (1/1)" in printed[0]
-        # Names the holding surface ("tui"), not the blocked one.
-        assert "Held by: tui" in printed[0]
+        # Names the holding surface, not the blocked one.
+        assert "Held by: gateway" in printed[0]
 
         held.release()
 

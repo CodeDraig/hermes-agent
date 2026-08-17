@@ -19,8 +19,6 @@ def _chat_args(**overrides):
         "no_restore_cwd": False,
         "toolsets": None,
         "skills": None,
-        "tui": False,
-        "tui_dev": False,
         "cli": True,
         "verbose": None,
         "quiet": True,

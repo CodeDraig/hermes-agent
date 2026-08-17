@@ -255,7 +255,7 @@ class InsightsEngine:
     # source-filtered probe and scans each session's non-tool-call rows.
     #
     # The pin is a HARD dependency: SQLite raises ``no such index`` when the
-    # named index is absent. That happens in practice — the web dashboard's
+    # named index is absent. That happens in practice when an older
     # usage analytics open the DB ``read_only=True`` (skipping
     # ``_init_schema``), so a state.db created by an older writer has no
     # partial index yet. ``__init__`` probes for the index once and falls

@@ -469,7 +469,7 @@ Once you've found a plugin, install it by bare name — the name is resolved
 through the index to its `owner/repo` plus the index-pinned commit:
 
 ```bash
-hermes plugins install hermes-media-studio
+hermes plugins install plugin-llm-example
 ```
 
 If a name matches more than one entry, the candidates are listed and nothing
@@ -488,15 +488,15 @@ all a bundled seed copy ships with Hermes — so search works fully offline.
 
 ```json
 {
-  "name": "hermes-media-studio",
-  "description": "Generative media workspace plugin.",
+  "name": "plugin-llm-example",
+  "description": "Reference plugin for structured LLM access.",
   "author": "NousResearch",
-  "tags": ["media", "image-gen"],
-  "repo": "NousResearch/hermes-media-studio",
-  "ref": "<40-char commit SHA>",
-  "subdir": null,
-  "homepage": "https://github.com/NousResearch/hermes-media-studio",
-  "capabilities": ["tools", "dashboard"],
+  "tags": ["example", "llm", "slash-command"],
+  "repo": "NousResearch/hermes-example-plugins",
+  "ref": "38fe0fb53eff98d477f807432e965429e665ca33",
+  "subdir": "plugin-llm-example",
+  "homepage": "https://github.com/NousResearch/hermes-example-plugins/tree/main/plugin-llm-example",
+  "capabilities": ["commands", "llm"],
   "api_version": 1,
   "added_at": "2026-08-12"
 }
@@ -532,14 +532,14 @@ description: STT + streaming TTS + approval relay
 author: hyper
 version: 1.0.0
 plugins:
-  - name: hermes-media-studio            # bare community-index name…
-    ref: e8d59971d2b7901405b39dac7b03bdd616272d0d
+  - name: plugin-llm-example             # bare community-index name…
+    ref: 38fe0fb53eff98d477f807432e965429e665ca33
   - repo: owner/approval-relay           # …or explicit owner/repo (or git URL)
     ref: 8f3c2d1a9b4e5f6071829304a5b6c7d8e9f00112
     subdir: plugins/relay                # optional monorepo path
 config:                                  # optional, non-secret seeds only
-  hermes-media-studio:
-    default_model: flux-3
+  plugin-llm-example:
+    output_format: receipt
 skills: []                               # declared list only (not auto-installed yet)
 ```
 

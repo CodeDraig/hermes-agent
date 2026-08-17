@@ -430,7 +430,7 @@ That's expected for pages over the character budget. The footer names the on-dis
 For agents that need to use SearXNG via `curl` directly (e.g. as a fallback when the web toolset isn't available), install the `searxng-search` optional skill:
 
 ```bash
-hermes skills install official/research/searxng-search
+hermes skills search searxng
 ```
 
 This adds a skill that teaches the agent how to:

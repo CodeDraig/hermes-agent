@@ -10,9 +10,7 @@ from hermes_cli.config import DEFAULT_CONFIG
 GATEWAY_SERVICE_RESTART_EXIT_CODE = 75
 
 # EX_CONFIG from sysexits.h — fatal configuration error (e.g. token
-# collision, no messaging platforms).  The s6 finish script translates
-# this into exit 125 (permanent failure) so the supervisor stops
-# restarting the gateway.  See #51228.
+# collision or no messaging platforms).
 GATEWAY_FATAL_CONFIG_EXIT_CODE = 78
 
 # Set by ``hermes gateway run --external-supervisor``. Unlike systemd's
@@ -58,8 +56,6 @@ def is_gateway_supervisor_process(
     """Return whether this gateway process is owned by a supervisor."""
     env = os.environ if environ is None else environ
     if env.get("INVOCATION_ID"):
-        return True
-    if env.get("HERMES_S6_SUPERVISED_CHILD"):
         return True
     xpc_service = env.get("XPC_SERVICE_NAME", "")
     if xpc_service and xpc_service != "0":

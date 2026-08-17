@@ -4,7 +4,7 @@ Parses x-nous-credits-* (and optional x-nous-tool-pool-*) headers from
 inference responses into a validated CreditsState dataclass.  Provides
 depletion detection (paid_access), subscription-cap used_fraction, and
 warn-once schema-version gating.  This is the hardened parser used by all
-live consumers (run_agent, tui_gateway) — not a dev-only shim.
+live consumers in run_agent — not a dev-only shim.
 
 Header schema (x-nous-credits-* family):
     x-nous-credits-version                    contract/schema version

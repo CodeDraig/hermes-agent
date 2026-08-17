@@ -13,14 +13,14 @@ Format (canonical)::
     author: hyper
     version: 1.0.0
     plugins:
-      - name: hermes-media-studio          # bare community-index name…
-        ref: e8d59971d2b7901405b39dac7b03bdd616272d0d
+      - name: plugin-llm-example           # bare community-index name…
+        ref: 38fe0fb53eff98d477f807432e965429e665ca33
       - repo: owner/approval-relay         # …or explicit owner/repo / git URL
         ref: 8f3c2d1a9b4e5f6071829304a5b6c7d8e9f00112
         subdir: plugins/relay              # optional path within the repo
     config:                                # optional plugins.entries seeds
-      hermes-media-studio:
-        default_model: flux-3
+      plugin-llm-example:
+        output_format: compact
     skills: []                             # declared seam — NOT auto-installed
 
 Supply-chain posture:

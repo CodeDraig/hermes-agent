@@ -9,12 +9,9 @@ booleans (one per lane) to ``$GITHUB_OUTPUT`` and stdout. The
 Lanes:
 
 * ``python``      — pytest / ruff / ty / footguns.
-* ``python_prod`` — Python changes OUTSIDE tests/ — gates jobs that ship or
-  run the product (Desktop E2E backend, Docker image) but never import the
-  test suite. A tests-only PR keeps ``python`` (pytest must run) while
-  skipping those product jobs.
-* ``docker_meta`` — Dockerfiles etc.
-* ``frontend``    — TS typecheck matrix + desktop build.
+* ``python_prod`` — Python changes OUTSIDE tests/ — gates jobs that run the
+  product but never import the test suite. A tests-only PR keeps ``python``
+  while skipping those product jobs.
 * ``site``        — Docusaurus + generated skill docs.
 * ``scan``        — supply-chain scan (Python files, .pth, setup hooks).
 * ``deps``        — pyproject.toml dependency bounds check.
@@ -25,15 +22,12 @@ Lanes:
 * ``installer``   — PowerShell installer tests (Windows runner).
 * ``mcp_catalog`` — bundled MCP catalog / installer review.
 
-Docker is not a lane — it builds on push-to-main and release only,
-never per-PR.
-
 Contract — *fail open, never closed*. We may run a lane we didn't need, but
 must never skip one a change could break:
 
 * An empty diff, or any ``.github/`` change, runs everything.
 * ``python`` is a denylist: skipped only when *every* file is provably prose
-  or a frontend-only package; an unrecognized path keeps it on.
+  site-only path; an unrecognized path keeps it on.
 * ``skills/`` (incl. ``SKILL.md``) is python-relevant — the skill-doc tests
   read that tree, so a doc-looking edit can still break Python.
 """
@@ -44,12 +38,9 @@ import json
 import os
 import sys
 
-_FRONTEND = ("ui-tui/", "web/", "apps/")  # TS typecheck-matrix packages
-_ROOT_NPM = {"package.json", "package-lock.json"}  # shifts every package's tree
-_DOCKER_META = ("docker/", ".hadolint.yml", "Dockerfile") # docker setup
-_SITE = ("website/", "skills/", "optional-skills/")  # docs site + skill pages
-# Prose/frontend trees that can't touch Python. skills/ is excluded on purpose.
-_PY_SKIP = ("docs/", "website/") + _FRONTEND
+_SITE = ("website/", "skills/")  # docs site + skill pages
+# Prose/site trees that can't touch Python. skills/ is excluded on purpose.
+_PY_SKIP = ("docs/", "website/")
 
 # CI-sensitive files: eslint config, workflow files, composite actions.
 # Changes here can influence what code the autofix job executes and pushes to
@@ -78,21 +69,20 @@ _INSTALLER_PATHS = ("scripts/tests/",)
 _INSTALLER_FILES = {"scripts/install.ps1", "scripts/install.cmd"}
 
 def _is_docs(p: str) -> bool:
-    if p.startswith(("skills/", "optional-skills/")):
+    if p.startswith("skills/"):
         return False
     return p.endswith((".md", ".mdx")) or p.startswith("docs/") or p.startswith("LICENSE")
 
 
 def _py_irrelevant(p: str) -> bool:
-    return _is_docs(p) or p in _ROOT_NPM or p.startswith(_PY_SKIP) or p.startswith(_DOCKER_META)
+    return _is_docs(p) or p.startswith(_PY_SKIP)
 
 
 def _py_test_only(p: str) -> bool:
     """Is ``p`` inside the test suite (never shipped / imported by the product)?
 
-    Product jobs (Desktop E2E's ``hermes serve`` backend, the Docker image)
-    run installed code — nothing under ``tests/`` is packaged or importable
-    there. scripts/run_tests.sh and run_tests_parallel.py are deliberately
+    Product jobs run installed code — nothing under ``tests/`` is packaged or
+    importable there. scripts/run_tests.sh and run_tests_parallel.py are deliberately
     NOT test-only: they are runner infrastructure, and a bad edit there can
     mask real failures, so they stay conservative (python_prod=true).
     """
@@ -130,8 +120,6 @@ def classify(files: list[str]) -> dict[str, bool]:
     ret = {
         "python": any(not _py_irrelevant(f) for f in files),
         "python_prod": any(not _py_irrelevant(f) and not _py_test_only(f) for f in files),
-        "docker_meta":  any(f.startswith(_DOCKER_META) for f in files),
-        "frontend": any(f.startswith(_FRONTEND) or f in _ROOT_NPM for f in files),
         "site": any(f.startswith(_SITE) for f in files),
         "scan": any(_is_scan(f) for f in files),
         "deps": any(f == "pyproject.toml" for f in files),
@@ -144,8 +132,6 @@ def classify(files: list[str]) -> dict[str, bool]:
     if not files or any(f.startswith(".github/") for f in files):
         ret["python"] = True
         ret["python_prod"] = True
-        ret["docker_meta"] = True
-        ret["frontend"] = True
         ret["site"] = True
         ret["scan"] = True
         ret["deps"] = True

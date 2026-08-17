@@ -17,10 +17,6 @@ by both the fast path and the module constants, makes that drift
 structurally impossible; the parity guard test would have caught eb4040242
 the day it landed.
 
-``hermes_cli/config.py``'s ``get_container_exec_info()`` reads the same
-``.container-mode`` file; keep the file-format assumptions here and there in
-sync (this module deliberately only PROBES existence/typos cheaply and errs
-toward the slow path, which then does the authoritative parse).
 """
 
 from __future__ import annotations
@@ -34,9 +30,7 @@ __all__ = [
     "is_termux_env",
     "is_termux_fast_version_argv",
     "is_global_fast_version_argv",
-    "is_container_startup_environment",
     "active_profile_may_override_home",
-    "container_mode_may_be_active",
     "read_openai_version",
     "read_install_method",
     "print_fast_version_info",
@@ -80,18 +74,6 @@ def is_global_fast_version_argv(argv: list[str]) -> bool:
     return argv in (["--version"], ["-V"])
 
 
-def is_container_startup_environment() -> bool:
-    """True when we're already INSIDE a container (fast path is then safe)."""
-    if os.path.exists("/.dockerenv") or os.path.exists("/run/.containerenv"):
-        return True
-    try:
-        with open("/proc/1/cgroup", encoding="utf-8") as handle:
-            cgroup = handle.read()
-    except OSError:
-        return False
-    return "docker" in cgroup or "podman" in cgroup or "/lxc/" in cgroup
-
-
 def active_profile_may_override_home(hermes_root: str) -> bool:
     """Cheap probe: does an active non-default profile redirect HERMES_HOME?"""
     active_profile = os.path.join(hermes_root, "active_profile")
@@ -110,36 +92,6 @@ def _resolved_home() -> str:
     if hermes_home:
         return hermes_home
     return os.path.join(os.path.expanduser("~"), ".hermes")
-
-
-def container_mode_may_be_active() -> bool:
-    """Conservative probe for NixOS container-mode routing.
-
-    False positives are fine (we fall through to the slow path, whose
-    ``get_container_exec_info()`` does the authoritative check and routes
-    into the container). False negatives are NOT fine — they'd print the
-    host's version instead of the container's. Hence: any profile
-    ambiguity → assume container mode may be active.
-    """
-    if os.environ.get("HERMES_DEV") == "1":
-        return False
-    if is_container_startup_environment():
-        return False
-
-    hermes_home = os.environ.get("HERMES_HOME", "").strip()
-    if hermes_home:
-        if os.path.exists(os.path.join(hermes_home, ".container-mode")):
-            return True
-        parent_name = os.path.basename(os.path.dirname(os.path.normpath(hermes_home)))
-        return (
-            parent_name != "profiles"
-            and active_profile_may_override_home(hermes_home)
-        )
-
-    default_home = os.path.join(os.path.expanduser("~"), ".hermes")
-    if active_profile_may_override_home(default_home):
-        return True
-    return os.path.exists(os.path.join(default_home, ".container-mode"))
 
 
 def read_openai_version() -> str | None:
@@ -166,10 +118,7 @@ def read_install_method() -> str | None:
     """Read the installer's ``.install_method`` stamp, if present.
 
     Only the stamp (step 1 of ``config.detect_install_method``'s resolution
-    order) — the managed/git/pip fallbacks need heavier imports and stay on
-    the slow path. On the fast path home ambiguity is already excluded:
-    ``container_mode_may_be_active()`` bails to the slow path whenever a
-    non-default profile might redirect HERMES_HOME.
+    order) — the git fallback needs heavier imports and stays on the slow path.
     """
     stamp = os.path.join(_resolved_home(), ".install_method")
     try:
@@ -202,8 +151,7 @@ def try_fast_version(argv: list[str] | None = None) -> bool:
     Termux keeps its historical contract (also accepts the ``version``
     subcommand + the HERMES_TERMUX_DISABLE_FAST_CLI escape hatch). Everywhere
     else: only ``--version``/``-V`` (the ``version`` subcommand stays on the
-    slow path for full output incl. update check), and never when container
-    mode may need to route the command into the container.
+    slow path for full output incl. update check).
     """
     if argv is None:
         argv = sys.argv[1:]
@@ -215,8 +163,5 @@ def try_fast_version(argv: list[str] | None = None) -> bool:
             return False
     elif not is_global_fast_version_argv(argv):
         return False
-    elif container_mode_may_be_active():
-        return False
-
     print_fast_version_info()
     return True

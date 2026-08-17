@@ -333,73 +333,11 @@ from hermes_cli.colors import Colors, color
 from hermes_cli.default_soul import DEFAULT_SOUL_MD, is_legacy_template_soul
 
 
-# =============================================================================
-# Managed mode (NixOS declarative config)
-# =============================================================================
-
-_MANAGED_TRUE_VALUES = ("true", "1", "yes")
-_MANAGED_SYSTEM_NAMES = {
-    "nix": "NixOS",
-    "nixos": "NixOS",
-}
-# The Nix store root. Used by detect_install_method to identify installs
-# from `nix run` / `nix profile install` (which don't set HERMES_MANAGED).
-# A module-level constant so tests can patch it without creating files
-# under the real /nix/store.
-_NIX_STORE = Path("/nix/store")
-# Values that used to signal a Homebrew-managed install. Homebrew is no
-# longer a supported distribution method, so these are explicitly ignored
-# rather than treated as a managed system — they fall through to git/unknown
-# detection instead of blocking config writes.
-_IGNORED_MANAGED_VALUES = frozenset({"brew", "homebrew"})
-
-
-def get_managed_system() -> Optional[str]:
-    """Return the package manager owning this install, if any."""
-    raw = os.getenv("HERMES_MANAGED", "").strip()
-    if raw:
-        normalized = raw.lower()
-        if normalized in _IGNORED_MANAGED_VALUES:
-            return None
-        if normalized in _MANAGED_TRUE_VALUES:
-            return "NixOS"
-        return _MANAGED_SYSTEM_NAMES.get(normalized, raw)
-
-    managed_marker = get_hermes_home() / ".managed"
-    if managed_marker.exists():
-        return "NixOS"
-    return None
-
-
-def is_managed() -> bool:
-    """Check if Hermes is running in package-manager-managed mode.
-
-    Two signals: the HERMES_MANAGED env var (set by the systemd service),
-    or a .managed marker file in HERMES_HOME (set by the NixOS activation
-    script, so interactive shells also see it).
-    """
-    return get_managed_system() is not None
-
-
-_NIX_UPDATE_MSG = (
-    "Update Hermes through the Nix source that installed it "
-    "(e.g. nix profile upgrade, or update your flake input and rebuild with nixos-rebuild or home-manager switch)"
-)
-
-
-def get_managed_update_command() -> Optional[str]:
-    """Return the preferred upgrade command for a managed install."""
-    managed_system = get_managed_system()
-    if managed_system == "NixOS":
-        return _NIX_UPDATE_MSG
-    return None
-
-
 def _install_method_project_root(project_root: Optional[Path] = None) -> Path:
     """Resolve the directory that holds the *running code* (the install tree).
 
     This is the parent of ``hermes_cli/`` — i.e. the git checkout for source
-    installs, ``/opt/hermes`` inside the published image. It is a property of
+    installs. It is a property of
     the running interpreter, NOT of ``$HERMES_HOME``, which is why a
     code-scoped stamp here is immune to two installs sharing one data
     directory.
@@ -410,88 +348,22 @@ def _install_method_project_root(project_root: Optional[Path] = None) -> Path:
 
 
 def detect_install_method(project_root: Optional[Path] = None) -> str:
-    """Detect how Hermes was installed: 'docker', 'nix', 'nixos', 'git', or 'unknown'.
+    """Detect whether Hermes is running from a Git checkout.
 
     Resolution order:
     1. Code-scoped stamp ``<install tree>/.install_method`` (next to the
        running code) — the authoritative marker.
-    2. Legacy home-scoped stamp ``$HERMES_HOME/.install_method`` — read for
-       backward compatibility, but a ``docker`` value is IGNORED when we are
-       not actually running inside a container (see below).
-    3. HERMES_MANAGED env / .managed marker (NixOS managed mode)
-    4. /nix/store/ path detection -> 'nix' (nix run / nix profile install)
-    5. .git directory presence -> 'git'
-    6. Fallback -> 'unknown'
-
-    Why the stamp is code-scoped, not home-scoped (issue: shared ``~/.hermes``)
-    --------------------------------------------------------------------------
-    The install method describes *the binary that is running*, but
-    ``$HERMES_HOME`` is a shared DATA directory — the Docker docs deliberately
-    bind-mount it (``~/.hermes:/opt/data``) so config/sessions/memory persist
-    and can be shared with a host-side Desktop/CLI install. When a
-    containerised gateway and a host install share one ``$HERMES_HOME``, a
-    home-scoped stamp is a single slot describing two different installs:
-    the container stamps ``docker`` on every boot, the host install then reads
-    ``docker`` and ``hermes update`` refuses to run ("doesn't apply inside the
-    Docker container") even though the host binary is a perfectly updatable
-    git/pip install. Scoping the stamp to the install tree gives each install
-    its own truthful marker.
-
-    Self-healing for already-poisoned homes: a legacy ``docker`` value in the
-    home-scoped stamp is only honoured when we are genuinely in a container.
-    On a host install that read a contaminating ``docker`` stamp, we fall
-    through to managed/.git detection instead — so existing shared-home
-    setups recover without the user touching anything.
-
-    Note: running inside a container is NOT treated as "docker" on its own.
-    The supported installs self-identify via the code-scoped stamp:
-      - the curl installer (scripts/install.sh, the README/website install
-        command) git-clones the repo and stamps ``git`` next to the code;
-      - the published ``nousresearch/hermes-agent`` image bakes a ``docker``
-        stamp into ``/opt/hermes`` at build time.
-    An unsupported manual install dropped into a container (no stamp) falls
-    through to the ``.git`` checks and behaves like any off-path install.
-    See issue #34397.
+    2. ``.git`` directory or worktree file presence.
+    3. Fallback to ``unknown``.
     """
     root = _install_method_project_root(project_root)
-    supported_methods = {"docker", "nix", "nixos", "git", "unknown"}
+    supported_methods = {"git", "unknown"}
 
     # 1. Code-scoped stamp — authoritative, immune to shared $HERMES_HOME.
     try:
         method = (root / ".install_method").read_text(encoding="utf-8").strip().lower()
         if method in supported_methods:
             return method
-    except OSError:
-        pass
-
-    # 2. Legacy home-scoped stamp — back-compat. Ignore a ``docker`` value
-    #    when we are not actually containerised: that is the signature of a
-    #    host install whose shared $HERMES_HOME was stamped by a co-located
-    #    container, and honouring it wrongly blocks ``hermes update``.
-    try:
-        method = (
-            (get_hermes_home() / ".install_method")
-            .read_text(encoding="utf-8")
-            .strip()
-            .lower()
-        )
-        if method in supported_methods and not (method == "docker" and not _running_in_container()):
-            return method
-    except OSError:
-        pass
-
-    managed = get_managed_system()
-    if managed:
-        return managed.lower().replace(" ", "-")
-
-    # detect Nix installs that don't set HERMES_MANAGED (e.g. ``nix run``,
-    # ``nix profile install``). The code lives under /nix/store/ which is the
-    # hallmark of a nix-built install — no other supported install path puts
-    # code there.
-    try:
-        resolved = root.resolve()
-        if resolved != _NIX_STORE and _NIX_STORE in resolved.parents:
-            return "nix"
     except OSError:
         pass
 
@@ -511,16 +383,6 @@ def detect_install_method(project_root: Optional[Path] = None) -> str:
     return "unknown"
 
 
-def _running_in_container() -> bool:
-    """Thin wrapper around ``hermes_constants.is_container`` (import-safe)."""
-    try:
-        from hermes_constants import is_container
-
-        return is_container()
-    except Exception:
-        return False
-
-
 def stamp_install_method(method: str, project_root: Optional[Path] = None) -> None:
     """Write the install method next to the running code (code-scoped stamp).
 
@@ -529,10 +391,7 @@ def stamp_install_method(method: str, project_root: Optional[Path] = None) -> No
     do not overwrite each other's marker. See ``detect_install_method`` for
     the full rationale.
 
-    Best-effort: if the install tree is read-only (e.g. the immutable
-    ``/opt/hermes`` in the published image, which instead bakes the stamp at
-    build time) the write silently no-ops and detection falls back to its
-    other signals.
+    Best-effort: if the install tree is read-only the write silently no-ops.
     """
     root = _install_method_project_root(project_root)
     try:
@@ -544,145 +403,13 @@ def stamp_install_method(method: str, project_root: Optional[Path] = None) -> No
 
 def recommended_update_command_for_method(method: str) -> str:
     """Return the update command or guidance for a given install method."""
-    if method in {"nix", "nixos"}:
-        return _NIX_UPDATE_MSG
-    if method == "docker":
-        return "docker pull nousresearch/hermes-agent:latest"
     return "hermes update"
 
 
 def recommended_update_command() -> str:
     """Return the best update command for the current installation."""
-    managed_cmd = get_managed_update_command()
-    if managed_cmd:
-        return managed_cmd
     method = detect_install_method(get_project_root())
     return recommended_update_command_for_method(method)
-
-
-# Long-form text for ``hermes update`` / ``--check`` when running inside the
-# Docker image.  Surfaced by ``cmd_update`` and ``_cmd_update_check`` in
-# hermes_cli/main.py; lives here so the wording stays consistent and we
-# don't grow two slightly-different copies.
-#
-# Why this matters:
-#   - The published image excludes ``.git`` (see .dockerignore), so the
-#     git-based update path can never succeed inside the container.
-#   - The pre-existing fallback message ("✗ Not a git repository. Please
-#     reinstall: curl ... install.sh") is actively misleading inside Docker
-#     — that script installs a *new* host-side Hermes, it doesn't update
-#     the running container.
-#   - The right action is ``docker pull`` + restart the container; this
-#     helper spells that out, with notes on tag pinning and config
-#     persistence so users don't get blindsided.
-_DOCKER_UPDATE_MESSAGE = """\
-✗ ``hermes update`` doesn't apply inside the Docker container.
-
-Hermes Agent runs as a published image (nousresearch/hermes-agent), not a
-git checkout — the container has no working tree to pull into.  Update by
-pulling a fresh image and restarting your container instead:
-
-  docker pull nousresearch/hermes-agent:latest
-  # then restart whatever started the container, e.g.:
-  docker compose up -d --force-recreate hermes-agent
-  # or, for ad-hoc runs, exit the current container and `docker run` again
-
-Verify the new version after restart:
-  docker run --rm nousresearch/hermes-agent:latest --version
-
-Notes:
-  • If you pinned a specific tag (e.g. ``:v0.14.0``) the ``:latest`` tag
-    won't move your container — pull the newer tag you actually want, or
-    switch to ``:latest`` / ``:main`` for rolling updates.  See available
-    tags at https://hub.docker.com/r/nousresearch/hermes-agent/tags
-  • Your config and session history live under ``$HERMES_HOME`` (``/opt/data``
-    in the container, typically bind-mounted from the host) and persist
-    across image upgrades — re-pulling doesn't lose any state.
-  • Running a fork?  Build your own image with this repo's ``Dockerfile``
-    and replace the ``docker pull`` step with your build/push pipeline."""
-
-
-def format_docker_update_message() -> str:
-    """Return the user-facing message for ``hermes update`` inside Docker.
-
-    Centralised so ``cmd_update`` (the apply path) and ``_cmd_update_check``
-    (the dry-run path) share the same wording.  See ``_DOCKER_UPDATE_MESSAGE``
-    above for the full rationale.
-    """
-    return _DOCKER_UPDATE_MESSAGE
-
-
-def format_managed_message(action: str = "modify this Hermes installation") -> str:
-    """Build a user-facing error for managed installs."""
-    managed_system = get_managed_system() or "a package manager"
-    raw = os.getenv("HERMES_MANAGED", "").strip().lower()
-
-    if managed_system == "NixOS":
-        env_hint = "true" if raw in _MANAGED_TRUE_VALUES else raw or "true"
-        return (
-            f"Cannot {action}: this Hermes installation is managed by NixOS "
-            f"(HERMES_MANAGED={env_hint}).\n"
-            "Edit services.hermes-agent.settings in your configuration.nix and run:\n"
-            "  sudo nixos-rebuild switch"
-        )
-
-    return (
-        f"Cannot {action}: this Hermes installation is managed by {managed_system}.\n"
-        "Use your package manager to upgrade or reinstall Hermes."
-    )
-
-def managed_error(action: str = "modify configuration"):
-    """Print user-friendly error for managed mode."""
-    print(format_managed_message(action), file=sys.stderr)
-
-
-# =============================================================================
-# Container-aware CLI (NixOS container mode)
-# =============================================================================
-
-def get_container_exec_info() -> Optional[dict]:
-    """Read container mode metadata from HERMES_HOME/.container-mode.
-
-    Returns a dict with keys: backend, container_name, exec_user, hermes_bin
-    or None if container mode is not active, we're already inside the
-    container, or HERMES_DEV=1 is set.
-
-    The .container-mode file is written by the NixOS activation script when
-    container.enable = true. It tells the host CLI to exec into the container
-    instead of running locally.
-    """
-    if os.environ.get("HERMES_DEV") == "1":
-        return None
-
-    from hermes_constants import is_container
-    if is_container():
-        return None
-
-    container_mode_file = get_hermes_home() / ".container-mode"
-
-    try:
-        info = {}
-        with open(container_mode_file, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if "=" in line and not line.startswith("#"):
-                    key, _, value = line.partition("=")
-                    info[key.strip()] = value.strip()
-    except FileNotFoundError:
-        return None
-    # All other exceptions (PermissionError, malformed data, etc.) propagate
-
-    backend = info.get("backend", "docker")
-    container_name = info.get("container_name", "hermes-agent")
-    exec_user = info.get("exec_user", "hermes")
-    hermes_bin = info.get("hermes_bin", "/data/current-package/bin/hermes")
-
-    return {
-        "backend": backend,
-        "container_name": container_name,
-        "exec_user": exec_user,
-        "hermes_bin": hermes_bin,
-    }
 
 
 # =============================================================================
@@ -767,10 +494,6 @@ def _chown_to_hermes_uid(path) -> None:
 def _secure_dir(path):
     """Set directory to owner-only access (0700 by default). No-op on Windows.
 
-    Skipped in managed mode — the NixOS module sets group-readable
-    permissions (0750) so interactive users in the hermes group can
-    share state with the gateway service.
-
     The mode can be overridden via the HERMES_HOME_MODE environment variable
     (e.g. HERMES_HOME_MODE=0701) for deployments where a web server (nginx,
     caddy, etc.) needs to traverse HERMES_HOME to reach a served subdirectory.
@@ -782,8 +505,6 @@ def _secure_dir(path):
     created at runtime by kanban workers don't land as root:root and block
     subsequent uid-mapped workers).
     """
-    if is_managed():
-        return
     try:
         mode_str = os.environ.get("HERMES_HOME_MODE", "").strip()
         mode = int(mode_str, 8) if mode_str else 0o700
@@ -824,13 +545,10 @@ def _is_container() -> bool:
 def _secure_file(path):
     """Set file to owner-only read/write (0600). No-op on Windows.
 
-    Skipped in managed mode — the NixOS activation script sets
-    group-readable permissions (0640) on config files.
-
     Skipped in containers — Docker/Podman volume mounts often need broader
     permissions.  Set HERMES_SKIP_CHMOD=1 to force-skip on other systems.
     """
-    if is_managed() or _is_container():
+    if _is_container():
         return
     try:
         if os.path.exists(str(path)):
@@ -862,16 +580,12 @@ def _ensure_default_soul_md(home: Path) -> None:
 
 # Home paths whose directory skeleton has been created this process — see
 # ensure_hermes_home(). Only successful passes are recorded, so a raised
-# managed-mode/missing-profile error keeps re-checking on later loads.
+# missing-profile error keeps re-checking on later loads.
 _HERMES_HOME_ENSURED: set = set()
 
 
 def ensure_hermes_home():
     """Ensure ~/.hermes directory structure exists with secure permissions.
-
-    In managed mode (NixOS), dirs are created by the activation script with
-    setgid + group-writable (2770). We skip mkdir and set umask(0o007) so
-    any files created (e.g. SOUL.md) are group-writable (0660).
 
     Memoized per home path: this runs on EVERY ``load_config()`` (inside the
     config lock), and the ~14 mkdir/chmod syscalls per call made repeated
@@ -895,47 +609,18 @@ def ensure_hermes_home():
             f"Named profile home does not exist: {home}. "
             "Create the profile explicitly before using it."
         )
-    if is_managed():
-        old_umask = os.umask(0o007)
-        try:
-            _ensure_hermes_home_managed(home)
-        finally:
-            os.umask(old_umask)
-    else:
-        home.mkdir(parents=True, exist_ok=True)
-        _secure_dir(home)
-        for subdir in (
-            "cron", "sessions", "logs", "logs/curator", "memories",
-            "pairing", "hooks", "image_cache", "audio_cache", "skills",
-        ):
-            d = home / subdir
-            d.mkdir(parents=True, exist_ok=True)
-            _secure_dir(d)
+    home.mkdir(parents=True, exist_ok=True)
+    _secure_dir(home)
+    for subdir in (
+        "cron", "sessions", "logs", "logs/curator", "memories",
+        "pairing", "hooks", "image_cache", "audio_cache", "skills",
+    ):
+        d = home / subdir
+        d.mkdir(parents=True, exist_ok=True)
+        _secure_dir(d)
         _ensure_default_soul_md(home)
 
     _HERMES_HOME_ENSURED.add(key)
-
-
-def _ensure_hermes_home_managed(home: Path):
-    """Managed-mode variant: verify dirs exist (activation creates them), seed SOUL.md."""
-    if not home.is_dir():
-        raise RuntimeError(
-            f"HERMES_HOME {home} does not exist. "
-            "Run 'sudo nixos-rebuild switch' first."
-        )
-    for subdir in ("cron", "sessions", "logs", "memories"):
-        d = home / subdir
-        if not d.is_dir():
-            raise RuntimeError(
-                f"{d} does not exist. "
-                "Run 'sudo nixos-rebuild switch' first."
-            )
-    # Curator reports dir is a sub-path of logs/; create it if missing.
-    # In managed mode the activation script may not know about this subdir,
-    # so we mkdir it ourselves (it's inside an already-secured logs/ dir).
-    (home / "logs" / "curator").mkdir(parents=True, exist_ok=True)
-    # Inside umask(0o007) scope — SOUL.md will be created as 0660
-    _ensure_default_soul_md(home)
 
 
 # =============================================================================
@@ -2009,20 +1694,6 @@ def validate_config_structure(config: Optional[Dict[str, Any]] = None) -> List["
             return [ConfigIssue("error", "Could not load config.yaml", "Run 'hermes setup' to create a valid config")]
 
     issues: List[ConfigIssue] = []
-
-    # ── voice.submit_mode: direct | draft ────────────────────────────────
-    voice_cfg = config.get("voice")
-    if isinstance(voice_cfg, dict) and "submit_mode" in voice_cfg:
-        submit_mode = voice_cfg.get("submit_mode")
-        normalized_submit_mode = (
-            submit_mode.strip().lower() if isinstance(submit_mode, str) else None
-        )
-        if normalized_submit_mode not in {"direct", "draft"}:
-            issues.append(ConfigIssue(
-                "error",
-                f"voice.submit_mode must be 'direct' or 'draft', got {submit_mode!r}",
-                "Set voice.submit_mode to direct (submit immediately) or draft (edit before sending)",
-            ))
 
     # ── custom_providers must be a list, not a dict ──────────────────────
     cp = config.get("custom_providers")
@@ -3749,9 +3420,6 @@ def save_config(
     already deep-merge) must leave this False so intentional deletions survive.
     """
     with _CONFIG_LOCK:
-        if is_managed():
-            managed_error("save configuration")
-            return
         # Managed scope: strip any leaf the managed layer pins, so a bulk write
         # (wizard / programmatic save) never persists a user value that would
         # silently lose to managed on the next load. Single-key `config set`
@@ -4089,11 +3757,8 @@ def _env_line_defines_key(line: str, key: str) -> bool:
 
 def save_env_value(key: str, value: str):
     """Save or update a value in ~/.hermes/.env."""
-    if is_managed():
-        managed_error(f"set {key}")
-        return
     # Managed scope guard: a managed env key can't be set by the user — the
-    # managed .env wins at load anyway. Distinct from is_managed() above.
+    # The managed .env wins at load anyway.
     from hermes_cli import managed_scope
 
     if managed_scope.is_env_managed(key):
@@ -4205,9 +3870,6 @@ def remove_env_value(key: str) -> bool:
 
     Returns True if the key was found and removed, False otherwise.
     """
-    if is_managed():
-        managed_error(f"remove {key}")
-        return False
     # Managed scope guard: a managed env key can't be removed by the user.
     from hermes_cli import managed_scope
 
@@ -4696,9 +4358,6 @@ def show_config():
 
 def edit_config():
     """Open config file in user's editor."""
-    if is_managed():
-        managed_error("edit configuration")
-        return
     config_path = get_config_path()
     
     # Ensure config exists
@@ -5251,12 +4910,9 @@ def set_config_value(key: str, value: str, force: bool = False):
             refused (bare ``model`` is redirected to ``model.default``). The
             CLI exposes this via ``hermes config set --force``.
     """
-    if is_managed():
-        managed_error("set configuration values")
-        return
     # Managed scope guard (D2): a key pinned by the managed layer cannot be set by
     # the user — the next load would override it anyway. Hard-reject and name the
-    # source. Distinct from is_managed() above (the package-manager write-lock).
+    # source.
     # Env-shaped keys (API keys / tokens) route to save_env_value below, which has
     # its own managed-env-key guard; this catches the config.yaml keys.
     from hermes_cli import managed_scope
@@ -5510,9 +5166,6 @@ def get_config_value(key: str, *, as_json: bool = False):
 
 def unset_config_value(key: str):
     """Remove a user-set configuration or .env value."""
-    if is_managed():
-        managed_error("unset configuration values")
-        return
     # Managed scope guard: a key pinned by the managed layer cannot be unset by
     # the user — the next load would reinstate it anyway (mirrors set_config_value).
     from hermes_cli import managed_scope

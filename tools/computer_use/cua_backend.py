@@ -953,11 +953,10 @@ def _candidate_cua_driver_commands(override: Optional[str] = None) -> List[str]:
     ``HERMES_CUA_DRIVER_CMD`` is authoritative; only when neither is set do we
     use PATH and canonical install locations.
 
-    Desktop apps launched from Finder/Dock often inherit a narrow PATH that
-    omits user-local install directories. The upstream cua-driver installer
-    commonly places the binary under ``~/.local/bin`` on POSIX systems, so a
-    Hermes Desktop/TUI session can otherwise filter out the `computer_use`
-    tool even though `hermes computer-use doctor` succeeds from a login shell.
+    Some launch contexts inherit a narrow PATH that omits user-local install
+    directories. The upstream cua-driver installer commonly places the binary
+    under ``~/.local/bin`` on POSIX systems, so canonical locations are checked
+    in addition to PATH.
     """
     configured = (override if override is not None else os.environ.get(_CUA_DRIVER_CMD_ENV, "")).strip()
     if configured:

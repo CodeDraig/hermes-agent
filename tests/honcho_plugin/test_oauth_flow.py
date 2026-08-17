@@ -157,7 +157,7 @@ def fake_as(monkeypatch):
     base = f"http://127.0.0.1:{port}"
     monkeypatch.setenv("HONCHO_OAUTH_AUTHORIZE_URL", f"{base}/authorize")
     monkeypatch.setenv("HONCHO_OAUTH_TOKEN_URL", f"{base}/oauth/token")
-    monkeypatch.setenv("HONCHO_OAUTH_CLIENT_ID", "hermes-desktop")
+    monkeypatch.setenv("HONCHO_OAUTH_CLIENT_ID", "hermes-test-client")
     try:
         yield base
     finally:
@@ -351,7 +351,7 @@ def test_request_device_code_parses_response_and_sends_identity(fake_as):
     assert device.verification_uri.endswith("/device")
     assert device.verification_uri_complete.endswith("?user_code=ABCD-EFGH")
     assert (device.expires_in, device.interval) == (600, 0)
-    assert _FakeAS.last_device_form["client_id"] == "hermes-desktop"
+    assert _FakeAS.last_device_form["client_id"] == "hermes-test-client"
     assert _FakeAS.last_device_form["scope"] == "write"
     assert _FakeAS.last_device_form["source"] == "hermes-cli"
 
@@ -406,82 +406,3 @@ def test_callback_page_shows_error_on_denied_consent():
     page = result["resp"].text
     assert "Connected" not in page
     assert "not completed" in page and "access_denied" in page
-
-
-# ── Desktop "Connect" button path: background launcher, status, dispatch ──
-
-
-@pytest.fixture
-def reset_flow():
-    oauth_flow._status = oauth_flow.FlowStatus()
-    oauth_flow._flow_thread = None
-    yield
-    oauth_flow._status = oauth_flow.FlowStatus()
-    oauth_flow._flow_thread = None
-
-
-def _wait_until(predicate, timeout=2.0):
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if predicate():
-            return True
-        time.sleep(0.02)
-    return False
-
-
-def test_launcher_runs_flow_in_background_and_reports_connected(monkeypatch, reset_flow):
-    seen = {}
-    gate = threading.Event()
-
-    def fake(**kwargs):
-        seen.update(kwargs)  # captures source default + eagerly-resolved path/host
-        gate.wait(2)  # hold the flow open so the launcher returns while pending
-
-    monkeypatch.setattr(oauth_flow, "authorize_via_loopback", fake)
-    monkeypatch.setattr(oauth_flow, "_detect_connection", lambda: (True, "oauth"))
-
-    st = oauth_flow.start_loopback_flow_background(config_path=Path("/t/honcho.json"), host="hermes")
-    assert st["state"] == "pending"  # returns immediately, before the flow finishes
-    assert _wait_until(lambda: seen.get("source") == "hermes-desktop")  # default source tag
-    assert seen["host"] == "hermes"
-    gate.set()
-    assert _wait_until(lambda: oauth_flow.get_flow_status()["state"] == "connected")
-
-
-def test_get_flow_status_reports_stored_connection(tmp_path, monkeypatch, reset_flow):
-    from plugins.memory.honcho import client as honcho_client
-
-    cfgfile = tmp_path / "honcho.json"
-    monkeypatch.setattr(honcho_client, "resolve_config_path", lambda: cfgfile)
-    monkeypatch.setattr(honcho_client, "resolve_active_host", lambda: "hermes")
-    monkeypatch.delenv("HONCHO_API_KEY", raising=False)
-
-    cfgfile.write_text(json.dumps({"hosts": {"hermes": {}}}))
-    assert oauth_flow.get_flow_status()["connected"] is False
-
-    cfgfile.write_text(json.dumps({"hosts": {"hermes": {"apiKey": "hch-v3-static"}}}))
-    s = oauth_flow.get_flow_status()
-    assert s["connected"] is True and s["auth"] == "apikey"
-
-    cfgfile.write_text(json.dumps({"hosts": {"hermes": {
-        "apiKey": "hch-at-tok",
-        "oauth": {"refreshToken": "hch-rt-x", "expiresAt": 9_999_999_999,
-                  "clientId": "hermes-desktop", "tokenEndpoint": "http://x/oauth/token"},
-    }}}))
-    s = oauth_flow.get_flow_status()
-    assert s["connected"] is True and s["auth"] == "oauth"
-
-
-def test_memory_oauth_router_dispatches_by_provider_convention():
-    # The generic seam behind the two routes: provider → plugins.memory.<p>.oauth_flow.
-    from fastapi import HTTPException
-
-    from hermes_cli.memory_oauth import _resolve_flow
-
-    mod = _resolve_flow("honcho")
-    assert hasattr(mod, "start_loopback_flow_background") and hasattr(mod, "get_flow_status")
-
-    for bad in ("builtin", "no-such-provider", "../etc"):
-        with pytest.raises(HTTPException) as exc:
-            _resolve_flow(bad)
-        assert exc.value.status_code == 404

@@ -12,7 +12,7 @@ def _open_pair(tmp_path):
     path = tmp_path / "state.db"
     first = SessionDB(db_path=path)
     second = SessionDB(db_path=path)
-    first.create_session("session", "desktop", cwd="/repo/A")
+    first.create_session("session", "cli", cwd="/repo/A")
     return first, second
 
 
@@ -105,7 +105,7 @@ def test_repeated_same_cwd_claim_invalidates_older_probe(tmp_path):
 def test_cwd_move_clears_metadata_in_same_claim(tmp_path):
     db = SessionDB(db_path=tmp_path / "state.db")
     try:
-        db.create_session("session", "desktop", cwd="/repo/A")
+        db.create_session("session", "cli", cwd="/repo/A")
         generation = _require_generation(
             db.update_session_cwd("session", "/repo/A")
         )
@@ -129,7 +129,7 @@ def test_cwd_move_clears_metadata_in_same_claim(tmp_path):
 def test_explicit_move_replaces_metadata_and_claims_generation(tmp_path):
     db = SessionDB(db_path=tmp_path / "state.db")
     try:
-        db.create_session("session", "desktop", cwd="/repo/A")
+        db.create_session("session", "cli", cwd="/repo/A")
         initial_generation = _require_generation(
             db.update_session_cwd(
                 "session",
@@ -187,8 +187,8 @@ def test_generation_authority_is_scoped_to_each_profile_database(tmp_path):
     first = SessionDB(db_path=tmp_path / "profile-a.db")
     second = SessionDB(db_path=tmp_path / "profile-b.db")
     try:
-        first.create_session("same-id", "desktop", cwd="/a")
-        second.create_session("same-id", "desktop", cwd="/b")
+        first.create_session("same-id", "cli", cwd="/a")
+        second.create_session("same-id", "cli", cwd="/b")
         first_generation = _require_generation(
             first.update_session_cwd("same-id", "/a")
         )
@@ -238,7 +238,7 @@ def test_legacy_sessions_table_reconciles_generation_column(tmp_path):
         assert reopened._conn.execute(
             "SELECT version FROM schema_version"
         ).fetchone()[0] == SCHEMA_VERSION == 26
-        reopened.create_session("session", "desktop", cwd="/repo")
+        reopened.create_session("session", "cli", cwd="/repo")
         assert reopened.update_session_cwd("session", "/repo") == 1
     finally:
         reopened.close()
@@ -247,7 +247,7 @@ def test_legacy_sessions_table_reconciles_generation_column(tmp_path):
 def test_compact_session_rows_do_not_expose_internal_generation(tmp_path):
     db = SessionDB(db_path=tmp_path / "state.db")
     try:
-        db.create_session("session", "desktop", cwd="/repo")
+        db.create_session("session", "cli", cwd="/repo")
         db.update_session_cwd("session", "/repo")
 
         rows = db.list_sessions_rich(compact_rows=True)

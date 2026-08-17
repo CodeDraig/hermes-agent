@@ -38,24 +38,15 @@ logger = logging.getLogger(__name__)
 
 
 def _post_setup_no_window_flags(*, streams_to_console: bool = False) -> int:
-    """Win32 creationflags that stop post-setup children flashing a console.
+    """Win32 creationflags for post-setup subprocesses.
 
-    The dashboard/GUI runs post-setup hooks through a detached, console-less
-    ``hermes tools post-setup <key>`` child. On Windows, every console child
-    (npm.cmd, npx, pip, powershell, curl) spawned from that console-less
-    parent materializes a brand-new console window — the "terminal flash"
-    users see when clicking "Run setup". ``CREATE_NO_WINDOW`` (via
-    :func:`hermes_cli._subprocess_compat.windows_hide_flags`) suppresses it
-    without breaking ``capture_output`` — unlike ``DETACHED_PROCESS``, stdio
-    handles stay inheritable. Returns 0 on POSIX, so passing the result
-    unconditionally is safe.
+    ``CREATE_NO_WINDOW`` suppresses stray console windows for captured child
+    processes without breaking inherited stdio. Returns 0 on POSIX.
 
     ``streams_to_console=True`` marks children spawned WITHOUT stdio
     redirection (live installer output, e.g. the verbose cua-driver install).
-    Hiding those in an interactive console session would silently swallow
-    their output into an invisible console, so the flag is only applied when
-    the current process has no usable console of its own (stdout is a
-    pipe/log file — exactly the GUI-spawn case that flashes).
+    Hiding those in an interactive console session would swallow their output,
+    so the flag is only applied when stdout is not a TTY.
     """
     from hermes_cli._subprocess_compat import windows_hide_flags
 
@@ -76,6 +67,19 @@ def _post_setup_no_window_flags(*, streams_to_console: bool = False) -> int:
 _warned_invalid_platform_toolsets: Set[str] = set()
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
+
+
+def _camofox_package_dir() -> Path:
+    from hermes_constants import get_process_hermes_home
+
+    return (
+        get_process_hermes_home()
+        / "node"
+        / "lib"
+        / "node_modules"
+        / "@askjo"
+        / "camofox-browser"
+    )
 
 
 # ─── UI Helpers (shared with setup.py) ────────────────────────────────────────
@@ -122,21 +126,6 @@ CONFIGURABLE_TOOLSETS = [
     ("yuanbao",          "🤖 Yuanbao",                  "group info, member queries, DM"),
     ("computer_use",     "🖱️  Computer Use (macOS/Windows/Linux)", "background desktop control via cua-driver"),
 ]
-
-
-def gui_toolset_label(label: str) -> str:
-    """Strip leading emoji/icons from toolset titles for GUI surfaces.
-
-    Registry labels use ``<emoji> <title>``; plugin toolsets prefix with ``🔌``.
-    CLI/TUI keeps the raw ``label`` — only HTTP APIs call this helper.
-    """
-    text = (label or "").strip()
-    if not text:
-        return text
-    parts = text.split(None, 1)
-    if len(parts) == 2 and parts[0] and not any(ch.isascii() and ch.isalnum() for ch in parts[0]):
-        return parts[1].strip()
-    return text
 
 
 # Toolsets that are OFF by default for new installs.
@@ -1808,7 +1797,7 @@ def _run_post_setup(post_setup_key: str):
         # CLI when it's runnable — install it here too, not only on the
         # explicit "Browser Use" picker row.
         _ensure_browser_use_cli()
-        # agent-browser is no longer a root package.json dependency (#43564)
+        # agent-browser is resolved lazily through npx (#43564)
         # — it resolves lazily via npx (or a global/Hermes-managed install)
         # instead of a local `npm install`, so there's no node_modules/
         # population step here anymore.
@@ -1817,7 +1806,6 @@ def _run_post_setup(post_setup_key: str):
             # browser_tool module at import time.
             from tools.browser_tool import (
                 _chromium_installed,
-                _running_in_docker,
                 _find_agent_browser,
                 _resolve_npx_bin,
                 _is_npx_agent_browser_sentinel,
@@ -1848,23 +1836,9 @@ def _run_post_setup(post_setup_key: str):
 
         # Step 2: ensure the Chromium / headless-shell build agent-browser
         # drives is actually installed. Without it the CLI hangs on first
-        # use until the command timeout fires. Skip inside Docker — the
-        # image bakes Chromium in at build time, and runtime users usually
-        # can't write to PLAYWRIGHT_BROWSERS_PATH anyway.
+        # use until the command timeout fires.
         if _chromium_installed():
             _print_success("    Chromium browser already installed, nothing to do")
-            return
-
-        if _running_in_docker():
-            _print_warning(
-                "    Chromium is missing but you're running in Docker."
-            )
-            _print_info(
-                "    Pull the latest image to get the bundled Chromium:"
-            )
-            _print_info(
-                "      docker pull ghcr.io/nousresearch/hermes-agent:latest"
-            )
             return
 
         # browser_cmd was already resolved above (same PATH -> Homebrew ->
@@ -1917,7 +1891,7 @@ def _run_post_setup(post_setup_key: str):
         _ensure_browser_use_cli(verbose_hints=True)
 
     elif post_setup_key == "camofox":
-        camofox_dir = PROJECT_ROOT / "node_modules" / "@askjo" / "camofox-browser"
+        camofox_dir = _camofox_package_dir()
         _npm_bin = find_node_executable("npm")
         if camofox_dir.exists():
             _print_success("    Camofox already installed, nothing to do")
@@ -1926,15 +1900,23 @@ def _run_post_setup(post_setup_key: str):
             import subprocess
             # Absolute npm path so .cmd shim executes on Windows.
             result = subprocess.run(
-                # --workspaces=false avoids resolving apps/desktop. See #38772.
-                [_npm_bin, "install", "--silent", "--workspaces=false"],
-                capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=str(PROJECT_ROOT),
+                [
+                    _npm_bin,
+                    "install",
+                    "-g",
+                    "--prefix",
+                    str(camofox_dir.parents[3]),
+                    "--silent",
+                    "--ignore-scripts",
+                    "@askjo/camofox-browser@^1.5.2",
+                ],
+                capture_output=True, text=True, encoding="utf-8", errors="replace",
                 creationflags=_post_setup_no_window_flags(),
             )
             if result.returncode == 0:
                 _print_success("    Camofox installed")
             else:
-                _print_warning("    npm install failed - run manually: npm install --workspaces=false")
+                _print_warning("    npm install failed - run: hermes tools post-setup camofox")
         if camofox_dir.exists():
             _print_info("    Start the Camofox server:")
             _print_info("      npx @askjo/camofox-browser")
@@ -2174,8 +2156,8 @@ def valid_post_setup_keys() -> Set[str]:
     Collected from ``TOOL_CATEGORIES`` plus the plugin-registered web /
     image-gen / video-gen / browser providers (which can also carry a
     ``post_setup``). This is the allowlist the ``hermes tools post-setup``
-    command and the dashboard post-setup endpoint validate against, so a
-    caller can't drive ``_run_post_setup`` with an arbitrary key.
+    command validates against, so a caller can't drive ``_run_post_setup``
+    with an arbitrary key.
     """
     keys: Set[str] = set()
     for cat in TOOL_CATEGORIES.values():
@@ -2205,8 +2187,7 @@ def run_post_setup_command(args) -> int:
 
     Runs the install/bootstrap hook a provider declares (npm install for
     browser/Camofox, pip install for kittentts/piper/ddgs, cua-driver fetch,
-    etc.). This is the stable, scriptable target the dashboard spawns so the
-    GUI can drive backend setup without re-implementing the install logic.
+    etc.). This is the stable, scriptable target for non-interactive setup.
     Returns a process exit code (0 ok, 2 unknown key).
     """
     key = getattr(args, "post_setup_key", None)
@@ -3492,8 +3473,8 @@ def _agent_browser_installed() -> bool:
 
 def _camofox_installed() -> bool:
     """True when the Camofox npm package ``_run_post_setup("camofox")``
-    installs is already in node_modules."""
-    return (PROJECT_ROOT / "node_modules" / "@askjo" / "camofox-browser").exists()
+    installs is already in the Hermes-owned Node prefix."""
+    return _camofox_package_dir().exists()
 
 
 # post_setup_key -> predicate(): True when the install side-effect is already
@@ -4274,9 +4255,6 @@ def _configure_videogen_model_for_plugin(plugin_name: str, config: dict) -> None
 
 # Per-provider STT model catalogs for the interactive picker. Keys are
 # ``stt.<provider>`` config sections; the first entry is the default.
-# Kept in sync with the dashboard selects (hermes_cli/web_server.py
-# _CONFIG_FIELD_META) and the desktop settings enums
-# (apps/desktop/src/app/settings/constants.ts).
 STT_MODEL_CATALOG = {
     "local": ["base", "tiny", "small", "medium", "large-v3"],
     "groq": ["whisper-large-v3-turbo", "whisper-large-v3", "distil-whisper-large-v3-en"],
@@ -4336,8 +4314,8 @@ def _write_provider_config(provider: dict, config: dict, *, managed_feature) -> 
     it writes ``tts.provider`` / ``browser.cloud_provider`` / ``web.backend``
     and the ``use_gateway`` flags based on the provider's markers, but does
     NOT prompt for env vars, run post-setup hooks, gate on Nous auth, or run
-    interactive model pickers. Both the CLI configurator and the desktop GUI
-    ``PUT .../provider`` endpoint call through here so there is one code path.
+    interactive model pickers. The CLI configurator calls through here so
+    config writes stay separate from prompting.
     """
     # Set TTS provider in config if applicable
     if provider.get("tts_provider"):
@@ -4389,62 +4367,6 @@ def _write_provider_config(provider: dict, config: dict, *, managed_feature) -> 
                 if isinstance(section, dict) and section.get("use_gateway"):
                     section["use_gateway"] = False
                 break
-
-
-def apply_provider_selection(ts_key: str, provider_name: str, config: dict) -> None:
-    """Non-interactively persist a provider selection for a toolset.
-
-    Resolves ``provider_name`` within ``ts_key``'s category (matching the
-    rows the GUI/CLI picker shows via :func:`_visible_providers`) and writes
-    the corresponding backend/provider config keys. Unlike
-    :func:`_configure_provider`, this does NOT prompt for API keys, run
-    post-setup hooks, gate on Nous Portal auth, or run interactive model
-    pickers — those are handled separately (env endpoints, post-setup
-    endpoints, the model picker) in the desktop GUI.
-
-    Raises ``KeyError`` if the toolset has no category or the provider name
-    is not found among the visible providers.
-    """
-    cat = TOOL_CATEGORIES.get(ts_key)
-    if cat is None:
-        raise KeyError(f"Toolset has no configurable category: {ts_key}")
-
-    providers = _visible_providers(cat, config, force_fresh=True)
-    provider = next((p for p in providers if p.get("name") == provider_name), None)
-    if provider is None:
-        raise KeyError(f"Unknown provider {provider_name!r} for toolset {ts_key!r}")
-
-    managed_feature = provider.get("managed_nous_feature")
-    _write_provider_config(provider, config, managed_feature=managed_feature)
-
-    # Plugin-registered image/video gen backends record the provider name in
-    # their own config section. Write that here (without the interactive
-    # model picker the CLI runs afterwards — model choice is a separate GUI
-    # flow).
-    plugin_name = provider.get("image_gen_plugin_name")
-    if plugin_name:
-        img_cfg = config.setdefault("image_gen", {})
-        if not isinstance(img_cfg, dict):
-            img_cfg = {}
-            config["image_gen"] = img_cfg
-        img_cfg["provider"] = plugin_name
-        img_cfg["use_gateway"] = bool(managed_feature)
-
-    video_plugin = provider.get("video_gen_plugin_name")
-    if video_plugin:
-        vid_cfg = config.setdefault("video_gen", {})
-        if not isinstance(vid_cfg, dict):
-            vid_cfg = {}
-            config["video_gen"] = vid_cfg
-        vid_cfg["provider"] = video_plugin
-        vid_cfg["use_gateway"] = bool(managed_feature)
-
-    # In-tree FAL imagegen backend: keep image_gen.provider on the legacy
-    # path (mirrors _configure_provider).
-    if provider.get("imagegen_backend"):
-        img_cfg = config.setdefault("image_gen", {})
-        if isinstance(img_cfg, dict) and img_cfg.get("provider") not in {None, "", "fal"}:
-            img_cfg["provider"] = "fal"
 
 
 def _configure_provider(
@@ -4520,9 +4442,8 @@ def _configure_provider(
     if provider.get("web_backend"):
         _print_success(f"  Web backend set to: {provider['web_backend']}")
 
-    # Persist the provider/backend config keys + use_gateway flags. Shared
-    # with the GUI provider-select endpoint via apply_provider_selection so
-    # there is a single source of truth for these writes.
+    # Persist provider/backend keys and use_gateway flags separately from the
+    # interactive prompts above.
     _write_provider_config(provider, config, managed_feature=managed_feature)
 
     if not env_vars:

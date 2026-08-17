@@ -368,7 +368,7 @@ class TestDelegateTask(unittest.TestCase):
         """Per-profile parents: the child's dedicated handle must target the
         parent's database FILE, not the launch profile's default state.db.
 
-        tui_gateway hands agents dedicated per-profile handles
+        callers hand agents dedicated per-profile handles
         (``SessionDB(db_path=<profile_home>/state.db)`` via
         ``_transfer_db_to_agent``). A bare ``SessionDB()`` in
         ``_build_child_agent`` would write the child's transcript into the

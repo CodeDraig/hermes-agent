@@ -152,21 +152,17 @@ _CREATE_NEW_PROCESS_GROUP = 0x00000200
 #    inside third-party libraries that no per-call-site CREATE_NO_WINDOW sweep
 #    can reach.  A CREATE_NO_WINDOW child instead OWNS a hidden console that
 #    all descendants inherit, making "no flashing windows" a property of the
-#    one daemon launch.  Root cause isolated + A/B verified on Windows 11 by
-#    the desktop backend fix (commit aa2ae36c3f): with per-site hide flags
+#    one daemon launch. Root cause isolated and A/B verified on Windows 11:
+#    with per-site hide flags
 #    neutered, naive git/gh/cmd spawns don't flash under a hidden-console
 #    parent and do flash under a console-less one.
 _DETACHED_PROCESS = 0x00000008  # kept for reference; must stay out of bundles
 _CREATE_NO_WINDOW = 0x08000000
 # Escape any Win32 job object the parent process belongs to. Without this,
 # a detached child still inherits its parent's job object membership, and
-# when that parent (Electron, Tauri, Windows Terminal, the Desktop GUI's
-# bootstrap-installer) dies, the OS tears down the whole job — taking the
-# "detached" child with it. Critical for the post-update gateway watcher:
-# Electron spawns the Tauri updater inside its own job, the updater spawns
-# the watcher subprocess; without BREAKAWAY the watcher dies the instant
-# Electron exits, so the gateway never gets respawned after a `hermes
-# update` triggered from the GUI. See fix/windows-gateway-reliability.
+# when a supervising parent dies, the OS tears down the whole job — taking the
+# "detached" child with it. This is critical for long-lived gateway processes
+# launched by update or service-control commands.
 _CREATE_BREAKAWAY_FROM_JOB = 0x01000000
 
 
@@ -192,13 +188,9 @@ def windows_detach_flags() -> int:
       DETACHED_PROCESS, and a truly console-less daemon re-creates the
       per-descendant console-flash bug (#54220/#56747) at every spawn —
       see the note on ``_DETACHED_PROCESS`` above.
-    - ``CREATE_BREAKAWAY_FROM_JOB`` — escape any job object the parent is
-      in.  Electron (Desktop app) and Tauri (bootstrap installer) wrap
-      their children in job objects; without breakaway, those children
-      die when the parent process exits even though they have their own
-      console.  This was the missing flag that made the post-update
-      gateway respawn watcher silently die alongside the Tauri updater
-      after the Electron Desktop's update flow finished.
+    - ``CREATE_BREAKAWAY_FROM_JOB`` — escape any job object the parent is in.
+      Some Windows terminal and service launchers wrap children in job
+      objects; without breakaway, a detached gateway can die with its parent.
 
     If a process is in a job that disallows breakaway (rare —
     JOB_OBJECT_LIMIT_BREAKAWAY_OK isn't set), CreateProcess returns
@@ -348,8 +340,8 @@ def noninteractive_git_env(
     """Environment for *internal* git invocations that must never prompt.
 
     Hermes shells out to git from many non-interactive contexts — MCP catalog
-    installs, plugin install/update, profile distribution staging, worktree
-    base fetches, desktop review-pane fetch/push. When the remote is private,
+    installs, plugin install/update, profile distribution staging, and worktree
+    fetch/push operations. When the remote is private,
     misconfigured, or requires auth, git's default behavior is to prompt on
     the inherited terminal (or via an askpass helper), which silently hangs
     the operation until its timeout — or forever at call sites without one.
@@ -510,15 +502,14 @@ def bounded_git_probe(argv: Sequence[str], *, timeout: float) -> str:
 
     This is the shared, deadlock-safe replacement for
     ``subprocess.run(["git", ...], timeout=...)`` at fail-open probe call sites
-    (``tui_gateway.git_probe.run_git``, ``agent.coding_context._git``).
+    (``agent.coding_context._git``).
 
     Why not ``subprocess.run``: on Windows, ``run()``'s post-timeout cleanup
     calls an *unbounded* ``communicate()`` after killing git. Killing the
     PATH-resolved launcher can leave a suspended descendant ``git.exe`` holding
     duplicates of the captured stdout/stderr handles, so the pipes never reach
-    EOF and the reader-thread join blocks forever. On the Desktop agent-build
-    path (``_start_agent_build → _session_info → branch() → run_git``) that turned
-    an optional branch label into ``agent initialization timed out``
+    EOF and the reader-thread join blocks forever. In background agent-build
+    paths that can turn an optional branch label into ``agent initialization timed out``
     (issues #68609 / #66037).
 
     The bounded flow: an explicit ``communicate(timeout)``, then on any failure a

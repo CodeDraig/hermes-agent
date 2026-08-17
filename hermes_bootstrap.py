@@ -144,8 +144,7 @@ def suppress_platform_ver_console() -> None:
     ``sys.getwindowsversion()`` — same data, in-process, no subprocess.
     Mirrors ``hermes_cli._subprocess_compat.suppress_platform_ver_console``
     (kept there for callers that don't import bootstrap); double
-    application is harmless. Lives here so EVERY entry point gets it —
-    ``tui_gateway/slash_worker.py``, ``tui_gateway/entry.py``,
+    application is harmless. Lives here so every entry point gets it —
     ``run_agent.py``, ``batch_runner.py``, and ``cli.py`` import only
     ``hermes_bootstrap``, never ``hermes_cli.main``.
     """

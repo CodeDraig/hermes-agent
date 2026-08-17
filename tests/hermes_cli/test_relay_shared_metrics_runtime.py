@@ -2394,25 +2394,25 @@ def test_failed_flush_keeps_daily_export_open_for_later_task(
 
     direct_runtime.subscribers.flush = fail_first_flush
 
-    def finish_desktop_task(task_id: str) -> None:
+    def finish_cli_task(task_id: str) -> None:
         lifecycle.invoke_hook(
             "pre_llm_call",
             session_id="s1",
             task_id=task_id,
-            platform="desktop",
+            platform="cli",
         )
         lifecycle.invoke_hook(
             "on_session_end",
             session_id="s1",
             task_id=task_id,
-            platform="desktop",
+            platform="cli",
             completed=True,
             failed=False,
             interrupted=False,
             turn_exit_reason="text_response(stop)",
         )
 
-    finish_desktop_task("t1")
+    finish_cli_task("t1")
 
     root = tmp_path / "hermes-home" / "telemetry" / "shared_metrics"
     assert list((root / "outbox").glob("*.json")) == []
@@ -2422,7 +2422,7 @@ def test_failed_flush_keeps_daily_export_open_for_later_task(
         ).fetchone()
     assert package_count == 0
 
-    finish_desktop_task("t2")
+    finish_cli_task("t2")
 
     [package_path] = list((root / "outbox").glob("*.json"))
     package = json.loads(package_path.read_text(encoding="utf-8"))

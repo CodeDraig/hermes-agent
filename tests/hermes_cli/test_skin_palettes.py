@@ -5,7 +5,7 @@ fallbacks (a partial skin inherits the default skin's gold, which is how
 "slate feels all over the place" happened), and every palette must be a
 fixed point of the TUI's runtime readability adaptation — hand-tuned values
 that already pass the same contrast floors the TUI enforces (strong >= 3.9,
-soft >= 2.8, fills matching the background polarity). Mirrors the desktop
+soft >= 2.8, fills matching the background polarity). Preserves the shared
 app's paired colors/darkColors contract.
 """
 
@@ -50,7 +50,7 @@ REQUIRED_KEYS = frozenset(
 )
 
 # Foreground roles and their minimum contrast against the palette's pole.
-# Matches ui-tui/src/theme.ts STRONG/SOFT tiers.
+# Shared STRONG/SOFT contrast tiers.
 STRONG_FG = (
     "banner_title",
     "banner_accent",
@@ -90,7 +90,7 @@ FILLS = (
 
 STRONG_MIN = 3.9
 SOFT_MIN = 2.8
-# Assumed terminal poles, matching ui-tui/src/theme.ts referenceBackground().
+# Assumed terminal background poles.
 DARK_POLE = "#101014"
 LIGHT_POLE = "#ffffff"
 

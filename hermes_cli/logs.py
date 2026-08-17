@@ -10,8 +10,6 @@ Usage examples::
     hermes logs -f                 # follow agent.log in real time
     hermes logs errors             # last 50 lines of errors.log
     hermes logs gateway -n 100    # last 100 lines of gateway.log
-    hermes logs gui -f            # follow gui.log (dashboard/pty/ws)
-    hermes logs desktop -f        # follow desktop.log (Electron app boot/backend)
     hermes logs --level WARNING    # only WARNING+ lines
     hermes logs --session abc123   # filter by session ID substring
     hermes logs --component tools  # only tool-related lines
@@ -33,8 +31,6 @@ LOG_FILES = {
     "agent": "agent.log",
     "errors": "errors.log",
     "gateway": "gateway.log",
-    "gui": "gui.log",
-    "desktop": "desktop.log",
     # Every stdio MCP subprocess's stderr (tools/mcp_tool.py redirects it
     # here, with per-server session markers) — the "MCP output channel".
     "mcp": "mcp-stderr.log",

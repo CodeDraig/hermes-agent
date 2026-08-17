@@ -21,7 +21,6 @@ import shlex
 import signal
 import subprocess
 import sys
-import threading
 import time
 from datetime import datetime, timezone
 from dataclasses import dataclass
@@ -46,9 +45,6 @@ _gateway_lock_handle = None
 # past the JSON payload so runtime status / PID readers can still read the file
 # while another process holds the mutual-exclusion lock.
 _WINDOWS_LOCK_OFFSET = 1024 * 1024
-_GATEWAY_RUNNING_PID_CACHE_TTL_SECONDS = 1.0
-_gateway_running_pid_cache_lock = threading.Lock()
-_gateway_running_pid_cache: dict[tuple[str, bool, bool], tuple[float, tuple[Any, ...], Optional[int]]] = {}
 
 logger = logging.getLogger(__name__)
 
@@ -430,8 +426,7 @@ def _gateway_command_subcommand(command: str | None) -> str | None:
 
     Lifecycle decisions (is the gateway up? did restart relaunch it?) must not
     fire on loose substring matches.  The previous ``"... gateway" in cmdline``
-    test also matched ``hermes_cli.main gateway status`` and even unrelated
-    processes like ``python -m tui_gateway`` -- which made ``restart()`` race
+    test also matched ``hermes_cli.main gateway status`` -- which made ``restart()`` race
     against a still-draining old process and ``status``/``start`` report false
     positives.  This requires the actual ``gateway`` subcommand followed by
     ``run`` (or one of the gateway-dedicated entrypoints), excluding the other
@@ -716,33 +711,6 @@ def _pid_from_record(record: Optional[dict[str, Any]]) -> Optional[int]:
         return None
 
 
-def _clear_running_pid_cache() -> None:
-    with _gateway_running_pid_cache_lock:
-        _gateway_running_pid_cache.clear()
-
-
-def _file_cache_signature(path: Path) -> tuple[bool, Optional[int], Optional[int]]:
-    try:
-        st = path.stat()
-    except OSError:
-        return (False, None, None)
-    return (True, st.st_mtime_ns, st.st_size)
-
-
-def _running_pid_cache_signature(
-    pid_path: Path,
-    *,
-    include_runtime_status: bool,
-) -> tuple[Any, ...]:
-    parts: list[Any] = [
-        _file_cache_signature(pid_path),
-        _file_cache_signature(_get_gateway_lock_path(pid_path)),
-    ]
-    if include_runtime_status:
-        parts.append(_file_cache_signature(_get_runtime_status_path()))
-    return tuple(parts)
-
-
 def _cleanup_invalid_pid_path(pid_path: Path, *, cleanup_stale: bool) -> None:
     """Delete a stale gateway PID file (and its sibling lock metadata).
 
@@ -755,7 +723,6 @@ def _cleanup_invalid_pid_path(pid_path: Path, *, cleanup_stale: bool) -> None:
     """
     if not cleanup_stale:
         return
-    _clear_running_pid_cache()
     try:
         pid_path.unlink(missing_ok=True)
     except Exception:
@@ -956,7 +923,6 @@ def acquire_gateway_runtime_lock() -> bool:
         return False
     _write_gateway_lock_record(handle)
     _gateway_lock_handle = handle
-    _clear_running_pid_cache()
     return True
 
 
@@ -972,7 +938,6 @@ def release_gateway_runtime_lock() -> None:
         handle.close()
     except OSError:
         pass
-    _clear_running_pid_cache()
 
 
 def is_gateway_runtime_lock_active(lock_path: Optional[Path] = None) -> bool:
@@ -1026,7 +991,6 @@ def write_pid_file() -> None:
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(record)
-        _clear_running_pid_cache()
     except Exception:
         try:
             path.unlink(missing_ok=True)
@@ -1272,31 +1236,18 @@ def resolve_gateway_liveness(
     profile_dir: Optional[Path] = None,
     runtime: Any = _UNSET,
     health_probe: Optional[Callable[[], tuple[bool, Optional[dict[str, Any]]]]] = None,
-    use_cache: bool = True,
     pid_probe: Optional[Callable[..., Optional[int]]] = None,
     runtime_reader: Optional[Callable[..., Optional[dict[str, Any]]]] = None,
     runtime_pid_probe: Optional[Callable[..., Optional[int]]] = None,
 ) -> GatewayLiveness:
-    """Single source of truth for "is the gateway up?" across dashboard surfaces.
-
-    Before this existed, ``/api/status`` and ``/api/messaging/platforms``
-    each open-coded their own ladder and disagreed on the same page load —
-    the sidebar read "running" while the Channels page rendered "The gateway
-    is not running."  Three deployments hit it: a cross-container gateway
-    (only ``/api/status`` ran the HTTP health probe), a profile-scoped
-    dashboard (only ``/api/status`` passed the profile's paths, so messaging
-    borrowed another profile's runtime state — issue #71211), and a
-    launch-service-managed gateway with no PID file (only some callers used
-    the runtime-status fallback).
+    """Resolve gateway liveness from process and runtime-status evidence.
 
     The ladder, most to least authoritative:
 
     1. **PID file + runtime lock** — scoped to ``profile_dir`` when given.
-       Cached by default (``use_cache``); high-frequency polling must not
-       churn file descriptors re-flocking ``gateway.lock`` on every request.
-    2. **HTTP health probe** — supplied by the caller (the dashboard owns the
-       deprecated ``GATEWAY_HEALTH_URL`` config).  Covers the gateway running
-       in another container where no local PID is visible.
+       Scoped to ``profile_dir`` when given.
+    2. **HTTP health probe** — supplied by a caller when the gateway runs in
+       another container where no local PID is visible.
     3. **Runtime status PID** — validated against the live process table with
        ``expected_home`` so a recycled PID belonging to a *different*
        profile's gateway is never reported as this one's.
@@ -1307,14 +1258,10 @@ def resolve_gateway_liveness(
     has already read the state file so it isn't read twice per request.
 
     ``pid_probe`` / ``runtime_reader`` / ``runtime_pid_probe`` let a caller
-    inject its own module-level references to these helpers.  The dashboard
-    passes its ``hermes_cli.web_server`` bindings so the long-standing
-    monkeypatch seam in the test-suite keeps working; production callers
+    inject its own module-level references to these helpers. Production callers
     leave them ``None`` and get this module's implementations.
     """
-    _pid_probe = pid_probe or (
-        get_running_pid_cached if use_cache else get_running_pid
-    )
+    _pid_probe = pid_probe or get_running_pid
     _runtime_reader = runtime_reader or read_runtime_status
     _runtime_pid_probe = runtime_pid_probe or get_runtime_status_running_pid
 
@@ -1451,7 +1398,6 @@ def remove_pid_file() -> None:
                 # PID file belongs to a different process — leave it alone.
                 return
         path.unlink(missing_ok=True)
-        _clear_running_pid_cache()
     except Exception:
         pass
 
@@ -2317,54 +2263,6 @@ def get_running_pid(
         if runtime_pid is not None:
             return runtime_pid
     return None
-
-
-def get_running_pid_cached(
-    pid_path: Optional[Path] = None,
-    *,
-    cleanup_stale: bool = True,
-    ttl_seconds: float = _GATEWAY_RUNNING_PID_CACHE_TTL_SECONDS,
-) -> Optional[int]:
-    """Cached read-side wrapper for dashboard/status polling.
-
-    ``get_running_pid()`` probes the runtime lock by briefly opening and locking
-    ``gateway.lock``. That is the right authoritative check for control paths,
-    but high-frequency read-only HTTP polling can call it hundreds of times per
-    minute. Cache for a short window and invalidate on PID/lock/runtime-status
-    file changes so status endpoints do not churn file descriptors while still
-    noticing gateway start/stop transitions quickly.
-    """
-    if ttl_seconds <= 0:
-        return get_running_pid(pid_path, cleanup_stale=cleanup_stale)
-
-    resolved_pid_path = pid_path or _get_pid_path()
-    include_runtime_status = pid_path is None
-    signature = _running_pid_cache_signature(
-        resolved_pid_path,
-        include_runtime_status=include_runtime_status,
-    )
-    key = (str(resolved_pid_path), bool(cleanup_stale), include_runtime_status)
-    now = time.monotonic()
-
-    with _gateway_running_pid_cache_lock:
-        cached = _gateway_running_pid_cache.get(key)
-        if cached is not None:
-            cached_at, cached_signature, cached_pid = cached
-            if now - cached_at <= ttl_seconds and cached_signature == signature:
-                return cached_pid
-
-    pid = get_running_pid(pid_path, cleanup_stale=cleanup_stale)
-    refreshed_signature = _running_pid_cache_signature(
-        resolved_pid_path,
-        include_runtime_status=include_runtime_status,
-    )
-    with _gateway_running_pid_cache_lock:
-        _gateway_running_pid_cache[key] = (
-            time.monotonic(),
-            refreshed_signature,
-            pid,
-        )
-    return pid
 
 
 def is_gateway_running(

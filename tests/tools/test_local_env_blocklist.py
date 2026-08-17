@@ -211,7 +211,6 @@ class TestProviderEnvBlocklist:
             "HASS_TOKEN": "ha-secret",
             "EMAIL_PASSWORD": "email-secret",
             "FIRECRAWL_API_KEY": "fc-secret",
-            "HERMES_DASHBOARD_SESSION_TOKEN": "dashboard-session-secret",
             "BROWSERBASE_PROJECT_ID": "bb-project",
             "ELEVENLABS_API_KEY": "el-secret",
             "GITHUB_TOKEN": "ghp_secret",
@@ -757,11 +756,10 @@ class TestPythonpathSelectiveStrip:
     def test_repo_root_direct_child_preserved(self):
         """A direct child of the repo root (depth=1) is PRESERVED.
 
-        Independent audit of every real launcher producer (Electron
-        ``apps/desktop/electron/main.ts``,
-        ``gateway/run.py::_ensure_windows_gateway_venv_imports``,
+        Independent audit of every real launcher producer
+        (``gateway/run.py::_ensure_windows_gateway_venv_imports``,
         ``cron/scheduler.py::_windows_cron_python_invocation``,
-        ``tui_gateway/host_supervisor.py``) shows they all inject the exact
+        the process supervisors) shows they all inject the exact
         repo root and/or the venv site-packages — none injects
         ``<repo>/tools`` or another direct child as an independent
         PYTHONPATH entry.  A user path that merely happens to live under
@@ -1253,7 +1251,6 @@ class TestBlocklistCoverage:
             "EMAIL_SMTP_HOST",
             "EMAIL_HOME_ADDRESS",
             "EMAIL_HOME_ADDRESS_NAME",
-            "HERMES_DASHBOARD_SESSION_TOKEN",
             "GATEWAY_ALLOWED_USERS",
             "GH_TOKEN",
             "GITHUB_APP_ID",

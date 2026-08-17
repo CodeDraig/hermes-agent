@@ -20,7 +20,7 @@ description: "调试 Node"
 | 作者 | Hermes Agent |
 | 许可证 | MIT |
 | 平台 | linux, macos, windows |
-| 标签 | `debugging`, `nodejs`, `node-inspect`, `cdp`, `breakpoints`, `ui-tui` |
+| 标签 | `debugging`, `nodejs`, `node-inspect`, `cdp`, `breakpoints` |
 | 相关 skill | [`systematic-debugging`](/user-guide/skills/bundled/software-development/software-development-systematic-debugging), [`python-debugpy`](/user-guide/skills/bundled/software-development/software-development-python-debugpy) |
 
 ## 参考：完整 SKILL.md
@@ -45,8 +45,7 @@ description: "调试 Node"
 ## 使用时机
 
 - Node 测试失败，需要查看中间状态
-- ui-tui 崩溃或行为异常，需要在渲染前检查 React/Ink 状态
-- tui_gateway 子进程（`_SlashWorker`、PTY bridge workers）行为异常
+- Node 应用崩溃或行为异常，需要检查运行时状态
 - 需要检查闭包中某个值，而不打补丁就无法用 `console.log` 获取
 - 性能分析：附加到运行中的进程以采集 CPU profile 或堆快照
 
@@ -185,67 +184,18 @@ const CDP = require('chrome-remote-interface');
 node /tmp/cdp-debug.js
 ```
 
-Hermes 专项说明：`chrome-remote-interface` 不在 `ui-tui/package.json` 中。如果不想污染项目，可将其安装到临时目录：
+如果不想污染项目，可将 `chrome-remote-interface` 安装到临时目录：
 
 ```bash
 mkdir -p /tmp/cdp-tools && cd /tmp/cdp-tools && npm i chrome-remote-interface
 NODE_PATH=/tmp/cdp-tools/node_modules node /tmp/cdp-debug.js
 ```
 
-## 调试 Hermes ui-tui
-
-TUI 基于 Ink + tsx 构建。两种常见场景：
-
-### 在开发模式下调试单个 Ink 组件
-
-`ui-tui/package.json` 有 `npm run dev`（tsx --watch）。直接运行 tsx 并添加 `--inspect-brk`：
-
-```bash
-cd /home/bb/hermes-agent/ui-tui
-npm run build    # produce dist/ once so transpile isn't needed on first load
-node --inspect-brk dist/entry.js
-# In another terminal:
-node inspect -p <node pid>
-```
-
-然后在 `debug>` 中：
-
-```
-sb('dist/app.js', 220)     # or wherever the suspect render is
-cont
-```
-
-暂停后，进入 `repl` → 检查 `props`、state 引用、`useInput` 处理器的值等。
-
-### 调试运行中的 `hermes --tui`
-
-TUI 由 Python CLI 启动 Node。最简路径：
-
-```bash
-# 1. Launch TUI
-hermes --tui &
-TUI_PID=$(pgrep -f 'ui-tui/dist/entry' | head -1)
-
-# 2. Enable inspector on that Node PID
-kill -SIGUSR1 "$TUI_PID"
-
-# 3. Find the WS URL
-curl -s http://127.0.0.1:9229/json/list | jq -r '.[0].webSocketDebuggerUrl'
-
-# 4. Attach
-node inspect ws://127.0.0.1:9229/<uuid>
-```
-
-在 TUI 窗口中交互（输入内容）会继续推进执行；调试器可以在任意 `sb(...)` 处暂停它。
-
-### 调试 `_SlashWorker` / PTY 子进程
-
-这些是 Python 进程，不是 Node——请使用 `python-debugpy` skill。只有 Node 部分（Ink UI、tui_gateway client、`ui-tui/` 下的 tsx-run 测试）使用本 skill。
 
 ## 在调试器下运行 Vitest 测试
 
 ```bash
-cd /home/bb/hermes-agent/ui-tui
+cd /path/to/node-project
 # Run a single test file paused on entry
 node --inspect-brk ./node_modules/vitest/vitest.mjs run --no-file-parallelism src/app/foo.test.tsx
 ```

@@ -61,7 +61,7 @@ def _build_compression_chain(db: SessionDB, chain: list[str]) -> tuple[str, str]
     """
     for i, sid in enumerate(chain):
         parent = chain[i - 1] if i > 0 else None
-        db.create_session(sid, source="tui", parent_session_id=parent)
+        db.create_session(sid, source="cli", parent_session_id=parent)
         if i < len(chain) - 1:
             db.end_session(sid, "compression")
     return chain[0], chain[-1]
@@ -70,10 +70,10 @@ def _build_compression_chain(db: SessionDB, chain: list[str]) -> tuple[str, str]
 def test_flush_adopts_unique_live_continuation(tmp_path: Path) -> None:
     db = SessionDB(db_path=tmp_path / "state.db")
     try:
-        db.create_session("parent", source="tui")
+        db.create_session("parent", source="cli")
         db.append_message("parent", "user", "before split")
         db.end_session("parent", "compression")
-        db.create_session("child", source="tui", parent_session_id="parent")
+        db.create_session("child", source="cli", parent_session_id="parent")
 
         agent = _flush_agent(db, "parent")
         messages = [{"role": "user", "content": "steered after compression"}]
@@ -123,7 +123,7 @@ def test_flush_adopts_live_head_across_compression_chain(tmp_path: Path) -> None
 def test_flush_fails_closed_when_no_continuation(tmp_path: Path) -> None:
     db = SessionDB(db_path=tmp_path / "state.db")
     try:
-        db.create_session("parent", source="tui")
+        db.create_session("parent", source="cli")
         db.append_message("parent", "user", "before split")
         db.end_session("parent", "compression")
 
@@ -144,10 +144,10 @@ def test_flush_fails_closed_when_tip_is_stale_closed(tmp_path: Path) -> None:
     ``ws_orphan_reap``) — a non-live tip must NOT be adopted; fail closed."""
     db = SessionDB(db_path=tmp_path / "state.db")
     try:
-        db.create_session("parent", source="tui")
+        db.create_session("parent", source="cli")
         db.append_message("parent", "user", "before split")
         db.end_session("parent", "compression")
-        db.create_session("stale", source="tui", parent_session_id="parent")
+        db.create_session("stale", source="cli", parent_session_id="parent")
         db.end_session("stale", "ws_orphan_reap")
 
         agent = _flush_agent(db, "parent")

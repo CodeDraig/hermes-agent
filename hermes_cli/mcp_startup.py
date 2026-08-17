@@ -197,13 +197,8 @@ def wait_for_mcp_discovery(
 def mcp_discovery_in_flight() -> bool:
     """Return True if THIS module's background discovery thread is still running.
 
-    Mirrors ``tui_gateway.entry.mcp_discovery_in_flight`` for the surfaces that
-    start discovery through ``start_background_mcp_discovery`` here (the desktop
-    app + dashboard WebSocket sidecar via ``tui_gateway/ws.py``, and
-    ``hermes dashboard``).  Those processes populate THIS module's
-    ``_mcp_discovery_thread``, not ``tui_gateway.entry``'s, so the late-refresh
-    scheduler must consult both to decide whether a slow server's tools are
-    still pending (see #51587).
+    The late-refresh scheduler uses this to decide whether a slow server's
+    tools are still pending.
     """
     thread = _mcp_discovery_thread
     return thread is not None and thread.is_alive()

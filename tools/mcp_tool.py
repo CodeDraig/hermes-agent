@@ -5128,14 +5128,11 @@ def _snapshot_child_pids() -> set:
 
 
 # Non-MCP gateway children that can race into the _snapshot_child_pids() delta
-# during stdio MCP server spawn. LSP servers and slash_worker now use
-# start_new_session=True too; this remains defense-in-depth for any future
+# during stdio MCP server spawn. This remains defense-in-depth for any future
 # non-MCP child spawn that briefly appears in the MCP snapshot delta. Match
 # argv markers instead of argv[0] because Python/Java children begin with the
 # interpreter or binary path.
 _NON_MCP_CHILD_CMDLINE_MARKERS: tuple[str, ...] = (
-    "tui_gateway.slash_worker",
-    "tui_gateway.entry",
     "-dorg.eclipse.equinox.launcher",  # jdtls (legacy arg style)
     "eclipse.jdt.ls",
     "org.eclipse.equinox.launcher_",
@@ -5239,27 +5236,6 @@ def _wrap_with_home_override(coro: "Coroutine") -> "Coroutine":
     return _scoped()
 
 
-def _wrap_with_dashboard_oauth_flow(coro):
-    """Propagate a dashboard OAuth flow onto the dedicated MCP loop task."""
-    try:
-        from tools.mcp_dashboard_oauth import (
-            dashboard_oauth_flow,
-            get_dashboard_oauth_flow,
-        )
-
-        flow = get_dashboard_oauth_flow()
-    except Exception:
-        return coro
-    if flow is None:
-        return coro
-
-    async def _scoped():
-        with dashboard_oauth_flow(flow):
-            return await coro
-
-    return _scoped()
-
-
 def _run_on_mcp_loop(coro_or_factory, timeout: float = 30):
     """Schedule a coroutine on the MCP event loop and block until done.
 
@@ -5294,8 +5270,6 @@ def _run_on_mcp_loop(coro_or_factory, timeout: float = 30):
     # task's own context (task-local — concurrent calls carrying different
     # scopes don't interfere). No-op when no override is active.
     coro = _wrap_with_home_override(coro)
-    coro = _wrap_with_dashboard_oauth_flow(coro)
-
     future = safe_schedule_threadsafe(
         coro, loop,
         logger=logger,

@@ -43,11 +43,6 @@ iex (irm https://hermes-agent.nousresearch.com/install.ps1)
 
 安装程序会自动重试不稳定的 git 拉取，并剥离下载的 `install.ps1` 内容中的 BOM，因此 HTTP 传输中携带的 UTF-8 BOM 不再会破坏 `[scriptblock]::Create((irm ...))` 形式。
 
-### 桌面安装程序（备选方案）
-
-也提供了一个轻量 GUI 安装程序——如果你更倾向于双击 `.exe` 而非打开 PowerShell，可以使用它。下载 Hermes Desktop，运行安装程序，首次启动时 GUI 会在后台调用 `install.ps1` 来配置 Python（通过 `uv`）、Node、PortableGit 以及下文描述的其余依赖引导流程。首次运行后，桌面应用与 PowerShell 安装的 `hermes` CLI 共享同一个 `%LOCALAPPDATA%\hermes\hermes-agent` 安装目录和 `%USERPROFILE%\.hermes` 数据目录——可以在 GUI 和 CLI 之间自由切换。
-
-如果你想要熟悉的 Windows 安装体验，或者要将 Hermes 交给非开发者使用，请使用桌面安装程序；如果你已经在终端中，请使用 PowerShell 一行命令。
 
 ### 依赖引导（`dep_ensure`）
 
@@ -89,13 +84,11 @@ iex (irm https://hermes-agent.nousresearch.com/install.ps1)
 | 功能                                                         | 原生 Windows        | WSL2               |
 | ------------------------------------------------------------ | ------------------- | ------------------ |
 | CLI（`hermes chat`、`hermes setup`、`hermes gateway` 等）    | ✓                   | ✓                  |
-| 交互式 TUI（`hermes --tui`）                                 | ✓                   | ✓                  |
 | 消息 gateway（Telegram、Discord、Slack、WhatsApp，15+ 平台） | ✓                   | ✓                  |
 | Cron 调度器                                                  | ✓                   | ✓                  |
 | 浏览器工具（通过 Node 驱动 Chromium）                        | ✓                   | ✓                  |
 | MCP 服务器（stdio 和 HTTP）                                  | ✓                   | ✓                  |
 | 本地 Ollama / LM Studio / llama-server                       | ✓                   | ✓（通过 WSL 网络） |
-| Web dashboard（会话、任务、指标、配置）                      | ✓                   | ✓                  |
 | Dashboard `/chat` 内嵌终端面板                               | ✗（需要 POSIX PTY） | ✓                  |
 | 登录时自动启动                                               | ✓（schtasks）       | ✓（systemd）       |
 

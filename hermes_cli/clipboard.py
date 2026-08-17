@@ -55,7 +55,7 @@ def has_clipboard_image() -> bool:
     return _xclip_has_image()
 
 
-# ── Text write (native tools, mirrors ui-tui/src/lib/clipboard.ts) ──────
+# ── Text write (native tools) ───────────────────────────────────────────
 
 def _powershell_write_script(b64: str) -> str:
     # PowerShell decodes piped stdin with the system ANSI code page (e.g.
@@ -87,7 +87,7 @@ def _write_clipboard_commands() -> list:
 def is_remote_shell_session(env=None) -> bool:
     """True when running inside an SSH session.
 
-    Mirrors ui-tui/src/lib/terminalSetup.ts isRemoteShellSession().  Over
+    Detect a remote shell session. Over
     SSH, native clipboard tools write the REMOTE machine's clipboard (or
     an X-forwarded one), which is almost never what the user wants —
     OSC 52 reaches the LOCAL terminal emulator instead.
@@ -101,7 +101,7 @@ def is_remote_shell_session(env=None) -> bool:
 def write_clipboard_text(text: str) -> bool:
     """Write *text* to the system clipboard via native platform tools.
 
-    Fallback order matches the TUI (ui-tui/src/lib/clipboard.ts):
+    Fallback order:
     macOS pbcopy → Windows/WSL PowerShell Set-Clipboard → wl-copy →
     xclip → xsel.  Returns True if any backend succeeded; callers should
     fall back to OSC 52 on False.

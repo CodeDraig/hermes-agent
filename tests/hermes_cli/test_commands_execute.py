@@ -20,7 +20,7 @@ from hermes_cli.slash_exec import (
 
 MIGRATED = [cmd for cmd in COMMAND_REGISTRY if cmd.execute]
 
-SURFACES = ("cli", "gateway", "tui")
+SURFACES = ("cli", "gateway")
 
 
 def test_some_commands_are_migrated():
@@ -36,7 +36,6 @@ def test_unmigrated_commands_have_no_executor():
         if not cmd.execute:
             assert resolve_executor(cmd) is None
             assert run_execute(cmd, CommandContext()) is None
-
 
 
 

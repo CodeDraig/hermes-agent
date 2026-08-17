@@ -1,8 +1,7 @@
 """Recover from npm ``EBADENGINE`` failures by upgrading a managed npm.
 
-The repo's ``.npmrc`` sets ``engine-strict=true`` and the root ``package.json``
-pins an ``engines.npm`` range, so an npm outside that range aborts every
-``npm ci`` / ``npm install`` we run inside the checkout::
+Optional Node tools can declare an ``engines.npm`` range that aborts an
+``npm install`` when the managed npm is too old::
 
     npm error code EBADENGINE
     npm error notsup Required: {"node":">=26.0.0","npm":">=12.0.0"}
@@ -85,10 +84,9 @@ def required_npm_range(output: str) -> str | None:
     failure is about Node rather than npm — upgrading npm cannot fix a Node
     version mismatch, so the caller must not try.
 
-    When several packages report conflicting npm ranges the repo's own root
-    constraint is preferred (it is the one we control); otherwise the first
-    range wins, since any of them is a strict improvement over an npm that
-    satisfies none.
+    When several packages report conflicting npm ranges the first range wins;
+    any reported range is a strict improvement over an npm that satisfies
+    none.
     """
     if not is_ebadengine(output):
         return None
@@ -99,12 +97,7 @@ def required_npm_range(output: str) -> str | None:
     ]
     if not ranges:
         return None
-    distinct = list(dict.fromkeys(ranges))
-    if len(distinct) > 1:
-        repo_range = _repo_npm_range()
-        if repo_range in distinct:
-            return repo_range
-    return distinct[0]
+    return list(dict.fromkeys(ranges))[0]
 
 
 def actual_npm_version(output: str) -> str | None:
@@ -117,20 +110,6 @@ def actual_npm_version(output: str) -> str | None:
         if isinstance(parsed, dict) and parsed.get("npm"):
             return str(parsed["npm"]).strip()
     return None
-
-
-def _repo_npm_range() -> str | None:
-    """Return ``engines.npm`` from the checkout's root ``package.json``."""
-    package_json = Path(__file__).resolve().parent.parent / "package.json"
-    try:
-        data = json.loads(package_json.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
-    engines = data.get("engines")
-    if not isinstance(engines, dict):
-        return None
-    value = engines.get("npm")
-    return str(value).strip() if value else None
 
 
 def managed_npm_prefix(npm: str | os.PathLike[str] | None) -> Path | None:
@@ -157,9 +136,8 @@ def managed_npm_prefix(npm: str | os.PathLike[str] | None) -> Path | None:
 
 def _upgrade_env() -> dict[str, str]:
     env = with_hermes_node_path()
-    # The checkout's .npmrc sets `min-release-age`, which would gate the npm
-    # release we are trying to install. The upgrade runs from a temp cwd so
-    # that file is out of scope; this neutralises a user-level ~/.npmrc too.
+    # A user-level .npmrc may set `min-release-age`, which would gate the npm
+    # release we are trying to install. Neutralise it for this managed upgrade.
     env["npm_config_min_release_age"] = "0"
     # `unicode-animations`-style postinstall animations no-op under CI=1.
     env["CI"] = "1"
@@ -185,8 +163,8 @@ def upgrade_managed_npm(
             f"→ Upgrading Hermes-managed npm to satisfy {npm_range}…",
             flush=True,
         )
-    # The managed npm lives inside the very tree the desktop app's Node
-    # processes execute from; an in-place upgrade while it is in use fails
+    # The managed npm may live inside a tree used by running Node processes;
+    # an in-place upgrade while it is in use fails
     # with PermissionError: [WinError 5] on npm.cmd (#80926). Defer instead
     # of forcing the write — the upgrade re-triggers on the next resolution
     # (e.g. the next update once the app is closed).
@@ -200,8 +178,8 @@ def upgrade_managed_npm(
             )
         return False
     try:
-        # A temp cwd keeps the checkout's .npmrc (engine-strict, min-release-age)
-        # from applying to the upgrade itself.
+        # A temp cwd keeps project-local npm settings from applying to the
+        # managed npm upgrade itself.
         with tempfile.TemporaryDirectory(prefix="hermes-npm-upgrade-") as tmp:
             result = subprocess.run(
                 [
@@ -276,11 +254,9 @@ def _provision_managed_npm(npm_range: str | None, *, quiet: bool = False) -> str
 
     Installs the managed tree under ``$HERMES_HOME/node`` (reusing a healthy
     one when present), then upgrades its bundled npm to *npm_range* — a fresh
-    Node LTS bundles an npm that may itself be outside the repo's range, so
+    Node LTS bundles an npm that may itself be outside the reported range, so
     without the upgrade the caller's single retry would fail the same way.
-    Falls back to the checkout's own ``engines.npm`` when npm did not state a
-    range (a Node-only mismatch), so the managed npm ends up in range either
-    way. Returns the managed npm path, or ``None`` when provisioning failed.
+    Returns the managed npm path, or ``None`` when provisioning failed.
     """
     if not quiet:
         print(
@@ -298,9 +274,8 @@ def _provision_managed_npm(npm_range: str | None, *, quiet: bool = False) -> str
     if prefix is None:  # pragma: no cover - bootstrap returned a foreign path
         return None
 
-    target_range = npm_range or _repo_npm_range()
-    if target_range and not upgrade_managed_npm(
-        managed_npm, target_range, prefix=prefix, quiet=quiet
+    if npm_range and not upgrade_managed_npm(
+        managed_npm, npm_range, prefix=prefix, quiet=quiet
     ):
         return None
     return managed_npm

@@ -9,7 +9,7 @@
 # expose %TEMP%, %LOCALAPPDATA% and friends as an 8.3 alias
 # (C:\Users\FIRST~1.LAS\...). PowerShell's FileSystem provider chokes on the
 # aliased component once it reaches a provider cmdlet (Tee-Object -FilePath),
-# aborting the Node/Electron stages and the desktop post-build probe.
+# aborting Node setup and artifact probes.
 # install.ps1 expands those paths up front; this asserts that contract.
 #
 # HOW THIS RUNS THE CODE: by executing install.ps1 as a real subprocess with a
@@ -267,7 +267,7 @@ Assert-Equal -Expected $longRoot -Actual (Get-Rewrite $result 'USERPROFILE') -La
 Write-Host ""
 Write-Host "-- every profile-rooted variable is covered, not just TEMP --"
 
-# The desktop stage derives InstallDir from %LOCALAPPDATA%; a short root there
+# Managed installs derive InstallDir from %LOCALAPPDATA%; a short root there
 # fails the post-build probe after the build already succeeded (GH #52842).
 $result = Invoke-Normalization @{
     TEMP         = $shortTemp

@@ -32,7 +32,6 @@ def build_skills_parser(subparsers, *, cmd_skills: Callable) -> None:
         default="all",
         choices=[
             "all",
-            "official",
             "skills-sh",
             "well-known",
             "github",
@@ -60,7 +59,6 @@ def build_skills_parser(subparsers, *, cmd_skills: Callable) -> None:
         default="all",
         choices=[
             "all",
-            "official",
             "skills-sh",
             "well-known",
             "github",
@@ -250,31 +248,6 @@ def build_skills_parser(subparsers, *, cmd_skills: Callable) -> None:
         "--sync",
         action="store_true",
         help="Re-seed bundled skills immediately instead of waiting for update",
-    )
-
-    skills_repair_official = skills_subparsers.add_parser(
-        "repair-official",
-        help="Backfill or restore official optional skills from repo source",
-        description=(
-            "Repair official optional skill provenance. By default, only backfills "
-            "hub metadata for exact matches. Pass --restore to replace missing or "
-            "mutated active copies from optional-skills/, moving existing copies to "
-            "a restore backup first. Use name 'all' to repair every optional skill."
-        ),
-    )
-    skills_repair_official.add_argument(
-        "name", help="Official optional skill folder/frontmatter name, or 'all'"
-    )
-    skills_repair_official.add_argument(
-        "--restore",
-        action="store_true",
-        help="Restore from official optional source, backing up existing matching copies",
-    )
-    skills_repair_official.add_argument(
-        "--yes",
-        "-y",
-        action="store_true",
-        help="Skip confirmation prompt when using --restore",
     )
 
     skills_publish = skills_subparsers.add_parser(

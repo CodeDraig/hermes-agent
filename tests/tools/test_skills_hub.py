@@ -15,7 +15,6 @@ from tools.skills_hub import (
     SkillsShSource,
     UrlSource,
     WellKnownSkillSource,
-    OptionalSkillSource,
     SkillSource,
     SkillBundle,
     SkillMeta,
@@ -665,8 +664,8 @@ class TestProviderFilter:
                       trust_level="trusted", extra={"provider": "NVIDIA"}),
             SkillMeta(name="b", description="", source="github", identifier="openai/skills/b",
                       trust_level="trusted", extra={"provider": "OpenAI"}),
-            SkillMeta(name="c", description="", source="official", identifier="official/c",
-                      trust_level="builtin"),
+            SkillMeta(name="c", description="", source="lobehub", identifier="lobehub/c",
+                      trust_level="community"),
         ]
         nv = _filter_results_by_provider(results, "nvidia")
         assert [r.identifier for r in nv] == ["NVIDIA/skills/a"]
@@ -707,218 +706,8 @@ class TestAppendAuditLog:
         assert "pass" in content
 
 # ---------------------------------------------------------------------------
-# Official skills / binary assets
+# Quarantine bundle assets
 # ---------------------------------------------------------------------------
-
-
-class TestOptionalSkillSourceMetadata:
-    def test_scan_all_emits_repo_root_relative_metadata(self, tmp_path):
-        optional_root = tmp_path / "optional-skills"
-        skill_dir = optional_root / "finance" / "3-statement-model"
-        skill_dir.mkdir(parents=True)
-        (skill_dir / "SKILL.md").write_text(
-            "---\nname: 3-statement-model\ndescription: test\n---\n\nBody\n",
-            encoding="utf-8",
-        )
-
-        src = OptionalSkillSource()
-        src._optional_dir = optional_root
-
-        meta = src.inspect("official/finance/3-statement-model")
-
-        assert meta is not None
-        assert meta.repo == "NousResearch/hermes-agent"
-        assert meta.path == "optional-skills/finance/3-statement-model"
-
-    def test_scan_all_accepts_install_prefix_but_rejects_nested_support_skills(self, tmp_path):
-        optional_root = tmp_path / "venv" / "lib" / "site-packages" / "optional-skills"
-        real = optional_root / "research" / "real-skill"
-        nested = real / "references" / "archived-skill"
-        nested.mkdir(parents=True)
-        (real / "SKILL.md").write_text(
-            "---\nname: real-skill\ndescription: real\n---\n", encoding="utf-8"
-        )
-        (nested / "SKILL.md").write_text(
-            "---\nname: archived-skill\ndescription: nested\n---\n", encoding="utf-8"
-        )
-
-        src = OptionalSkillSource()
-        src._optional_dir = optional_root
-
-        assert [meta.name for meta in src._scan_all()] == ["real-skill"]
-        assert src._find_skill_dir("archived-skill") is None
-
-
-class TestOptionalSkillSourceBinaryAssets:
-    def test_fetch_preserves_binary_assets(self, tmp_path):
-        optional_root = tmp_path / "optional-skills"
-        skill_dir = optional_root / "mlops" / "models" / "neutts"
-        (skill_dir / "assets" / "neutts-cli" / "samples").mkdir(parents=True)
-        (skill_dir / "SKILL.md").write_text(
-            "---\nname: neutts\ndescription: test\n---\n\nBody\n",
-            encoding="utf-8",
-        )
-        wav_bytes = b"RIFF\x00\x01fakewav"
-        (skill_dir / "assets" / "neutts-cli" / "samples" / "jo.wav").write_bytes(
-            wav_bytes
-        )
-        (skill_dir / "assets" / "neutts-cli" / "samples" / "jo.txt").write_text(
-            "hello\n", encoding="utf-8"
-        )
-        pycache_dir = skill_dir / "assets" / "neutts-cli" / "src" / "neutts_cli" / "__pycache__"
-        pycache_dir.mkdir(parents=True)
-        (pycache_dir / "cli.cpython-312.pyc").write_bytes(b"junk")
-
-        src = OptionalSkillSource()
-        src._optional_dir = optional_root
-
-        bundle = src.fetch("official/mlops/models/neutts")
-
-        assert bundle is not None
-        assert bundle.files["assets/neutts-cli/samples/jo.wav"] == wav_bytes
-        assert bundle.files["assets/neutts-cli/samples/jo.txt"] == b"hello\n"
-        assert "assets/neutts-cli/src/neutts_cli/__pycache__/cli.cpython-312.pyc" not in bundle.files
-
-    def test_fetch_rejects_sibling_directory_traversal(self, tmp_path):
-        optional_root = tmp_path / "optional-skills"
-        sibling_skill_dir = tmp_path / "optional-skills-escape" / "pwned"
-        optional_root.mkdir()
-        sibling_skill_dir.mkdir(parents=True)
-        (sibling_skill_dir / "SKILL.md").write_text(
-            "---\nname: pwned\ndescription: traversal\n---\n\nBody\n",
-            encoding="utf-8",
-        )
-
-        src = OptionalSkillSource()
-        src._optional_dir = optional_root
-
-        bundle = src.fetch("official/../optional-skills-escape/pwned")
-
-        assert bundle is None
-
-
-class TestOptionalSkillSourceLiveRepoFallback:
-    """Skills merged to main after the local install was cut must still be
-    searchable and installable without `hermes update` (live-repo fallback)."""
-
-    def _make_source(self, tmp_path, remote_dirs):
-        optional_root = tmp_path / "optional-skills"
-        optional_root.mkdir(exist_ok=True)
-        src = OptionalSkillSource()
-        src._optional_dir = optional_root
-        src._remote_dirs = dict.fromkeys(remote_dirs, True)
-        return src
-
-    @staticmethod
-    def _fake_github_with_tree(remote_dirs, extra_files=()):
-        """MagicMock GitHubSource whose repo tree contains each skill dir's
-        SKILL.md plus any extra files, served byte-exact by _fetch_file_bytes."""
-        entries = []
-        contents = {}
-        for rel_dir in remote_dirs:
-            p = f"optional-skills/{rel_dir}/SKILL.md"
-            entries.append({"type": "blob", "path": p, "mode": "100644"})
-            contents[p] = b"---\nname: " + rel_dir.rsplit("/", 1)[-1].encode() + b"\n---\nBody"
-        for rel_path, data in extra_files:
-            entries.append({"type": "blob", "path": rel_path, "mode": "100644"})
-            contents[rel_path] = data
-        fake = MagicMock()
-        fake._get_repo_tree.return_value = ("main", entries)
-        fake._fetch_file_bytes.side_effect = lambda repo, path: contents.get(path)
-        return fake
-
-    def test_fetch_falls_back_to_live_repo_when_missing_locally(self, tmp_path):
-        src = self._make_source(tmp_path, ["software-development/ast-grep"])
-        src._github = self._fake_github_with_tree(
-            ["software-development/ast-grep"],
-            extra_files=[
-                ("optional-skills/software-development/ast-grep/install.sh", b"#!/bin/sh\n"),
-                ("optional-skills/software-development/ast-grep/LICENSE", b"MIT"),
-            ],
-        )
-
-        bundle = src.fetch("official/software-development/ast-grep")
-
-        assert bundle is not None
-        # Provenance is rewritten to official/builtin
-        assert bundle.source == "official"
-        assert bundle.identifier == "official/software-development/ast-grep"
-        assert bundle.trust_level == "builtin"
-        # FULL directory arrives — including root-level files GitHubSource.fetch drops
-        assert bundle.files["install.sh"] == b"#!/bin/sh\n"
-        assert bundle.files["LICENSE"] == b"MIT"
-
-    def test_fetch_bare_name_resolves_via_remote_tree(self, tmp_path):
-        src = self._make_source(tmp_path, ["software-development/ast-grep"])
-        src._github = self._fake_github_with_tree(["software-development/ast-grep"])
-
-        bundle = src.fetch("official/ast-grep")
-
-        assert bundle is not None
-        assert bundle.identifier == "official/software-development/ast-grep"
-
-    def test_fetch_ambiguous_bare_name_refuses(self, tmp_path):
-        src = self._make_source(
-            tmp_path, ["security/scanner", "devops/scanner"]
-        )
-        fake_github = MagicMock()
-        src._github = fake_github
-
-        assert src.fetch("official/scanner") is None
-        fake_github.fetch.assert_not_called()
-
-    def test_local_checkout_wins_over_remote(self, tmp_path):
-        src = self._make_source(tmp_path, ["research/local-skill"])
-        skill_dir = src._optional_dir / "research" / "local-skill"
-        skill_dir.mkdir(parents=True)
-        (skill_dir / "SKILL.md").write_text(
-            "---\nname: local-skill\ndescription: local\n---\nBody",
-            encoding="utf-8",
-        )
-        fake_github = MagicMock()
-        src._github = fake_github
-
-        bundle = src.fetch("official/research/local-skill")
-
-        assert bundle is not None
-        fake_github.fetch.assert_not_called()
-
-    def test_fallback_rejects_traversal_rel(self, tmp_path):
-        src = self._make_source(tmp_path, ["security/whatever"])
-        fake_github = MagicMock()
-        src._github = fake_github
-
-        assert src._fetch_from_live_repo("../../etc/passwd") is None
-        fake_github.fetch.assert_not_called()
-
-    def test_search_surfaces_remote_only_skills(self, tmp_path):
-        src = self._make_source(tmp_path, ["software-development/ast-grep"])
-
-        results = src.search("ast-grep")
-
-        assert any(
-            r.identifier == "official/software-development/ast-grep"
-            and r.trust_level == "builtin"
-            for r in results
-        )
-
-    def test_inspect_surfaces_remote_only_skill(self, tmp_path):
-        src = self._make_source(tmp_path, ["software-development/ast-grep"])
-
-        meta = src.inspect("official/software-development/ast-grep")
-
-        assert meta is not None
-        assert meta.repo == "NousResearch/hermes-agent"
-        assert meta.path == "optional-skills/software-development/ast-grep"
-
-    def test_offline_degrades_to_local_only(self, tmp_path):
-        src = self._make_source(tmp_path, [])
-        fake_github = MagicMock()
-        src._github = fake_github
-
-        assert src.fetch("official/never-heard-of-it") is None
-        assert src.search("never-heard-of-it") == []
-
 
 class TestQuarantineBundleBinaryAssets:
     def test_quarantine_bundle_writes_binary_files(self, tmp_path):
@@ -938,9 +727,9 @@ class TestQuarantineBundleBinaryAssets:
                     "SKILL.md": "---\nname: neutts\n---\n",
                     "assets/neutts-cli/samples/jo.wav": b"RIFF\x00\x01fakewav",
                 },
-                source="official",
-                identifier="official/mlops/models/neutts",
-                trust_level="builtin",
+                source="github",
+                identifier="example/skills/neutts",
+                trust_level="community",
             )
 
             q_path = quarantine_bundle(bundle)

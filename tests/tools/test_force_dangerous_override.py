@@ -1,6 +1,6 @@
 """Regression tests for skills guard policy precedence.
 
-Official/builtin skills should follow the INSTALL_POLICY table even when their
+Builtin skills should follow the INSTALL_POLICY table even when their
 scan verdict is dangerous, and --force should override blocked verdicts for
 non-builtin sources.
 """

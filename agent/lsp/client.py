@@ -310,7 +310,7 @@ class LSPClient:
             # _kill_orphaned_mcp_children races with LSP spawn and sweeps the
             # gateway's child set, it captures the LSP PID, records the
             # inherited pgid, and killpg() then kills the TUI parent itself.
-            # See tui_gateway_crash.log "killpg → SIGTERM received" stacks.
+            # See prior crash reports "killpg → SIGTERM received" stacks.
             self._proc = await asyncio.create_subprocess_exec(
                 cmd[0],
                 *cmd[1:],

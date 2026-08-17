@@ -43,7 +43,7 @@ class _DB:
         self.events.append(("release", session_id, holder))
 
 
-def _agent_with_db(db, *, session_id="stale-parent", platform="desktop"):
+def _agent_with_db(db, *, session_id="stale-parent", platform="cli"):
     agent = AIAgent.__new__(AIAgent)
     agent.session_id = session_id
     agent.platform = platform

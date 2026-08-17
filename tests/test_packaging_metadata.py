@@ -60,20 +60,10 @@ def test_faster_whisper_is_not_a_base_dependency():
 # 1.0.1. Anything below that lets a malformed Host header desync
 # ``request.url.path`` from the dispatched ASGI path, bypassing path-based
 # authz in middleware/endpoints that gate on ``request.url``. Starlette is a
-# transitive dep (fastapi in [web]; sse-starlette/mcp in [mcp]/[computer-use]/
-# [dev]) so we pin it directly in every extra that exposes a server surface and
+# transitive dep of mcp in [mcp]/[computer-use]/[dev], so we pin it directly
+# in every extra that exposes that server surface and
 # enforce the floor in both pyproject and the committed lockfile.
 _STARLETTE_CVE_FLOOR = (1, 0, 1)
-_UPDATE_DOWNGRADE_GUARD_FLOORS = {
-    # `hermes update` reinstalls exact pins from pyproject/lazy_deps. These
-    # reviewed CVE pins must not slide back to stale versions that downgrade
-    # already-patched user environments.
-    "cryptography": (50, 0, 0),
-    "starlette": (1, 3, 1),
-    "python-multipart": (0, 0, 32),
-}
-
-
 def _version_tuple(spec: str) -> tuple[int, ...]:
     # "1.0.1" -> (1, 0, 1); tolerant of pre/post suffixes by truncating.
     head = spec.split("+", 1)[0]
@@ -90,9 +80,9 @@ def test_starlette_pinned_above_cve_2026_48710_floor_in_pyproject():
     """Every extra that declares Starlette must pin a patched (>=1.0.1) version.
 
     Regression guard for #35067 / CVE-2026-48710. A future edit that drops the
-    pin (re-exposing the unbounded transitive ``starlette>=0.27`` from mcp /
-    ``>=0.40.0`` from fastapi) or pins a pre-1.0.1 version fails here instead of
-    shipping a Host-header auth-bypass to dashboard / MCP-HTTP users.
+    pin (re-exposing the unbounded transitive Starlette requirement from mcp)
+    or pins a pre-1.0.1 version fails here instead of shipping a Host-header
+    auth bypass to MCP-HTTP users.
     """
     data = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     extras = data["project"]["optional-dependencies"]
@@ -106,11 +96,11 @@ def test_starlette_pinned_above_cve_2026_48710_floor_in_pyproject():
                 ver = spec.split("==", 1)[1].split(";", 1)[0].strip()
                 found[extra] = ver
 
-    # The four server-surface extras must each carry the direct pin.
-    for extra in ("web", "mcp", "computer-use", "dev"):
+    # The three MCP server-surface extras must each carry the direct pin.
+    for extra in ("mcp", "computer-use", "dev"):
         assert extra in found, (
             f"[{extra}] no longer pins starlette directly — CVE-2026-48710 "
-            f"regression risk (mcp/fastapi pull it transitively with no upper bound)"
+            f"regression risk (mcp pulls it transitively with no upper bound)"
         )
 
     for extra, ver in found.items():

@@ -43,7 +43,6 @@ _EXEMPT_DIRS = (
     "tests",
     "plugins",
     "skills",
-    "optional-skills",
     "scripts",
     "website",
     "node_modules",

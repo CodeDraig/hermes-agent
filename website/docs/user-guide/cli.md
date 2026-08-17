@@ -13,7 +13,6 @@ One command — `hermes setup --portal` — and you're ready to `hermes chat`. S
 :::
 
 :::tip
-Hermes also ships a modern TUI with modal overlays, mouse selection, and non-blocking input. Launch it with `hermes --tui` — see the [TUI](tui.md) guide.
 :::
 
 ## Running the CLI
@@ -170,7 +169,7 @@ Common examples:
 | `/help` | Show command help |
 | `/model` | Show or change the current model |
 | `/tools` | List currently available tools |
-| `/skills browse` | Browse the skills hub and official optional skills |
+| `/skills browse` | Browse configured Skills Hub sources |
 | `/background <prompt>` | Run a prompt in a separate background session |
 | `/skin` | Show or switch the active CLI skin |
 | `/voice on` | Enable CLI voice mode (press `Ctrl+B` to record) |

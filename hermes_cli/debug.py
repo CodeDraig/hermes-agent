@@ -372,33 +372,9 @@ def _primary_log_path(log_name: str) -> Optional[Path]:
     return (get_hermes_home() / "logs" / filename) if filename else None
 
 
-# Logs written by a client process rather than by this backend. When the
-# desktop app talks to a remote/docker/SSH backend, `hermes debug share` runs
-# on the *backend* and can never see them — a bare "(file not found)" then
-# reads as "the app logged nothing" and sends triage down a dead end, which is
-# exactly the wrong answer when the client is the thing being debugged.
-_CLIENT_SIDE_LOGS = {
-    "desktop": (
-        "written by Hermes Desktop on the machine running the app, not by this "
-        "backend. If the desktop connects to a remote/docker/SSH backend, collect "
-        "it on that client machine"
-    ),
-}
-
-
 def _missing_log_note(log_name: str) -> str:
-    """Explain a missing log instead of stating a bare absence.
-
-    For a client-side log the absence is expected on a remote backend, so the
-    note names the writer and the path to collect by hand.
-    """
-    reason = _CLIENT_SIDE_LOGS.get(log_name)
-    if reason is None:
-        return "(file not found)"
-
-    primary = _primary_log_path(log_name)
-    where = f" — expected at {primary}" if primary else ""
-    return f"(not on this host: {reason}{where})"
+    """Explain a missing log without raising."""
+    return "(file not found)"
 
 
 def _resolve_log_path(log_name: str) -> Optional[Path]:
@@ -548,12 +524,6 @@ def _capture_default_log_snapshots(
         "gateway": _capture_log_snapshot(
             "gateway", tail_lines=errors_lines, redact=redact
         ),
-        "gui": _capture_log_snapshot(
-            "gui", tail_lines=errors_lines, redact=redact
-        ),
-        "desktop": _capture_log_snapshot(
-            "desktop", tail_lines=errors_lines, redact=redact
-        ),
     }
 
 
@@ -622,14 +592,6 @@ def collect_debug_report(
     buf.write(log_snapshots["gateway"].tail_text)
     buf.write("\n\n")
 
-    buf.write(f"--- gui.log (last {errors_lines} lines) ---\n")
-    buf.write(log_snapshots["gui"].tail_text)
-    buf.write("\n\n")
-
-    buf.write(f"--- desktop.log (last {errors_lines} lines) ---\n")
-    buf.write(log_snapshots["desktop"].tail_text)
-    buf.write("\n")
-
     return buf.getvalue()
 
 
@@ -648,8 +610,8 @@ def collect_share_bundle(
 ) -> dict[str, str]:
     """Collect the debug report + full logs as a label→text mapping.
 
-    Returns ``{"report": ..., "agent.log": ..., "gateway.log": ...,
-    "desktop.log": ...}`` where each value is the already-redacted (when
+    Returns ``{"report": ..., "agent.log": ..., "gateway.log": ...}``
+    where each value is the already-redacted (when
     ``redact`` is True) text that would be uploaded.  Keys for logs that are
     absent/empty are simply omitted.
 
@@ -674,18 +636,12 @@ def collect_share_bundle(
     )
     agent_log = log_snapshots["agent"].full_text
     gateway_log = log_snapshots["gateway"].full_text
-    gui_log = log_snapshots["gui"].full_text
-    desktop_log = log_snapshots["desktop"].full_text
 
     # Prepend dump header to each full log so every file is self-contained.
     if agent_log:
         agent_log = dump_text + "\n\n--- full agent.log ---\n" + agent_log
     if gateway_log:
         gateway_log = dump_text + "\n\n--- full gateway.log ---\n" + gateway_log
-    if gui_log:
-        gui_log = dump_text + "\n\n--- full gui.log ---\n" + gui_log
-    if desktop_log:
-        desktop_log = dump_text + "\n\n--- full desktop.log ---\n" + desktop_log
 
     # Visible banner so reviewers know redaction was applied at upload time.
     if redact:
@@ -694,20 +650,12 @@ def collect_share_bundle(
             agent_log = _REDACTION_BANNER + agent_log
         if gateway_log:
             gateway_log = _REDACTION_BANNER + gateway_log
-        if gui_log:
-            gui_log = _REDACTION_BANNER + gui_log
-        if desktop_log:
-            desktop_log = _REDACTION_BANNER + desktop_log
 
     bundle: dict[str, str] = {"report": report}
     if agent_log:
         bundle["agent.log"] = agent_log
     if gateway_log:
         bundle["gateway.log"] = gateway_log
-    if gui_log:
-        bundle["gui.log"] = gui_log
-    if desktop_log:
-        bundle["desktop.log"] = desktop_log
     return bundle
 
 
@@ -739,9 +687,8 @@ def build_nous_bundle(bundle: dict[str, str], redact: bool = True) -> bytes:
 class DebugShareResult:
     """Structured outcome of a ``debug share`` upload.
 
-    Returned by :func:`build_debug_share` so non-CLI callers (the dashboard
-    web server, gateway) can render the uploaded paste URLs as real links
-    instead of scraping printed text.
+    Returned by :func:`build_debug_share` so non-CLI callers can consume the
+    uploaded paste URLs without scraping printed text.
     """
 
     urls: dict  # label -> paste URL (e.g. {"Report": "...", "agent.log": "..."})
@@ -759,10 +706,9 @@ def build_debug_share(
 ) -> DebugShareResult:
     """Collect the debug report + full logs, upload each, return the URLs.
 
-    This is the shared core behind ``hermes debug share`` (CLI) and the
-    dashboard ``POST /api/ops/debug-share`` endpoint. It performs blocking
-    network I/O (paste uploads) — callers inside an event loop must run it in
-    a worker thread.
+    This is the shared core behind ``hermes debug share``. It performs
+    blocking network I/O (paste uploads), so callers inside an event loop must
+    run it in a worker thread.
 
     The summary report upload is required: on failure this raises
     ``RuntimeError``. Full-log uploads are best-effort; their errors are
@@ -789,8 +735,8 @@ def build_debug_share(
     # 1. Summary report (required — raises on failure so callers can fall back)
     urls["Report"] = upload_to_pastebin(report, expiry_days=expiry)
 
-    # 2-5. Full logs (optional — failures are collected, not raised)
-    for label in ("agent.log", "gateway.log", "gui.log", "desktop.log"):
+    # Full logs are optional — failures are collected, not raised.
+    for label in ("agent.log", "gateway.log"):
         content = bundle.get(label)
         if not content:
             continue
@@ -862,8 +808,6 @@ def run_debug_share(args):
         for title, label in (
             ("FULL agent.log", "agent.log"),
             ("FULL gateway.log", "gateway.log"),
-            ("FULL gui.log", "gui.log"),
-            ("FULL desktop.log", "desktop.log"),
         ):
             body = bundle.get(label)
             if body:
@@ -917,7 +861,7 @@ _NOUS_PRIVACY_NOTICE = """\
     NOT a public paste service. The following is included:
   • System info (OS, Python/Hermes version, provider, which API keys are
     configured — NOT the actual keys)
-  • Full agent.log, gateway.log, and desktop.log (up to 512 KB each — likely
+  • Full agent.log and gateway.log (up to 512 KB each — likely
     contains conversation content, tool outputs, and file paths)
 
   • The bundle is viewable only by Nous staff (and allowlisted Discord mods)

@@ -158,6 +158,17 @@ Walk it in order:
    (it's a visible focus change) and is only appropriate when the user isn't
    actively working. Classic cases: Electron/Chromium consent dialogs (e.g.
    tldraw offline's "Run Script"), DirectInput games, raw-input canvases.
+6. **Keystrokes verified-lost on a KDE/Qt editor → use the app's own I/O.**
+   Some Qt text components (KTextEditor: Kate, KWrite, KDevelop) discard
+   SYNTHETIC X keystrokes entirely — foreground `type` reports ok
+   ("Typed N characters into the focused widget", `effect:"unverifiable"`)
+   but a fresh AX capture shows the text never arrived, and raw XTest fails
+   identically (proven live, Aug 2026 — it is the toolkit, not the driver;
+   the same foreground route works on kcalc/Chrome). After ONE such
+   verified-lost round trip, stop retrying input rungs: write the file with
+   terminal/file tools and let the editor reload it, or drive the app's
+   DBus/CLI interface. Never loop the ladder against a surface that
+   verifiably swallows synthetic input.
 
 ```
 computer_use(action="click", element=7)
@@ -199,7 +210,7 @@ browser tools. The contract is capability-based:
 `isolated_new`/`isolated_named` profiles require explicit `allow_launch=true`.
 An `existing_profile` is decided by cua-driver's immutable permission mode.
 Prefer `isolated_new` unless the task genuinely needs the user's signed-in
-session. Attaching to an existing profile exposes its live pages, cookies,
+session — attaching to an existing profile exposes its live pages, cookies,
 and storage over the browser protocol.
 
 Authorization paths for `existing_profile`:
@@ -208,8 +219,8 @@ Authorization paths for `existing_profile`:
    `computer_use.grant_existing_profile: true` is set, the runtime is
    launched pre-authorized in standard mode (`--grant existing-profile`) and
    Hermes applies the same host-side floor in unrestricted mode. If it is not
-   set, both modes fail closed. Tell the user to set that config key and
-   restart the session if they want this. Do not retry or work around it.
+   set, both modes fail closed. Tell the user to flip that config key and
+   restart the session if they want this; do not retry or work around it.
 2. **Bounded manifest.** When `computer_use.permission_mode: bounded` is
    configured with a reviewed `capability_manifest`, prepares inside the
    manifest's scope succeed without prompts and everything else fails closed.

@@ -525,10 +525,6 @@ def init_agent(
     thinking_callback: callable = None,
     reasoning_callback: callable = None,
     clarify_callback: callable = None,
-    read_terminal_callback: callable = None,
-    read_preview_callback: callable = None,
-    read_window_below_callback: callable = None,
-    setup_mcp_callback: callable = None,
     step_callback: callable = None,
     stream_delta_callback: callable = None,
     interim_assistant_callback: callable = None,
@@ -801,10 +797,6 @@ def init_agent(
     agent.thinking_callback = thinking_callback
     agent.reasoning_callback = reasoning_callback
     agent.clarify_callback = clarify_callback
-    agent.read_terminal_callback = read_terminal_callback
-    agent.read_preview_callback = read_preview_callback
-    agent.read_window_below_callback = read_window_below_callback
-    agent.setup_mcp_callback = setup_mcp_callback
     agent.step_callback = step_callback
     agent.stream_delta_callback = stream_delta_callback
     agent.interim_assistant_callback = interim_assistant_callback
@@ -1915,14 +1907,6 @@ def init_agent(
             warm_environment_probe_async()
         except Exception:
             pass
-
-    # Bot Mode teammate protocol section (tools/bot_mode_probe.py) — pure
-    # filesystem reads, no warm needed. Silent on non-Bot-Mode installs.
-    agent._bot_mode_protocol = bool(_agent_section.get("bot_mode_protocol", True))
-    # Session-title hint for the "Bot Chat" gate: hosts that defer the DB
-    # title write past the first prompt build (tui_gateway pending_title)
-    # set this so the gate doesn't depend on write ordering.
-    agent._session_title_hint = None
 
     # Per-platform prompt-hint overrides (config.yaml → platform_hints).
     # Lets an enterprise admin append to or replace Hermes' built-in

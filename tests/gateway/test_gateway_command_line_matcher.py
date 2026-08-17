@@ -2,8 +2,8 @@
 
 Regression guard for the Windows ``hermes gateway restart`` silent-outage bug:
 the previous loose substring match (``"... gateway" in cmdline``) false-matched
-``gateway status``/``dashboard`` siblings and unrelated processes such as
-``python -m tui_gateway``, which let ``restart()`` race a still-draining old
+other gateway management commands and unrelated processes, which let
+``restart()`` race a still-draining old
 process and ``status``/``start`` report false positives.
 """
 
@@ -42,11 +42,11 @@ ACCEPT = [
 ]
 
 REJECT = [
-    "python -m tui_gateway",                              # unrelated module
+    "python -m my_gateway_helper",                       # unrelated module
     "python -m hermes_cli.main gateway status",           # other subcommand
     "python -m hermes_cli.main gateway restart",
     "python -m hermes_cli.main gateway stop",
-    "python -m hermes_cli.main --profile x dashboard",    # non-gateway subcommand
+    "python -m hermes_cli.main --profile x sessions list", # non-gateway subcommand
     "some random python -m mygateway thing",
     "",
     None,
@@ -56,5 +56,4 @@ REJECT = [
 @pytest.mark.parametrize("cmd", ACCEPT)
 def test_accepts_real_gateway_run(cmd):
     assert matches(cmd) is True
-
 

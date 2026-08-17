@@ -484,11 +484,6 @@ NODE_DIR="${DEV_SANDBOX_NODE_DIR:-}"
 if [ -z "$NODE_DIR" ] && command -v node >/dev/null; then
   NODE_DIR="$(dirname "$(dirname "$(command -v node)")")"
 fi
-WAYLAND_SOCKET=""
-if [ -n "${XDG_RUNTIME_DIR:-}" ] && [ -n "${WAYLAND_DISPLAY:-}" ] \
-  && [ -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ]; then
-  WAYLAND_SOCKET="$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY"
-fi
 
 # Namespace plan (stage 1 -> stage 2).
 #
@@ -542,10 +537,6 @@ env \
   DEV_SANDBOX_USER="$SANDBOX_USER" \
   DEV_SANDBOX_HOME="$SANDBOX_HOME" \
   DEV_SANDBOX_NODE_DIR="$NODE_DIR" \
-  DEV_SANDBOX_ELECTRON_LD_LIBRARY_PATH="${DEV_SANDBOX_ELECTRON_LD_LIBRARY_PATH:-}" \
-  DEV_SANDBOX_XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-}" \
-  DEV_SANDBOX_WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-}" \
-  DEV_SANDBOX_WAYLAND_SOCKET="$WAYLAND_SOCKET" \
   unshare "${netns_args[@]}" \
     "$SANDBOX_ASSETS/stage2-run.sh" "$@" &
 sandbox_launcher=$!

@@ -137,7 +137,7 @@ class TestTencentTokenhubCanonicalProvider:
     def test_description_contains_hy3(self):
         from hermes_cli.models import CANONICAL_PROVIDERS
         entry = next(p for p in CANONICAL_PROVIDERS if p.slug == "tencent-tokenhub")
-        assert "Hy3 Preview" in entry.tui_desc
+        assert "Hy3 Preview" in entry.picker_desc
 
 
 # =============================================================================
@@ -354,4 +354,3 @@ class TestTencentTokenhubKnownProviderNames:
     def test_alias_known(self, alias):
         from hermes_cli.models import _KNOWN_PROVIDER_NAMES
         assert alias in _KNOWN_PROVIDER_NAMES
-

@@ -197,37 +197,6 @@ class TestGatewayMode:
 
 
 
-class TestGuiMode:
-    """setup_logging(mode='gui') creates a filtered gui.log."""
-
-    def test_gui_log_created(self, hermes_home):
-        hermes_logging.setup_logging(hermes_home=hermes_home, mode="gui")
-        root = logging.getLogger()
-
-        gui_handlers = [
-            h for h in hermes_logging.rotating_file_handlers()
-            if isinstance(h, RotatingFileHandler)
-            and "gui.log" in getattr(h, "baseFilename", "")
-        ]
-        assert len(gui_handlers) == 1
-
-
-    def test_gui_log_receives_only_gui_components(self, hermes_home):
-        hermes_logging.setup_logging(hermes_home=hermes_home, mode="gui")
-
-        logging.getLogger("hermes_cli.web_server").info("dashboard online")
-        logging.getLogger("tui_gateway.ws").info("ws connected")
-        logging.getLogger("gateway.run").info("gateway event")
-
-        hermes_logging.flush_log_queue()
-
-        gui_log = hermes_home / "logs" / "gui.log"
-        assert gui_log.exists()
-        content = gui_log.read_text()
-        assert "dashboard online" in content
-        assert "ws connected" in content
-        assert "gateway event" not in content
-
 
 class TestSessionContext:
     """set_session_context / clear_session_context + _SessionFilter."""
@@ -355,31 +324,6 @@ class TestAddRotatingHandler:
             if isinstance(h, RotatingFileHandler):
                 logger.removeHandler(h)
                 h.close()
-
-    def test_managed_mode_initial_open_sets_group_writable(self, tmp_path):
-        log_path = tmp_path / "managed-open.log"
-        logger = logging.getLogger("_test_rotating_managed_open")
-        formatter = logging.Formatter("%(message)s")
-
-        old_umask = os.umask(0o022)
-        try:
-            with patch("hermes_cli.config.is_managed", return_value=True):
-                hermes_logging._add_rotating_handler(
-                    logger, log_path,
-                    level=logging.INFO, max_bytes=1024, backup_count=1,
-                    formatter=formatter,
-                )
-        finally:
-            os.umask(old_umask)
-
-        assert log_path.exists()
-        assert stat.S_IMODE(log_path.stat().st_mode) == 0o660
-
-        for h in list(logger.handlers):
-            if isinstance(h, RotatingFileHandler):
-                logger.removeHandler(h)
-                h.close()
-
 
 
 class TestWindowsConcurrentLogLockTimeout:
@@ -676,5 +620,4 @@ class TestAsyncQueueLogging:
             "agent.log" in getattr(h, "baseFilename", "")
             for h in hermes_logging.rotating_file_handlers()
         )
-
 

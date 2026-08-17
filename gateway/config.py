@@ -423,9 +423,8 @@ _BUILTIN_PLATFORM_VALUES = frozenset(m.value for m in Platform.__members__.value
 # every profile through the /p/<profile>/ URL prefix, so a SECONDARY profile
 # enabling one of these is always a misconfiguration: it would try to bind a
 # port already held by the default's listener. Single source of truth for
-# both the gateway's fail-fast startup validation (gateway/run.py) and the
-# dashboard's pre-write mutation validation (hermes_cli/web_server.py) so
-# the two policies cannot drift. Stored as platform .value strings.
+# the gateway's fail-fast startup validation. Stored as platform .value
+# strings so configuration checks share the same policy.
 PORT_BINDING_PLATFORM_VALUES = frozenset({
     "webhook",
     "api_server",

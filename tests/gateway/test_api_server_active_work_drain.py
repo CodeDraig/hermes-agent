@@ -214,7 +214,7 @@ class TestDrainAdmission:
     @pytest.mark.asyncio
     async def test_drain_refuses_every_agent_start_endpoint(self):
         adapter = APIServerAdapter(PlatformConfig(enabled=True))
-        runner = SimpleNamespace(_draining=True, _external_drain_active=False)
+        runner = SimpleNamespace(_draining=True)
         app = _make_admission_app(adapter)
         paths = (
             "/api/sessions/missing/chat",
@@ -604,5 +604,4 @@ class TestShutdownSettleWindow:
             _INTERRUPT_REASON_GATEWAY_SHUTDOWN,
             _INTERRUPT_REASON_GATEWAY_SHUTDOWN,
         ]
-
 

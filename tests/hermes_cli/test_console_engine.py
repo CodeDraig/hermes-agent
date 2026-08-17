@@ -83,7 +83,6 @@ EXPECTED_CONSOLE_COMMANDS = {
     ("skills", "reset"),
     ("skills", "opt-in"),
     ("skills", "opt-out"),
-    ("skills", "repair-official"),
     ("skills", "snapshot", "export"),
     ("skills", "snapshot", "import"),
     ("skills", "tap", "list"),

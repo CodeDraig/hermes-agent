@@ -64,7 +64,7 @@ def test_worker_spawn_tags_session_source_kanban(monkeypatch, tmp_path):
 
 def test_kanban_rows_stay_out_of_the_session_list(db):
     """A `kanban` row is filtered by the same exclude the sidebar sends."""
-    db.create_session(session_id="chat", source="desktop")
+    db.create_session(session_id="chat", source="cli")
     db.append_message(session_id="chat", role="user", content="hey")
     db.create_session(session_id="worker", source="kanban")
     db.append_message(session_id="worker", role="user", content="work kanban task t_b21733fb")

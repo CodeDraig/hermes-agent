@@ -17,7 +17,7 @@ the same universe ``hermes model`` renders (``CANONICAL_PROVIDERS``), joining:
   :data:`hermes_cli.auth.PROVIDER_REGISTRY` (credential truth), and
 * ``display_name`` / ``description`` / ``signup_url`` from the provider's
   :class:`providers.base.ProviderProfile` when one exists, falling back to the
-  ``CANONICAL_PROVIDERS`` entry's ``label`` / ``tui_desc`` and the
+  ``CANONICAL_PROVIDERS`` entry's ``label`` / ``picker_desc`` and the
   ``OPTIONAL_ENV_VARS`` signup URL otherwise (many profiles leave these blank,
   and four canonical providers have no profile at all — lmstudio, openai-api,
   tencent-tokenhub, xai-oauth — so the fallbacks are load-bearing).
@@ -152,7 +152,7 @@ def provider_catalog() -> list[ProviderDescriptor]:
         )
         description = (
             (getattr(prof, "description", "") if prof else "")
-            or entry.tui_desc
+            or entry.picker_desc
             or label
         )
         signup_url = (getattr(prof, "signup_url", "") if prof else "") or ""

@@ -1,8 +1,6 @@
 """Behavior tests for hermes_cli.inventory.
 
-Locks the invariants the three migrated consumers (web_server.py
-/api/model/options, tui_gateway model.options, tui_gateway model.save_key)
-depend on:
+Locks the invariants retained model-picker consumers depend on:
 
 - load_picker_context() reproduces the inline 17-LOC config-slice exactly.
 - with_overrides() is truthy-only (empty agent attrs must not clobber).
@@ -14,7 +12,7 @@ depend on:
   canonical slugs in the providers: dict, and that flag must NOT demote
   them to the tail.
 - picker_hints adds authenticated/auth_type/key_env/warning per row,
-  matching the TUI ModelPickerDialog shape.
+    matching the shared picker shape.
 """
 
 from __future__ import annotations
@@ -351,8 +349,8 @@ def _aggregator_row(slug: str, models: list[str]) -> dict:
     }
 
 
-def test_user_defined_rows_carry_alias_set_for_gui_current_match():
-    """Custom provider rows must expose `aliases` so the desktop picker can
+def test_user_defined_rows_carry_alias_set_for_current_match():
+    """Custom provider rows must expose `aliases` so pickers can
     match a session's canonical `custom:<key>` identity against the row's
     bare-key slug (#87035). Built-in rows carry no aliases.
     """
@@ -493,7 +491,7 @@ def test_build_models_payload_no_max_models_returns_full_list():
 def test_build_models_payload_forwards_refresh_flag():
     """build_models_payload must forward refresh= to list_authenticated_providers.
 
-    The desktop picker's "Refresh Models" control passes refresh=True; the
+    An explicit "Refresh Models" action passes refresh=True; the
     flag has to reach list_authenticated_providers so the per-provider
     model-id cache gets busted. Default opens pass refresh=False.
     """
@@ -541,7 +539,5 @@ def _apply_featured_with_dates(rows, dates: dict[str, str]):
 
     with patch("agent.models_dev.get_model_info", side_effect=_fake_get_model_info):
         inventory._apply_featured(rows)
-
-
 
 

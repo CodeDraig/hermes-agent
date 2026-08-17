@@ -11,8 +11,7 @@ name: CI review comment
 # and the scripts from the default branch, never from the PR head.
 # It makes a write token safe here.
 #
-# The poller reads job results through the API. Thus it watches the CI run
-# and the separate docker run, and it depends on neither.
+# The poller reads CI job results through the API and depends on no CI job.
 
 on:
   workflow_run:
@@ -64,11 +63,6 @@ jobs:
           # run. The poller then watches itself, which stays in_progress for
           # as long as the poller runs, and it waits out its whole timeout.
           CI_RUN_ID: ${{ github.event.workflow_run.id }}
-          # Sibling runs for the same commit that the comment also covers,
-          # one workflow name per line (a name can contain a comma).
-          # The poller resolves each name to its runs through the API.
-          WATCH_WORKFLOWS: |
-            Docker Build, Test, and Publish
           PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
           RUN_URL: ${{ github.event.workflow_run.html_url }}
           # Commit info for the review comment header.

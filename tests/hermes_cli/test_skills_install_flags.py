@@ -1,7 +1,7 @@
 """
 Tests for --yes / --force flag separation in `hermes skills install`.
 
---yes / -y  → skip_confirm (bypass interactive prompt, needed in TUI mode)
+--yes / -y  → skip_confirm (bypass interactive prompt)
 --force     → force (install despite blocked scan verdict)
 
 Based on PR #1595 by 333Alden333 (salvaged).
@@ -25,12 +25,12 @@ def test_cli_skills_install_yes_sets_skip_confirm(monkeypatch):
     monkeypatch.setattr(
         sys,
         "argv",
-        ["hermes", "skills", "install", "official/email/agentmail", "--yes"],
+        ["hermes", "skills", "install", "openai/skills/spreadsheets", "--yes"],
     )
 
     main()
 
-    assert captured["identifier"] == "official/email/agentmail"
+    assert captured["identifier"] == "openai/skills/spreadsheets"
     assert captured["yes"] is True
     assert captured["force"] is False
 

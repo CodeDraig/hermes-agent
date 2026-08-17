@@ -27,7 +27,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import re
 from typing import Any, Dict, List, Optional
 
@@ -52,7 +51,6 @@ from agent.prompt_builder import (
 from agent.runtime_cwd import resolve_context_cwd
 from hermes_constants import get_default_hermes_root, get_hermes_home
 from pathlib import Path
-from utils import is_truthy_value
 
 logger = logging.getLogger(__name__)
 _PLUGIN_SECTION_FRAME_RE = re.compile(
@@ -124,36 +122,6 @@ def _resolve_platform_hint(agent: Any, platform_key: str, default_hint: str) -> 
     if isinstance(append_text, str) and append_text.strip():
         return f"{base}\n\n{append_text.strip()}".strip()
     return base
-
-
-_TUI_EMBEDDED_PANE_CLARIFIER = (
-    " You're in its embedded terminal pane, beside the GUI chat — the user can "
-    "select your output (Option-drag on macOS, Shift-drag elsewhere) and press "
-    "Cmd/Ctrl+L to send it to the chat composer."
-)
-
-
-def _tui_embedded_pane_clarifier(hint: str) -> str:
-    """Append the desktop-embedded-terminal-pane clarifier to a tui hint.
-
-    Triggered by ``HERMES_DESKTOP_TERMINAL=1`` (set by ``main.cjs`` only on the
-    shell env of the desktop's embedded TUI PTY — never on the chat backend).
-    This is a runtime-surface qualifier, not a config override, so it lives at
-    the resolution site rather than inside ``_resolve_platform_hint`` (which
-    is purely the config-platform_hints override applier). Byte-stable for the
-    cache: called once per session build, deterministically from env state.
-
-    Idempotent and empty-safe: re-applying on an already-augmented hint is a
-    no-op, and an empty input returns empty (we never synthesize the
-    clarifier without its tui framing).
-    """
-    if not hint:
-        return hint
-    if _TUI_EMBEDDED_PANE_CLARIFIER in hint:
-        return hint
-    if not is_truthy_value(os.getenv("HERMES_DESKTOP_TERMINAL")):
-        return hint
-    return hint + _TUI_EMBEDDED_PANE_CLARIFIER
 
 
 def _plugin_session_info(agent: Any) -> Dict[str, str]:
@@ -584,43 +552,6 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
             # Probe failure must never block prompt build.
             pass
 
-    # Bot Mode teammate protocol — injected ONLY into a bot's canonical
-    # "Bot Chat" session (the conversation teammate bots message into via
-    # `hermes -p <bot> chat --in ~ -c "Bot Chat"` and the desktop pins), on
-    # installs where Bot Mode manages profiles (ui_meta['hermes-bots']).
-    # Regular sessions never carry it — the desktop's composer middleware
-    # owns the @mention send path. Title is read once at first build and the
-    # rendered prompt is cached + DB-restored, so this is cache-safe.
-    # Gated by config.yaml ``agent.bot_mode_protocol`` (default True).
-    if getattr(agent, "_bot_mode_protocol", True):
-        try:
-            from tools.bot_mode_probe import (
-                BOT_CHAT_TITLE,
-                epoch_line,
-                get_bot_mode_protocol_section,
-            )
-            _title = str(getattr(agent, "_session_title_hint", "") or "").strip()
-            if not _title:
-                _sdb = getattr(agent, "_session_db", None)
-                _sid = getattr(agent, "session_id", None)
-                _title = str((_sdb.get_session_title(_sid) if (_sdb and _sid) else None) or "").strip()
-            if _title == BOT_CHAT_TITLE:
-                _bot_section = get_bot_mode_protocol_section(_agent_home(agent))
-                if _bot_section:
-                    post_workspace_parts.append(_bot_section)
-                    # Eternal-session support: stamp the capability epoch so
-                    # the restore path can detect user-initiated capability
-                    # changes (skills/toolsets/MCP/SOUL/roster) and rebuild
-                    # ONCE per change instead of waiting for /new or
-                    # compression. Also marks this prompt as timeless — the
-                    # volatile timestamp line is omitted (see below), since a
-                    # birth date pinned in a session that lives for months is
-                    # misinformation.
-                    post_workspace_parts.append(epoch_line(_agent_home(agent)))
-                    agent._bot_chat_timeless_prompt = True
-        except Exception:
-            pass
-
     # Active-profile hint — names the Hermes profile the agent is running
     # under so it doesn't conflate ~/.hermes/skills/ (default profile) with
     # ~/.hermes/profiles/<active>/skills/ (this profile's). Deterministic
@@ -725,8 +656,6 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
             pass  # Config read failure — fall back to base hint only
 
     _effective_hint = _resolve_platform_hint(agent, platform_key, _default_hint)
-    if platform_key == "tui" and _effective_hint:
-        _effective_hint = _tui_embedded_pane_clarifier(_effective_hint)
     if _effective_hint:
         post_workspace_parts.append(_effective_hint)
 
@@ -749,15 +678,14 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
         # dir — the user's real cwd there, but the install dir for the gateway
         # daemon, which is why the gateway sets TERMINAL_CWD.
         #
-        # allow_install_tree_fallback: for cli/tui the launch dir IS the
+        # allow_install_tree_fallback: for cli the launch dir IS the
         # user's shell cwd, so an in-tree fallback is a deliberate choice
-        # (developing Hermes). Every other surface (desktop chat panel,
-        # gateway daemons) self-spawns into the install tree, where the
+        # (developing Hermes). Gateway daemons self-spawn into the install tree, where the
         # fallback would inject this repo's contributor AGENTS.md (#64590).
         context_files_prompt = _r.build_context_files_prompt(
             cwd=resolve_context_cwd(), skip_soul=_soul_loaded,
             context_length=_ctx_len,
-            allow_install_tree_fallback=agent.platform in ("cli", "tui"),
+            allow_install_tree_fallback=agent.platform == "cli",
             home_override=_agent_home(agent))
         if context_files_prompt:
             context_parts.append(context_files_prompt)
@@ -839,12 +767,6 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
     timestamp_line = (
         f"Conversation started: {now.strftime('%A, %B %d, %Y')}{_zone_suffix}"
     )
-    # Bot Chat sessions are effectively eternal — a birth date frozen in the
-    # prompt becomes confidently-wrong misinformation within days. Timeless
-    # prompts keep the identity lines but drop the date (the timezone still
-    # rides workspace context; live time comes from the terminal tool).
-    if getattr(agent, "_bot_chat_timeless_prompt", False):
-        timestamp_line = f"Timezone: {', '.join(_zone_bits)}" if _zone_bits else ""
     if agent.pass_session_id and agent.session_id:
         timestamp_line += f"\nSession ID: {agent.session_id}"
     if agent.model:

@@ -16,7 +16,6 @@ from tools.skills_sync import (
     _dir_hash,
     sync_skills,
     reset_bundled_skill,
-    restore_official_optional_skill,
 )
 
 
@@ -213,7 +212,6 @@ class TestExternalDirsIndexing:
         from contextlib import ExitStack
         stack = ExitStack()
         stack.enter_context(patch("tools.skills_sync._get_bundled_dir", return_value=bundled))
-        stack.enter_context(patch("tools.skills_sync._get_optional_dir", return_value=bundled.parent / "optional-skills"))
         stack.enter_context(patch("tools.skills_sync.SKILLS_DIR", skills_dir))
         stack.enter_context(patch("tools.skills_sync.MANIFEST_FILE", manifest_file))
         return stack
@@ -274,12 +272,6 @@ class TestRenamedBundledSkillRecovery:
         from contextlib import ExitStack
         stack = ExitStack()
         stack.enter_context(patch("tools.skills_sync._get_bundled_dir", return_value=bundled))
-        stack.enter_context(
-            patch(
-                "tools.skills_sync._get_optional_dir",
-                return_value=bundled.parent / "optional-skills",
-            )
-        )
         stack.enter_context(patch("tools.skills_sync.SKILLS_DIR", skills_dir))
         stack.enter_context(patch("tools.skills_sync.MANIFEST_FILE", manifest_file))
         return stack
@@ -403,7 +395,6 @@ class TestSyncSkills:
         from contextlib import ExitStack
         stack = ExitStack()
         stack.enter_context(patch("tools.skills_sync._get_bundled_dir", return_value=bundled))
-        stack.enter_context(patch("tools.skills_sync._get_optional_dir", return_value=bundled.parent / "optional-skills"))
         stack.enter_context(patch("tools.skills_sync.SKILLS_DIR", skills_dir))
         stack.enter_context(patch("tools.skills_sync.MANIFEST_FILE", manifest_file))
         return stack
@@ -538,7 +529,6 @@ class TestResetBundledSkill:
         from contextlib import ExitStack
         stack = ExitStack()
         stack.enter_context(patch("tools.skills_sync._get_bundled_dir", return_value=bundled))
-        stack.enter_context(patch("tools.skills_sync._get_optional_dir", return_value=bundled.parent / "optional-skills"))
         stack.enter_context(patch("tools.skills_sync.SKILLS_DIR", skills_dir))
         stack.enter_context(patch("tools.skills_sync.MANIFEST_FILE", manifest_file))
         return stack
@@ -715,7 +705,6 @@ class TestNoBundledSkillsOptOut:
         def _patches():
             stack = ExitStack()
             stack.enter_context(patch("tools.skills_sync._get_bundled_dir", return_value=bundled))
-            stack.enter_context(patch("tools.skills_sync._get_optional_dir", return_value=bundled.parent / "optional-skills"))
             stack.enter_context(patch("tools.skills_sync.SKILLS_DIR", skills_dir))
             stack.enter_context(patch("tools.skills_sync.MANIFEST_FILE", manifest_file))
             stack.enter_context(patch("tools.skills_sync.HERMES_HOME", hermes_home))
@@ -779,7 +768,6 @@ class TestOptOutToggleAndRemove:
         home = tmp_path / "home"
         home.mkdir()
         with patch("tools.skills_sync._get_bundled_dir", return_value=bundled), \
-             patch("tools.skills_sync._get_optional_dir", return_value=bundled.parent / "optional-skills"), \
              patch("tools.skills_sync.SKILLS_DIR", skills_dir), \
              patch("tools.skills_sync.MANIFEST_FILE", manifest_file), \
              patch("tools.skills_sync.HERMES_HOME", home):
@@ -827,7 +815,6 @@ class TestUpdateBackupRecovery:
         from contextlib import ExitStack
         stack = ExitStack()
         stack.enter_context(patch("tools.skills_sync._get_bundled_dir", return_value=bundled))
-        stack.enter_context(patch("tools.skills_sync._get_optional_dir", return_value=bundled.parent / "optional-skills"))
         stack.enter_context(patch("tools.skills_sync.SKILLS_DIR", skills_dir))
         stack.enter_context(patch("tools.skills_sync.MANIFEST_FILE", manifest_file))
         return stack

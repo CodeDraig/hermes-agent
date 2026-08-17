@@ -65,38 +65,6 @@ def _drain_for(delegation_id, timeout=5.0):
     return None
 
 
-def test_active_for_session_counts_every_live_delegation_state():
-    with ad._records_lock:
-        ad._records.update(
-            {
-                "running": {
-                    "status": "running",
-                    "origin_ui_session_id": "desktop-sid",
-                },
-                "stalling": {
-                    "status": "stalling",
-                    "origin_ui_session_id": "desktop-sid",
-                },
-                "finalizing": {
-                    "status": "finalizing",
-                    "origin_ui_session_id": "desktop-sid",
-                },
-                "completed": {
-                    "status": "completed",
-                    "origin_ui_session_id": "desktop-sid",
-                },
-                "other-session": {
-                    "status": "running",
-                    "origin_ui_session_id": "other-sid",
-                },
-            }
-        )
-
-    assert ad.active_for_session("desktop-sid") == 3
-    assert ad.active_for_session("other-sid") == 1
-    assert ad.active_for_session("") == 0
-
-
 def test_dispatch_returns_immediately_without_blocking():
     gate = threading.Event()
 
@@ -623,68 +591,6 @@ def test_delegate_task_background_routes_async_and_does_not_block(monkeypatch):
     assert "the real task" in text
 
 
-def test_delegate_task_background_uses_live_tui_agent_session_id(monkeypatch):
-    """TUI async delegation must route to the live/compressed agent id.
-
-    Regression: delegate_task captured the stale approval/session context key
-    after compression rotated parent_agent.session_id. The resulting completion
-    was orphaned and could be consumed by an unrelated desktop session poller.
-    """
-    import json
-    from unittest.mock import MagicMock
-    import tools.delegate_tool as dt
-    from gateway.session_context import clear_session_vars, set_session_vars
-    from tools.approval import reset_current_session_key, set_current_session_key
-
-    parent = MagicMock()
-    parent._delegate_depth = 0
-    parent.session_id = "post-compress-tip"
-    parent._interrupt_requested = False
-    parent._active_children = []
-    parent._active_children_lock = None
-    fake_child = MagicMock()
-    fake_child._delegate_role = "leaf"
-
-    creds = {
-        "model": "m", "provider": None, "base_url": None, "api_key": None,
-        "api_mode": None, "command": None, "args": None,
-    }
-    monkeypatch.setattr(dt, "_build_child_agent", lambda **kw: fake_child)
-    monkeypatch.setattr(dt, "_resolve_delegation_credentials", lambda *a, **k: creds)
-    monkeypatch.setattr(
-        dt,
-        "_run_single_child",
-        lambda *a, **k: {
-            "task_index": 0,
-            "status": "completed",
-            "summary": "done",
-            "api_calls": 1,
-            "duration_seconds": 0.1,
-            "model": "m",
-            "exit_reason": "completed",
-        },
-    )
-
-    approval_token = set_current_session_key("pre-compress-parent")
-    session_tokens = set_session_vars(
-        source="tui",
-        session_key="pre-compress-parent",
-        ui_session_id="origin-tab",
-    )
-    try:
-        out = dt.delegate_task(goal="bg task", background=True, parent_agent=parent)
-        assert json.loads(out)["status"] == "dispatched"
-        evt = _drain_one()
-    finally:
-        reset_current_session_key(approval_token)
-        clear_session_vars(session_tokens)
-
-    assert evt is not None
-    assert evt["type"] == "async_delegation"
-    assert evt["session_key"] == "post-compress-tip"
-    assert evt["origin_ui_session_id"] == "origin-tab"
-
-
 def test_concurrent_dispatch_respects_capacity():
     """Two threads racing dispatch with cap=1 must yield exactly one accept
     (capacity check and record insert are atomic under the records lock)."""
@@ -824,4 +730,3 @@ def test_batch_truncation_banner_marks_only_truncated_task():
     banner_pos = text.index("TRUNCATED")
     # The header banner for task 2 appears after task 1's summary.
     assert banner_pos > clean_pos
-

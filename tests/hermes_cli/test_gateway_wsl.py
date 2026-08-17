@@ -105,8 +105,6 @@ class TestGatewayCommandWSLMessages:
         monkeypatch.setattr(gateway, "is_termux", lambda: False)
         monkeypatch.setattr(gateway, "is_wsl", lambda: True)
         monkeypatch.setattr(gateway, "supports_systemd_services", lambda: False)
-        monkeypatch.setattr(gateway, "is_managed", lambda: False)
-
         args = SimpleNamespace(
             gateway_command="install", force=False, system=False,
             run_as_user=None,
@@ -150,4 +148,3 @@ class TestGatewayCommandWSLMessages:
         out = capsys.readouterr().out
         assert "WSL note" in out
         assert "tmux or screen" in out
-

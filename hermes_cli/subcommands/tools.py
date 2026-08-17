@@ -82,7 +82,7 @@ def build_tools_parser(subparsers, *, cmd_tools: Callable) -> None:
             "same step `hermes tools` runs after you pick a provider that\n"
             "needs extra dependencies (browser Chromium, Camofox, cua-driver,\n"
             "KittenTTS/Piper, ddgs, Spotify, Langfuse, xAI). Stable,\n"
-            "non-interactive target the dashboard spawns to drive backend\n"
+            "non-interactive target automation can use to drive backend\n"
             "setup. Keys: agent_browser, camofox, cua_driver, kittentts,\n"
             "piper, ddgs, spotify, langfuse, xai_grok."
         ),

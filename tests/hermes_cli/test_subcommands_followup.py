@@ -1,6 +1,6 @@
 """Smoke tests for the Phase 2 follow-up subcommand builders (promoted handlers).
 
-These 9 subcommands had their handler defined as a closure inside main(); the
+These subcommands had their handler defined as a closure inside main(); the
 handler was promoted to top-level and the parser block extracted into a builder.
 Confirms each builder attaches its subcommand and wires func to the injected
 handler.
@@ -13,7 +13,6 @@ import argparse
 import pytest
 
 from hermes_cli.subcommands.acp import build_acp_parser
-from hermes_cli.subcommands.claw import build_claw_parser
 from hermes_cli.subcommands.insights import build_insights_parser
 from hermes_cli.subcommands.mcp import build_mcp_parser
 from hermes_cli.subcommands.memory import build_memory_parser
@@ -40,7 +39,6 @@ CASES = [
     ("pairing", build_pairing_parser, "cmd_pairing", ["pairing"]),
     ("plugins", build_plugins_parser, "cmd_plugins", ["plugins"]),
     ("mcp", build_mcp_parser, "cmd_mcp", ["mcp"]),
-    ("claw", build_claw_parser, "cmd_claw", ["claw"]),
 ]
 
 

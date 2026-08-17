@@ -57,13 +57,11 @@ def _enter_existing_install_patches(stack, **extra):
     for target, kwargs in [
         ("hermes_cli.setup.ensure_hermes_home", {}),
         ("hermes_cli.setup.is_interactive_stdin", {"return_value": True}),
-        ("hermes_cli.config.is_managed", {"return_value": False}),
         ("hermes_cli.setup.load_config", {"return_value": {}}),
         ("hermes_cli.setup.save_config", {}),
         ("hermes_cli.setup.get_env_value", {"return_value": None}),
         ("hermes_cli.auth.get_active_provider", {"return_value": "openrouter"}),
         ("hermes_cli.setup._print_setup_summary", {}),
-        ("hermes_cli.setup._offer_openclaw_migration", {"return_value": False}),
     ]:
         stack.enter_context(patch(target, **kwargs))
 
@@ -78,12 +76,10 @@ def _enter_fresh_install_patches(stack, **extra):
     for target, kwargs in [
         ("hermes_cli.setup.ensure_hermes_home", {}),
         ("hermes_cli.setup.is_interactive_stdin", {"return_value": True}),
-        ("hermes_cli.config.is_managed", {"return_value": False}),
         ("hermes_cli.setup.load_config", {"return_value": {}}),
         ("hermes_cli.setup.save_config", {}),
         ("hermes_cli.auth.get_active_provider", {"return_value": None}),
         ("hermes_cli.setup.get_env_value", {"return_value": None}),
-        ("hermes_cli.setup._offer_openclaw_migration", {"return_value": False}),
     ]:
         stack.enter_context(patch(target, **kwargs))
 
@@ -198,5 +194,3 @@ class TestArgparse:
             pass
         assert captured["args"].reconfigure is True
         assert captured["args"].quick is False
-
-

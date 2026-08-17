@@ -536,7 +536,7 @@ class TestProviderPickerIntegration:
 
     def test_picker_row_names_stay_unique(self):
         """The CLI row is named "Browser Use"; the legacy plugin API row must
-        keep a distinct name — apply_provider_selection matches by name."""
+        keep a distinct name for configuration and status output."""
         from hermes_cli.tools_config import TOOL_CATEGORIES, _plugin_browser_providers
 
         names = [r["name"] for r in TOOL_CATEGORIES["browser"]["providers"]]

@@ -1,14 +1,8 @@
 #!/usr/bin/env python3
-"""Check that subprocess calls in TUI-context code specify stdin=.
+"""Check that subprocess calls in non-interactive agent code specify stdin=.
 
-When Hermes runs in TUI mode, the gateway child process communicates with
-the Node.js parent over a JSON-RPC protocol on stdin. Subprocess calls that
-inherit this fd can cause the gateway to exit with stdin EOF during tool
-execution (issue #14036, PR #39257).
-
-This script checks that all subprocess.run() and subprocess.Popen() calls
-in TUI-context files (agent/, tools/, plugins/, tui_gateway/) explicitly
-set stdin= to prevent fd inheritance.
+This script checks subprocess calls in agent, tool, and plugin files so child
+processes cannot accidentally inherit an owning process's stdin.
 
 Exit codes:
   0 — all calls are safe
@@ -29,12 +23,11 @@ import re
 import sys
 from pathlib import Path
 
-# Directories that run inside the TUI gateway child process.
-TUI_CONTEXT_DIRS = [
+# Directories that run model or plugin subprocesses.
+SUBPROCESS_CONTEXT_DIRS = [
     "agent/",
     "tools/",
     "plugins/",
-    "tui_gateway/",
 ]
 
 # User plugin roots — scanned at runtime if they exist.  Plugins load from
@@ -77,7 +70,6 @@ SKIP_DIRS = {
     "tests/",
     "scripts/",
     "skills/",
-    "optional-skills/",
     "hermes_cli/",
     "gateway/",
     "cron/",
@@ -164,8 +156,8 @@ def main() -> int:
 
     all_violations = []
 
-    for tui_dir in TUI_CONTEXT_DIRS:
-        dirpath = repo_root / tui_dir
+    for context_dir in SUBPROCESS_CONTEXT_DIRS:
+        dirpath = repo_root / context_dir
         if not dirpath.exists():
             continue
 

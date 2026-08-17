@@ -50,9 +50,8 @@ operadores deben razonar sobre ellas en los mismos términos.
   implícitamente acceso a Hermes Agent al ejecutarlo — típicamente, todo lo que
   la propia cuenta de usuario del operador puede alcanzar en el host.
 - **Postura.** Una declaración explícita en la documentación o código de Hermes Agent
-  sobre cómo una capa consumidora (adaptador, UI, escritor de archivos,
-  shell) debe tratar la salida del agente — ej. "el dashboard renderiza
-  la salida del agente como HTML inerte."
+  sobre cómo una capa consumidora (adaptador, escritor de archivos,
+  shell) debe tratar la salida del agente.
 
 ### 2.2 El Límite: Aislamiento a Nivel de SO
 
@@ -180,20 +179,17 @@ modelo de autorización, pero las reglas a continuación se aplican uniformement
   legacy/directos viven en `gateway/platforms/` (`base.py`, Signal, servidor
   API, webhooks, …), con descubrimiento y carga diferida vía
   `gateway/platform_registry.py`.
-- **Superficies HTTP expuestas en red.** El adaptador del servidor API, el
-  plugin del dashboard, los endpoints HTTP del plugin kanban, y cualquier
-  otro plugin que vincule un socket de escucha.
+- **Superficies HTTP expuestas en red.** El adaptador del servidor API y
+  cualquier plugin que vincule un socket de escucha.
 - **Adaptadores de Editor / IDE.** El adaptador ACP (`acp_adapter/`) e
   integraciones equivalentes que aceptan solicitudes de un proceso cliente local.
-- **El gateway TUI (`tui_gateway/`).** Backend JSON-RPC para la
-  UI de terminal Ink, alcanzado a través de IPC local.
 
 **Reglas uniformes:**
 
 1. **Se requiere autorización en cada superficie que cruce un límite de confianza.** Para
    superficies de mensajería y HTTP en red, el límite es la red: la autorización
    significa una lista de llamadores permitidos configurada por el operador. Para superficies
-   de editor e IPC local (ACP, gateway TUI), el límite es la cuenta de usuario del host:
+   de editor e IPC local (ACP), el límite es la cuenta de usuario del host:
    la autorización significa depender del control de acceso a nivel de SO (permisos
    de archivos, vinculaciones solo a loopback) y no exponer la superficie más allá
    del usuario local sin una capa de autenticación de red explícita.
@@ -211,7 +207,7 @@ modelo de autorización, pero las reglas a continuación se aplican uniformement
    Los operadores que necesiten separación de capacidades deben ejecutar instancias
    de agente separadas con listas de permitidos separadas.
 5. **Vincular una superficie solo local a una interfaz no-loopback es una decisión de
-   operador de emergencia (§3.2).** El dashboard y otros servidores HTTP de plugins
+   operador de emergencia (§3.2).** Los servidores HTTP de plugins y API
    son predeterminados a loopback; exponerlos a través de `--host 0.0.0.0` o equivalente
    hace que el fortalecimiento de exposición pública (§4) sea responsabilidad del operador.
 
@@ -237,7 +233,7 @@ modelo de autorización, pero las reglas a continuación se aplican uniformement
   contrariamente a lo que esta política, la propia documentación de Hermes Agent o
   las expectativas razonables del operador predecirían — incluyendo casos donde
   Hermes Agent ha documentado una postura sobre cómo su salida debe ser
-  renderizada por una capa consumidora (dashboard, adaptador de gateway,
+  renderizada por una capa consumidora (adaptador de gateway,
   escritor de archivos, shell) y una ruta de código rompe esa postura.
 
 ### 3.2 Fuera de Alcance
@@ -269,7 +265,7 @@ divulgación privada y no reciben avisos.
   del envolvente de confianza).
 - **Configuraciones documentadas de emergencia.** Compensaciones seleccionadas por el operador
   que deshabilitan explícitamente protecciones: `--insecure` y flags equivalentes
-  en el dashboard u otros componentes, aprobaciones deshabilitadas,
+  en componentes expuestos a la red, aprobaciones deshabilitadas,
   backend local en producción, perfiles de desarrollo que evitan
   la seguridad de hermes-home, y similares. Los informes contra esas
   configuraciones no son vulnerabilidades — eso es el trabajo del flag.

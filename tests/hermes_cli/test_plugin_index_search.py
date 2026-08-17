@@ -35,11 +35,11 @@ def _index_doc(entries):
 SAMPLE = _index_doc(
     [
         {
-            "name": "hermes-media-studio",
-            "description": "Generative media workspace plugin.",
+            "name": "hermes-file-tools",
+            "description": "Local file workflow tools.",
             "author": "NousResearch",
-            "tags": ["media", "image-gen"],
-            "repo": "NousResearch/hermes-media-studio",
+            "tags": ["files", "workflows"],
+            "repo": "example/hermes-file-tools",
             "ref": "e" * 40,
         },
         {
@@ -93,7 +93,7 @@ class TestParsing:
     def test_parses_object_form(self):
         entries = _parse_entries(SAMPLE)
         assert [e.name for e in entries] == [
-            "hermes-media-studio",
+            "hermes-file-tools",
             "hermes-telegram-business",
             "plugin-llm-example",
         ]
@@ -101,7 +101,7 @@ class TestParsing:
         assert entries[2].install_identifier == (
             "NousResearch/hermes-example-plugins/plugin-llm-example"
         )
-        assert entries[0].install_identifier == "NousResearch/hermes-media-studio"
+        assert entries[0].install_identifier == "example/hermes-file-tools"
 
     def test_parses_bare_list_form(self):
         entries = _parse_entries(SAMPLE["plugins"])
@@ -144,8 +144,8 @@ class TestSearch:
     entries = _parse_entries(SAMPLE)
 
     def test_exact_name_ranks_first(self):
-        results = search_index(self.entries, "hermes-media-studio")
-        assert results[0].name == "hermes-media-studio"
+        results = search_index(self.entries, "hermes-file-tools")
+        assert results[0].name == "hermes-file-tools"
 
     def test_matches_tags(self):
         results = search_index(self.entries, "telegram")
@@ -156,8 +156,8 @@ class TestSearch:
         assert [e.name for e in results] == ["hermes-telegram-business"]
 
     def test_fuzzy_typo_tolerance(self):
-        results = search_index(self.entries, "hermes-media-studo")
-        assert results and results[0].name == "hermes-media-studio"
+        results = search_index(self.entries, "hermes-file-tols")
+        assert results and results[0].name == "hermes-file-tools"
 
     def test_no_match(self):
         assert search_index(self.entries, "zzzzqqqq") == []
@@ -284,8 +284,8 @@ class TestResolveName:
     entries = _parse_entries(SAMPLE)
 
     def test_exact_unique(self):
-        entry, candidates = resolve_name(self.entries, "hermes-media-studio")
-        assert entry is not None and entry.repo == "NousResearch/hermes-media-studio"
+        entry, candidates = resolve_name(self.entries, "hermes-file-tools")
+        assert entry is not None and entry.repo == "example/hermes-file-tools"
 
     def test_case_insensitive(self):
         entry, _ = resolve_name(self.entries, "Hermes-Media-Studio")
@@ -314,7 +314,7 @@ class TestInstallResolution:
     def test_bare_name_detection(self):
         from hermes_cli.plugins_cmd import _looks_like_bare_index_name
 
-        assert _looks_like_bare_index_name("hermes-media-studio")
+        assert _looks_like_bare_index_name("hermes-file-tools")
         assert not _looks_like_bare_index_name("owner/repo")
         assert not _looks_like_bare_index_name("https://github.com/o/r.git")
         assert not _looks_like_bare_index_name("git@github.com:o/r.git")
@@ -336,8 +336,8 @@ class TestInstallResolution:
 
         monkeypatch.setattr(plugins_cmd, "_install_plugin_core", fake_core)
         with pytest.raises(SystemExit):
-            plugins_cmd.cmd_install("hermes-media-studio", enable=False)
-        assert captured["identifier"] == "NousResearch/hermes-media-studio"
+            plugins_cmd.cmd_install("hermes-file-tools", enable=False)
+        assert captured["identifier"] == "example/hermes-file-tools"
         assert captured["ref"] == "e" * 40
 
     def test_install_explicit_ref_beats_index_pin(self, hermes_home, monkeypatch):
@@ -354,7 +354,7 @@ class TestInstallResolution:
 
         monkeypatch.setattr(plugins_cmd, "_install_plugin_core", fake_core)
         with pytest.raises(SystemExit):
-            plugins_cmd.cmd_install("hermes-media-studio", enable=False, ref="d" * 40)
+            plugins_cmd.cmd_install("hermes-file-tools", enable=False, ref="d" * 40)
         assert captured["ref"] == "d" * 40
 
     def test_install_ambiguous_name_lists_candidates_and_exits(
@@ -377,7 +377,7 @@ class TestInstallResolution:
         assert not called
         out = capsys.readouterr().out
         assert "ambiguous" in out
-        assert "hermes-media-studio" in out
+        assert "hermes-file-tools" in out
         assert "hermes-telegram-business" in out
 
     def test_install_unknown_name_exits(self, hermes_home, monkeypatch, capsys):
@@ -442,9 +442,9 @@ class TestCmdSearch:
         monkeypatch.setattr(
             plugin_index, "load_index", lambda **kw: (_parse_entries(SAMPLE), "seed")
         )
-        plugins_cmd.cmd_search("media")
+        plugins_cmd.cmd_search("files")
         out = capsys.readouterr().out
-        assert "hermes-media-studio" in out
+        assert "hermes-file-tools" in out
         assert "audited" in out
 
     def test_no_results_message(self, hermes_home, monkeypatch, capsys):

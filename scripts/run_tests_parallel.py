@@ -58,22 +58,11 @@ from typing import Dict, List, Tuple
 _DEFAULT_ROOTS = ["tests"]
 
 # Directories to skip during discovery — these suites require real
-# external services (a model gateway, a docker daemon with a prebuilt
-# image, etc.) and are run in their own dedicated CI jobs:
+# external services and are run in their own dedicated CI jobs:
 #
 #   tests/e2e/         — .github/workflows/tests.yml :: e2e job
 #   tests/integration/ — historical; legacy --ignore flags
-#   tests/docker/      — .github/workflows/docker.yml ::
-#                        build-amd64 job (runs against the freshly-loaded
-#                        nousresearch/hermes-agent:test image, via
-#                        ``HERMES_TEST_IMAGE`` so the fixture skips
-#                        rebuild). The full pytest-shard runner can't
-#                        host these because the session-scoped
-#                        ``built_image`` fixture would do a 3-7min
-#                        ``docker build``,
-#                        so the build is guaranteed to die in fixture
-#                        setup. The dedicated job sidesteps both costs.
-_SKIP_PARTS = {"integration", "e2e", "docker"}
+_SKIP_PARTS = {"integration", "e2e"}
 
 # Per-file wall-clock cap. Override
 # via --file-timeout or HERMES_TEST_FILE_TIMEOUT.
@@ -204,11 +193,7 @@ def _discover_files(roots: List[Path]) -> List[Path]:
     ``test_*`` prefix — caller knows what they want).
 
     Exclude any file whose path contains a component in ``_SKIP_PARTS``,
-    UNLESS the user explicitly named it as a root (in which case the
-    user's intent overrides the skip filter). This makes
-    ``scripts/run_tests.sh tests/docker/`` work locally the same way
-    ``pytest tests/docker/`` does — the CI-level skip exists to keep
-    the sharded matrix from blowing up, not to block targeted runs.
+    unless the user explicitly named it as a root.
     """
     seen: set[Path] = set()
     out: List[Path] = []

@@ -9,7 +9,7 @@ Both ``_handle_model_switch`` (typed ``/model <name>``) and
 persistence block wrote ``model.default``/``model.provider`` but never
 touched ``base_url``/``api_mode`` at all. Fix: sync both on every global
 switch, clearing to ``None`` when the resolved result doesn't need them —
-mirroring the already-correct ``tui_gateway/server.py:_persist_model_switch``
+using the shared model-switch persistence path
 pattern (fixed for #48305).
 """
 
@@ -135,7 +135,6 @@ def _run_apply(monkeypatch, result, persist_global=True):
     monkeypatch.setattr(cli_mod, "save_config_value", _fake_save)
     cli_mod.HermesCLI._apply_model_switch_result(_StubCLI(), result, persist_global)
     return saved
-
 
 
 

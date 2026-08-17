@@ -130,9 +130,8 @@ hermes-agent/
 ├── plugins/memory/           # Memory provider plugins
 ├── plugins/context_engine/   # Context engine plugins
 ├── skills/                   # Bundled skills (always available)
-├── optional-skills/          # Official optional skills (install explicitly)
 ├── website/                  # Docusaurus documentation site
-└── tests/                    # Pytest suite (~25,000 tests across ~1,250 files)
+└── tests/                    # Pytest suite
 ```
 
 ## Data Flow

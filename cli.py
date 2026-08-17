@@ -1000,17 +1000,17 @@ _handed_off_session_ids: set[str | None] = set()
 # Weak reference to the active AIAgent for memory provider shutdown at exit
 _active_agent_ref = None
 _deferred_agent_startup_done = False
-# Set True once the TUI's prompt_toolkit app starts (which enables focus
-# reporting + mouse tracking). Gates the on-exit terminal reset so non-TUI
-# one-shot CLI runs — which also register _run_cleanup via atexit — don't emit
+# Set True once the interactive prompt_toolkit app starts (which enables focus
+# reporting + mouse tracking). Gates the on-exit terminal reset so one-shot CLI
+# runs — which also register _run_cleanup via atexit — don't emit
 # escape codes for modes they never enabled (#36823).
-_tui_input_modes_active = False
+_terminal_input_modes_active = False
 
 
-def _mark_tui_input_modes_active() -> None:
-    """Record that the TUI app started, so _run_cleanup resets input modes."""
-    global _tui_input_modes_active
-    _tui_input_modes_active = True
+def _mark_terminal_input_modes_active() -> None:
+    """Record that the interactive CLI started, so cleanup resets input modes."""
+    global _terminal_input_modes_active
+    _terminal_input_modes_active = True
 
 
 def _prepare_deferred_agent_startup() -> None:
@@ -1151,8 +1151,7 @@ def _arm_exit_watchdog_on_shutdown_signal() -> None:
     parked in a syscall that never observes the unwind, a prompt_toolkit
     teardown that never returns, or an agent worker blocking the ``finally``.
     When that happens the process has NO backstop and a "dead" CLI lingers
-    (observed: ``hermes --tui`` alive ~47 min at 4% CPU after terminal close —
-    the #65998 class).
+    (observed after terminal close in the #65998 class).
 
     Arming at signal time closes that window. The leash is 2× the normal
     cleanup timeout so a slow-but-progressing ``_run_cleanup`` (which arms
@@ -1401,18 +1400,18 @@ def _reset_terminal_input_modes_on_exit() -> None:
     ``os._exit(0)`` path bypasses ``atexit``; neither runs this — but both are
     non-TTY / non-TUI, so there is nothing to reset there.
 
-    Gated on ``_tui_input_modes_active`` so one-shot non-TUI CLI runs (which
+    Gated on ``_terminal_input_modes_active`` so one-shot non-TUI CLI runs (which
     share ``_run_cleanup`` via ``atexit``) never emit these codes. Writes to the
     controlling terminal directly: by exit, prompt_toolkit's own output is torn
     down, so ``sys.stdout`` is the real fd; falls back to ``/dev/tty`` when
     stdout is redirected away from the terminal.
     """
-    global _tui_input_modes_active
-    if not _tui_input_modes_active:
+    global _terminal_input_modes_active
+    if not _terminal_input_modes_active:
         return
     # About to disable the modes — clear the flag so a re-armed _run_cleanup (or
     # a long-lived process that reuses it) doesn't re-emit them.
-    _tui_input_modes_active = False
+    _terminal_input_modes_active = False
     # Prefer stdout when it's the terminal; otherwise the TUI may have driven
     # /dev/tty while stdout was redirected — reset there instead of nowhere.
     try:
@@ -2379,17 +2378,6 @@ def _run_state_db_auto_maintenance(session_db) -> None:
         from hermes_constants import get_hermes_home as _get_hermes_home
         _hermes_home_maint = _get_hermes_home()
 
-        # One-time prune of empty TUI ghost sessions.
-        try:
-            if not session_db.get_meta("ghost_session_prune_v1"):
-                pruned = session_db.prune_empty_ghost_sessions(
-                    sessions_dir=_hermes_home_maint / "sessions"
-                )
-                session_db.set_meta("ghost_session_prune_v1", "1")
-                if pruned:
-                    logger.info("Pruned %d empty TUI ghost sessions", pruned)
-        except Exception as _prune_exc:
-            logger.debug("Ghost session prune skipped: %s", _prune_exc)
 
         # One-time finalize of orphaned compression continuations (#20001).
         try:
@@ -2794,18 +2782,16 @@ def _hex_to_ansi(hex_color: str, *, bold: bool = False) -> str:
 # ────────────────────────────────────────────────────────────────────────
 # Light/dark terminal mode detection.
 #
-# Mirrors ui-tui/src/theme.ts detectLightMode().  Used to decide whether
-# to remap "near-white" skin colors (e.g. #FFF8DC banner_text, #B8860B
+# Used to decide whether to remap "near-white" skin colors (e.g. #FFF8DC
+# banner_text, #B8860B
 # banner_dim) to darker equivalents that are readable on a light
 # Terminal.app / iTerm2 background.
 #
 # Detection priority:
-#   1. HERMES_LIGHT / HERMES_TUI_LIGHT env (true/false) — explicit override
-#   2. HERMES_TUI_THEME=light|dark — explicit theme
-#   3. HERMES_TUI_BACKGROUND=#RRGGBB — explicit bg hint
-#   4. COLORFGBG env (set by xterm/Konsole/urxvt) — bg slot 7/15 = light
-#   5. OSC 11 query (\x1b]11;?\x1b\\) — ask the terminal directly
-#   6. Default: assume dark (matches the legacy Hermes assumption)
+#   1. HERMES_LIGHT env (true/false) — explicit override
+#   2. COLORFGBG env (set by xterm/Konsole/urxvt) — bg slot 7/15 = light
+#   3. OSC 11 query (\x1b]11;?\x1b\\) — ask the terminal directly
+#   4. Default: assume dark
 #
 # Cached after first call so we don't query the terminal repeatedly.
 _LIGHT_MODE_CACHE: bool | None = None
@@ -3011,32 +2997,15 @@ def _detect_light_mode() -> bool:
     result = False
     try:
         # 1. Explicit env override
-        for var in ("HERMES_LIGHT", "HERMES_TUI_LIGHT"):
-            v = (os.environ.get(var) or "").strip().lower()
-            if _TRUE_RE.match(v):
-                result = True
-                _LIGHT_MODE_CACHE = result
-                return result
-            if _FALSE_RE.match(v):
-                _LIGHT_MODE_CACHE = result
-                return result
-        # 2. Theme hint
-        theme = (os.environ.get("HERMES_TUI_THEME") or "").strip().lower()
-        if theme == "light":
+        v = (os.environ.get("HERMES_LIGHT") or "").strip().lower()
+        if _TRUE_RE.match(v):
             result = True
             _LIGHT_MODE_CACHE = result
             return result
-        if theme == "dark":
+        if _FALSE_RE.match(v):
             _LIGHT_MODE_CACHE = result
             return result
-        # 3. Explicit bg hex
-        bg_hint = os.environ.get("HERMES_TUI_BACKGROUND") or ""
-        bg_lum = _luminance_from_hex(bg_hint)
-        if bg_lum is not None:
-            result = bg_lum >= 0.5
-            _LIGHT_MODE_CACHE = result
-            return result
-        # 4. COLORFGBG (xterm/Konsole/urxvt)
+        # 2. COLORFGBG (xterm/Konsole/urxvt)
         cfgbg = (os.environ.get("COLORFGBG") or "").strip()
         if cfgbg:
             last = cfgbg.split(";")[-1] if ";" in cfgbg else cfgbg
@@ -8654,7 +8623,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
         """Copy *text* to terminal clipboard via OSC 52.
 
         Wrapped for tmux/screen passthrough (mirrors the TUI's
-        wrapForMultiplexer in ui-tui/src/lib/osc52.ts) — without the DCS
+        the standard OSC52 multiplexer wrapper — without the DCS
         wrapper the multiplexer consumes the sequence and the copy is
         silently lost.
         """
@@ -11759,8 +11728,6 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
             self._handle_wake_command(cmd_original)
         elif canonical == "busy":
             self._handle_busy_command(cmd_original)
-        elif canonical == "indicator":
-            self._handle_indicator_command(cmd_original)
         else:
             # Check for user-defined quick commands (bypass agent loop, no LLM call)
             base_cmd = cmd_lower.split()[0]
@@ -12483,9 +12450,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
         turn (the same UX failure mode that motivated this entire fix), since
         ``_session_yolo`` is keyed by session id.
 
-        Mirrors ``tui_gateway/server.py`` (~line 1297-1305) which performs the
-        same transfer for the TUI's session-rename path. No-op when YOLO
-        wasn't enabled or when the ids match.
+        No-op when YOLO was not enabled or when the ids match.
         """
         if not old_session_id or not new_session_id or old_session_id == new_session_id:
             return
@@ -12536,9 +12501,8 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
     def _toggle_yolo(self):
         """Toggle YOLO mode — skip all dangerous command approval prompts.
 
-        Per-session toggle that mirrors the gateway and TUI ``/yolo`` handlers
-        (see ``gateway/run.py:_handle_yolo_command`` and
-        ``tui_gateway/server.py`` key=="yolo"). We deliberately do NOT mutate
+        Per-session toggle that mirrors the gateway ``/yolo`` handler (see
+        ``gateway/run.py:_handle_yolo_command``). We deliberately do NOT mutate
         ``HERMES_YOLO_MODE`` here — that env var is read once at module import
         time into ``tools.approval._YOLO_MODE_FROZEN`` to keep prompt-injected
         skills from flipping the bypass mid-session, so setting it after CLI
@@ -14495,8 +14459,8 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
     def _maybe_start_wake_word(self):
         """Start the wake-word listener at CLI startup if this surface is eligible."""
         try:
-            from tools.wake_word import wake_surface_enabled
-            if not wake_surface_enabled("cli"):
+            from tools.wake_word import wake_enabled
+            if not wake_enabled():
                 return
         except Exception:
             return
@@ -15593,7 +15557,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
                 # ``tools.approval.is_current_session_yolo_enabled()`` resolves
                 # against the same key that ``/yolo`` toggles under (see
                 # ``_toggle_yolo`` → ``enable_session_yolo(self.session_id)``).
-                # Mirrors ``tui_gateway/server.py`` and ``gateway/run.py`` which
+                # Mirrors ``gateway/run.py`` which
                 # bind the same contextvar before invoking the agent.
                 try:
                     from tools.approval import (
@@ -16673,30 +16637,6 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
                 )
         except Exception:
             pass
-        # First-time OpenClaw-residue banner — fires once if ~/.openclaw/ exists
-        # after an OpenClaw→Hermes migration (especially migrations done by
-        # OpenClaw's own tool, which doesn't archive the source directory).
-        try:
-            from agent.onboarding import (
-                OPENCLAW_RESIDUE_FLAG,
-                detect_openclaw_residue,
-                is_seen,
-                mark_seen,
-                openclaw_residue_hint_cli,
-            )
-            if not is_seen(self.config, OPENCLAW_RESIDUE_FLAG) and detect_openclaw_residue():
-                try:
-                    _resid_color = _welcome_skin.get_color("banner_dim", "#B8860B")
-                except Exception:
-                    _resid_color = "#B8860B"
-                self._console_print(f"[{_resid_color}]{openclaw_residue_hint_cli()}[/]")
-                try:
-                    from hermes_cli.config import get_config_path as _get_cfg_path_resid
-                    mark_seen(_get_cfg_path_resid(), OPENCLAW_RESIDUE_FLAG)
-                except Exception:
-                    pass  # best-effort — banner will fire again next session
-        except Exception:
-            pass  # banner is non-critical — never break startup
         # Show a random tip to help users discover features
         try:
             from hermes_cli.tips import get_random_tip
@@ -17791,11 +17731,8 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
         # Default: Ctrl+B (avoids conflict with Ctrl+R readline reverse-search).
         # Config spellings (ctrl/control/alt/option/opt) are normalized to
         # prompt_toolkit's c-x / a-x format via ``normalize_voice_record_key_for_prompt_toolkit``
-        # so the same config value binds identically in the TUI and CLI
-        # (Copilot round-9 review on #19835). ``super``/``win``/``windows``
-        # configs silently fall back to the default here since prompt_toolkit
-        # has no super modifier — log a warning so users notice the
-        # TUI/CLI split instead of a silent mismatch (round-11).
+        # ``super``/``win``/``windows`` configs fall back to the default because
+        # prompt_toolkit has no super modifier; log the fallback.
         _raw_key: object = "ctrl+b"
         try:
             from hermes_cli.config import load_config
@@ -17812,9 +17749,8 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
                 and _voice_key == "c-b"
             ):
                 logger.warning(
-                    "voice.record_key %r uses a TUI-only modifier (super/win); "
-                    "CLI fell back to Ctrl+B. Use ctrl+<key> or alt+<key> for "
-                    "cross-runtime parity.",
+                    "voice.record_key %r uses an unsupported modifier (super/win); "
+                    "CLI fell back to Ctrl+B. Use ctrl+<key> or alt+<key>.",
                     _raw_key,
                 )
         except Exception:
@@ -19463,7 +19399,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
                 # shortcuts are on, also ask supported terminals (e.g. iTerm2)
                 # to report modified keys distinctly (kitty protocol +
                 # modifyOtherKeys); the cleanup reset pops both modes.
-                _mark_tui_input_modes_active()
+                _mark_terminal_input_modes_active()
                 if _multiline_shortcuts_enabled:
                     _enable_extended_enter_keys(app.output)
                 # Drive the petdex mascot animation (no-op when no pet enabled).

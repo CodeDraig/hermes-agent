@@ -61,43 +61,6 @@ class TestGatewayPidState:
         assert status.is_gateway_runtime_lock_active() is False
 
 
-    def test_get_running_pid_cached_invalidates_when_pid_file_changes(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-        status._clear_running_pid_cache()
-
-        pid_path = tmp_path / "gateway.pid"
-
-        def _write_record(pid: int, start_time: int) -> None:
-            record = {
-                "pid": pid,
-                "kind": "hermes-gateway",
-                "argv": ["python", "-m", "hermes_cli.main", "gateway"],
-                "start_time": start_time,
-            }
-            pid_path.write_text(json.dumps(record))
-            (tmp_path / "gateway.lock").write_text(json.dumps(record))
-
-        _write_record(111, 123)
-
-        calls = {"lock_active": 0}
-
-        def _lock_active(lock_path=None):
-            calls["lock_active"] += 1
-            return True
-
-        monkeypatch.setattr(status, "is_gateway_runtime_lock_active", _lock_active)
-        monkeypatch.setattr(status, "_pid_exists", lambda pid: True)
-        monkeypatch.setattr(status, "_get_process_start_time", lambda pid: 123 if pid == 111 else 456)
-        monkeypatch.setattr(status, "_read_process_cmdline", lambda pid: None)
-
-        assert status.get_running_pid_cached(ttl_seconds=60) == 111
-
-        _write_record(2222, 456)
-
-        assert status.get_running_pid_cached(ttl_seconds=60) == 2222
-        assert calls["lock_active"] == 2
-
-
     def test_get_running_pid_falls_back_to_live_lock_record(self, tmp_path, monkeypatch):
         monkeypatch.setenv("HERMES_HOME", str(tmp_path))
         pid_path = tmp_path / "gateway.pid"
@@ -1386,4 +1349,3 @@ class TestResolveGatewayLiveness:
         # expected_home is what stops a recycled PID belonging to another
         # profile's live gateway from being reported as this profile's.
         assert seen["expected_home"] == profile_dir
-

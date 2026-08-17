@@ -1141,13 +1141,13 @@ def get_nous_recommended_aux_model(
 # Fields:
 #   slug        — internal provider ID (used in config.yaml, --provider flag)
 #   label       — short display name
-#   tui_desc    — longer description for the `hermes model` interactive picker
+#   picker_desc — longer description for the `hermes model` interactive picker
 # ---------------------------------------------------------------------------
 
 class ProviderEntry(NamedTuple):
     slug: str
     label: str
-    tui_desc: str   # detailed description for `hermes model` TUI
+    picker_desc: str   # detailed description for the interactive model picker
 
 CANONICAL_PROVIDERS: list[ProviderEntry] = [
     ProviderEntry("nous",           "Nous Portal",              "Nous Portal (Everything your agent needs, 300+ models with bundled tool use)"),
@@ -1233,7 +1233,7 @@ _PROVIDER_LABELS["custom"] = "Custom endpoint"  # special case: not a named prov
 #
 # ``group_description`` is a short blurb shown on the collapsed top-level group
 # row in the interactive pickers (alongside the label). Member-specific detail
-# lives in each member's ``tui_desc`` and shows in the drill-down sub-picker.
+# lives in each member's ``picker_desc`` and shows in the drill-down sub-picker.
 # Member order is the order shown inside the group submenu.
 # ---------------------------------------------------------------------------
 PROVIDER_GROUPS: dict[str, tuple[str, str, list[str]]] = {
@@ -1469,10 +1469,9 @@ def pick_silent_default_model(model_ids: list[str], provider: str = "openrouter"
 # flagship.
 #
 # This is deliberately a network-free lookup for the hot resolution path
-# (cache-only catalog read). The *interactive* default (GUI onboarding /
-# ``hermes model``) uses the richer free/paid-tier-aware resolver — see
-# ``get_recommended_default_model`` in hermes_cli/web_server.py and
-# ``partition_nous_models_by_tier`` — which can hit the Portal.
+# (cache-only catalog read). Interactive model selection can use the richer
+# free/paid-tier-aware ``partition_nous_models_by_tier`` resolver, which can
+# hit the Portal.
 _SILENT_DEFAULT_PROVIDERS: frozenset[str] = frozenset({"nous", "openrouter"})
 
 

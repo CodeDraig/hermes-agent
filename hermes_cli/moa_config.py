@@ -405,7 +405,7 @@ def normalize_moa_config(raw: Any) -> dict[str, Any]:
         "default_preset": default_name,
         "active_preset": active_name,
         "presets": presets,
-        # Compatibility/flattened view for existing dashboard/desktop callers.
+        # Flattened view consumed by the agent loop and provider scans.
         "reference_models": deepcopy(active["reference_models"]),
         "aggregator": deepcopy(active["aggregator"]),
         "reference_temperature": active["reference_temperature"],

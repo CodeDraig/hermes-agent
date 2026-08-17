@@ -781,84 +781,6 @@ def _restore_or_build_system_prompt(agent, system_message, conversation_history)
             )
 
     if stored_prompt and _stored_prompt_matches_runtime(agent, stored_prompt):
-        # Bot Chat capability epoch: an eternal bot session must adopt
-        # user-initiated capability changes (skills/toolsets/MCP/SOUL/roster)
-        # on the next message, not at /new or compression. The stored prompt
-        # embeds a fingerprint of the capability surface; a mismatch against
-        # disk is a deliberate, once-per-change rebuild — the /model
-        # exception applied to capabilities. Prompts without the stamp
-        # (every non-Bot-Chat session) never take this branch, and the check
-        # fails closed to "reuse" so a probe failure can't burn cache.
-        _bot_stale = False
-        try:
-            from tools.bot_mode_probe import (
-                BOT_CHAT_TITLE,
-                stored_bot_chat_prompt_needs_upgrade,
-                stored_prompt_capability_stale,
-            )
-
-            _home_for_epoch = None
-            try:
-                from agent.system_prompt import _agent_home
-
-                _home_for_epoch = _agent_home(agent)
-            except Exception:
-                pass
-            _bot_stale = stored_prompt_capability_stale(stored_prompt, _home_for_epoch)
-            if not _bot_stale and getattr(agent, "_bot_mode_protocol", True):
-                # Legacy upgrade: a Bot Chat whose prompt predates the epoch
-                # mechanism (no stamp, no protocol) gets ONE migration
-                # rebuild — otherwise pre-existing bots would never learn
-                # the messaging protocol. Title-gated so ordinary unstamped
-                # sessions (i.e. all of them) never take this path; the
-                # rebuilt prompt carries the stamp, so it cannot re-fire.
-                _t = str(getattr(agent, "_session_title_hint", "") or "").strip()
-                if not _t and agent._session_db and agent.session_id:
-                    try:
-                        _t = str(agent._session_db.get_session_title(agent.session_id) or "").strip()
-                    except Exception:
-                        _t = ""
-                if _t == BOT_CHAT_TITLE:
-                    _bot_stale = stored_bot_chat_prompt_needs_upgrade(stored_prompt, _home_for_epoch)
-        except Exception:
-            _bot_stale = False
-        if _bot_stale:
-            logger.info(
-                "Bot Chat capability epoch changed for session %s; rebuilding "
-                "system prompt to adopt the new capability surface (one-time "
-                "prefix-cache break).",
-                agent.session_id,
-            )
-            agent._session_title_hint = "Bot Chat"
-            # The skills index inside the prompt comes from a two-layer cache
-            # (in-process LRU + disk snapshot) that doesn't watch the skills
-            # dir; a capability refresh must rebuild THROUGH it or a freshly
-            # installed skill stays invisible in the new prompt.
-            try:
-                from agent.prompt_builder import clear_skills_system_prompt_cache
-
-                clear_skills_system_prompt_cache(clear_snapshot=True)
-            except Exception:
-                pass
-            agent._cached_system_prompt = agent._build_system_prompt(system_message)
-            agent._bot_capability_refreshed = True
-            # Persist the refreshed prompt so the NEXT turn restores the new
-            # bytes verbatim — the cache break is once per capability change,
-            # never per turn. (on_session_start deliberately not re-fired:
-            # this is a continuation, not a new session.)
-            if agent._session_db:
-                try:
-                    agent._session_db.update_system_prompt(
-                        agent.session_id, agent._cached_system_prompt
-                    )
-                except Exception as exc:
-                    logger.warning(
-                        "Session DB update_system_prompt failed after Bot Chat "
-                        "capability refresh (session=%s): %s. The refresh will "
-                        "re-fire next turn.",
-                        agent.session_id, exc,
-                    )
-            return
         # Continuing session — reuse the exact system prompt from the
         # previous turn so the Anthropic cache prefix matches.
         agent._cached_system_prompt = stored_prompt
@@ -924,10 +846,9 @@ def _restore_or_build_system_prompt(agent, system_message, conversation_history)
     except Exception as exc:
         logger.warning("on_session_start hook failed: %s", exc)
 
-    # Cold-start credits seed (L3) — fallback for the first-turn path. The TUI/
-    # desktop build seeds at session OPEN (see seed_credits_at_session_start in
-    # tui_gateway), so this call is usually a no-op there (idempotent: skips when
-    # _credits_state already exists). For the plain CLI / any path that didn't seed
+    # Cold-start credits seed (L3) — fallback for the first-turn path. This call
+    # is idempotent and skips when _credits_state already exists. For any path
+    # that did not seed at session open,
     # at build, it primes credits state from /api/oauth/account (or a fixture) on the
     # first turn so depletion / usage-band warnings fire. Fail-open inside the helper.
     try:
@@ -1011,7 +932,7 @@ def _stored_prompt_matches_runtime(agent, prompt: str) -> bool:
     # Detect cwd drift: if the stored prompt was built in a different working
     # directory, reuse would silently inject a stale path into the prefix cache.
     # Compare against resolve_agent_cwd() — the SAME resolver used to build the
-    # prompt — so gateway/TUI sessions that set TERMINAL_CWD are not falsely
+    # prompt — so gateway sessions that set TERMINAL_CWD are not falsely
     # rejected (they would always differ from the launch dir's os.getcwd()).
     stored_cwd = host_info_value("Current working directory")
     if stored_cwd:
@@ -1019,8 +940,8 @@ def _stored_prompt_matches_runtime(agent, prompt: str) -> bool:
             return False
 
     # Detect runtime-surface drift: the stored prompt records which platform it
-    # was built for (e.g. "desktop" vs "cli"). Reusing a desktop-built prompt on
-    # a terminal session (or vice versa) would inject the wrong runtime hints.
+    # was built for. Reusing a prompt on a different platform would inject the
+    # wrong runtime hints.
     stored_platform = line_value("Platform")
     current_platform = str(getattr(agent, "platform", "") or "").strip()
     if stored_platform and current_platform and stored_platform != current_platform:

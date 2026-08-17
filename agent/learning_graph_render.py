@@ -1,11 +1,8 @@
 """Terminal renderer for the learning timeline (learned skills + memories).
 
-The desktop app (``apps/desktop/src/app/starmap``) paints a GPU radial
-constellation; a terminal can't, so this is a *rendition* of the same data as a
-timeline bar chart — date rows, proportional skill/memory bars colored by the
-day's dominant category, and a cumulative trajectory sparkline — plus per-slice
-bucket metadata the TUI walks as a tree. The age gradient and complementary
-memory ink are ported from the desktop source, not guessed.
+It renders date rows, proportional skill/memory bars colored by the day's
+dominant category, a cumulative trajectory sparkline, and per-slice bucket
+metadata.
 
 Grids are emitted as style runs — ``[text, style, alpha, hex?]`` — so each
 consumer maps the semantic style + brightness onto its own palette; the

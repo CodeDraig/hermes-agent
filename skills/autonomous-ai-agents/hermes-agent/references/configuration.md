@@ -11,7 +11,7 @@ Full reference: https://hermes-agent.nousresearch.com/docs/user-guide/configurat
 | `agent` | `max_turns` (90), `tool_use_enforcement`, `service_tier`, `verify_on_stop` |
 | `terminal` | `backend` (local/docker/ssh/modal/daytona/singularity), `cwd`, `timeout` (180) |
 | `compression` | `enabled`, `threshold` (0.50), `target_ratio` (0.20) |
-| `display` | `skin`, `interface` (cli/tui), `language`, `show_reasoning`, `show_cost`, `pet` |
+| `display` | `skin`, `language`, `show_reasoning`, `show_cost`, `pet` |
 | `approvals` | `mode` (smart/manual/off), `timeout`, `cron_mode` |
 | `stt` | `enabled`, `provider` (local/groq/openai/mistral/elevenlabs/deepinfra) |
 | `tts` | `provider` (edge/elevenlabs/openai/minimax/mistral/neutts/gemini/piper/kittentts/deepinfra/xai) |
@@ -36,7 +36,7 @@ Full enumeration: `TOOLSETS` dict in `toolsets.py` (`_HERMES_CORE_TOOLS` is the 
 | `file` | File read/write/search/patch |
 | `code_execution` | Sandboxed Python execution |
 | `coding` | Code-editing helpers (LSP-backed) |
-| `computer_use` | Desktop GUI control (cua-driver) |
+| `computer_use` | Operating-system GUI automation (cua-driver) |
 | `vision` | Image analysis |
 | `image_gen` | Image generation and image-to-image editing |
 | `video` / `video_gen` | Video analysis / video generation |
@@ -46,7 +46,6 @@ Full enumeration: `TOOLSETS` dict in `toolsets.py` (`_HERMES_CORE_TOOLS` is the 
 | `memory` | Persistent cross-session memory |
 | `session_search` | Search past conversations |
 | `context_engine` | Pluggable context-engine hooks |
-| `project` | Named multi-folder workspace tools |
 | `delegation` | Subagent task delegation |
 | `cronjob` | Scheduled task management |
 | `clarify` | Ask user clarifying questions |

@@ -141,15 +141,6 @@ _MACHINE_PREFIXES = (
     "[Runtime note:",
     "[System note:",
     "[SYSTEM]",
-    # Model-switch marker from tui_gateway.server._append_model_switch_marker.
-    # It is persisted with role="user" (strict OpenAI-compatible providers
-    # reject a system message that is not first — #48338), so without this
-    # entry it looks like a real opening turn: switching models before the
-    # first real message titled the session
-    # "[System: The active model for this chat has…" instead of the user's
-    # actual question. Keep in sync with
-    # tui_gateway.server._MODEL_SWITCH_MARKER_PREFIX.
-    "[System: The active model for this chat has changed to ",
 )
 
 

@@ -5,9 +5,7 @@ relay_route_keys() config readers. The connector HTTP POST is monkeypatched
 (the cross-repo E2E exercises the real /relay/provision); these prove the
 TRIGGER logic, in-process env wiring, and fail-soft boot behaviour.
 
-The trigger is deliberately NOT is_managed() (that means NixOS/package-manager-
-managed, which is False on a NAS-hosted Fly agent). The real gate is
-"relay_url set + no pinned secret + a resolvable NAS token".
+The trigger is "relay_url set + no pinned secret + a resolvable NAS token".
 """
 
 from __future__ import annotations
@@ -57,9 +55,8 @@ def _stub_post(captured: dict):
 def _arm(monkeypatch, *, url="wss://connector.example/relay", token="nas-token"):
     """Arm the real trigger: a relay URL + a resolvable NAS token.
 
-    Note there is intentionally no `managed` knob — self-provision no longer
-    consults is_managed(). A test that wants the "no NAS identity" branch
-    monkeypatches resolve_nous_access_token to raise instead.
+    A test that wants the "no NAS identity" branch monkeypatches
+    resolve_nous_access_token to raise instead.
     """
     monkeypatch.setattr(relay, "relay_url", lambda: url)
     monkeypatch.setattr("hermes_cli.auth.resolve_nous_access_token", lambda: token)
@@ -227,8 +224,7 @@ def test_wake_url_absent_forwards_none(monkeypatch):
 
 def test_no_nas_token_is_non_fatal(monkeypatch):
     """A self-hosted box with a relay URL but no resolvable NAS identity skips
-    quietly (this is the branch that replaces the old is_managed() gate for the
-    non-NAS case)."""
+    quietly."""
     monkeypatch.setattr(relay, "relay_url", lambda: "wss://connector.example/relay")
 
     def _boom():
@@ -255,5 +251,4 @@ def test_relay_display_name_suppresses_stock_brand(monkeypatch):
 
     monkeypatch.setattr("hermes_cli.skin_engine.get_active_skin", lambda: _Skin())
     assert relay.relay_display_name() is None
-
 

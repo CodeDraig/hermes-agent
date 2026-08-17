@@ -1,14 +1,11 @@
-"""Hermes skin/theme engine — the theme SDK for every surface.
+"""Hermes prompt-toolkit skin/theme engine.
 
 A data-driven skin system that lets users (and Hermes itself) customize the
-visual appearance across the CLI, the TUI, and the desktop GUI from a single
-file. Skins are defined as YAML files in ~/.hermes/skins/ or as built-in presets.
+visual appearance of the interactive CLI. Skins are defined as YAML files in
+~/.hermes/skins/ or as built-in presets.
 No code changes are needed to add a new skin.
 
-This module is the source of truth: it resolves the active skin, and the gateway
-pushes the resolved palette to the TUI and desktop (see tui_gateway's
-``resolve_skin`` / ``skin.changed``). A skin dropped in ~/.hermes/skins/ therefore
-themes all three surfaces at once — the theme analogue of the plugin SDK.
+This module is the source of truth for resolving the active CLI skin.
 
 SKIN YAML SCHEMA
 ================

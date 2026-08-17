@@ -1,7 +1,7 @@
 """Decode a pet spritesheet and encode frames for a terminal.
 
 Shared by the base CLI (writes the escape bytes to its own stdout) and the
-TUI (``tui_gateway`` ships the encoded bytes to Ink, which writes them) so the
+terminal renderer so the
 decode + capability-detection + protocol-encoding logic exists exactly once.
 
 Supported output modes, in fidelity order:

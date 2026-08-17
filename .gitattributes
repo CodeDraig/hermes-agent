@@ -5,9 +5,7 @@ web/package-lock.json linguist-generated=true
 # Without this, Windows checkout converts to CRLF and breaks `exec` in the
 # container entrypoint with "no such file or directory".
 *.sh        text eol=lf
-Dockerfile  text eol=lf
 *.dockerfile text eol=lf
-docker/entrypoint.sh text eol=lf
 
 # Enforce LF for all source/text files. Windows editors and tools default to
 # CRLF; without normalization a Windows contributor's edit turns into a

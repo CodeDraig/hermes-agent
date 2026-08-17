@@ -1601,7 +1601,7 @@ def test_hard_cancel_between_compress_return_and_commit_begin_wins_atomically(
     """The hard-stop admission and commit admission share one fence lock."""
     db = SessionDB(db_path=tmp_path / "state.db")
     session_id = "HARD_CANCEL_COMMIT_RACE"
-    db.create_session(session_id, source="tui")
+    db.create_session(session_id, source="cli")
     agent = _build_agent_with_db(db, session_id)
     agent.compression_in_place = True
     agent._cached_system_prompt = "sys"
@@ -1647,7 +1647,7 @@ def test_hard_stop_waits_for_commit_already_admitted(tmp_path: Path) -> None:
     """A surfaced stop never races an untracked post-return transcript commit."""
     db = SessionDB(db_path=tmp_path / "state.db")
     session_id = "HARD_CANCEL_AFTER_COMMIT_ADMISSION"
-    db.create_session(session_id, source="tui")
+    db.create_session(session_id, source="cli")
     agent = _build_agent_with_db(db, session_id)
     agent.compression_in_place = True
     agent._cached_system_prompt = "sys"

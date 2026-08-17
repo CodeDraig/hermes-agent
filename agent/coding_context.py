@@ -1,7 +1,7 @@
 """Coding-context awareness — base Hermes, every interactive surface.
 
-When the user runs Hermes inside a code workspace (CLI, TUI, desktop app, or an
-editor over ACP), Hermes shifts into a **coding posture**. This module is the
+When the user runs Hermes inside a code workspace (CLI or an editor over ACP),
+Hermes shifts into a **coding posture**. This module is the
 single place that decides whether we're in that posture and what it implies,
 so the rest of the codebase never re-derives "are we coding?" on its own.
 
@@ -16,7 +16,7 @@ domain reads the same resolved object instead of probing git/config itself:
   * **System prompt** — ``RuntimeMode.system_blocks()`` → the operating brief +
     a live git/workspace snapshot (``agent/system_prompt.py``).
   * **Toolset** — ``RuntimeMode.toolset_selection()`` → the ``coding`` toolset
-    plus the user's enabled MCP servers (``cli.py`` / ``tui_gateway``). Only
+    plus the user's enabled MCP servers (``cli.py``). Only
     under the opt-in ``focus`` mode: the default posture is prompt-only and
     never touches the user's configured toolsets (toolsets like messaging /
     smart-home / music are off-by-default anyway, and someone who explicitly
@@ -69,7 +69,7 @@ CODING_TOOLSET = "coding"
 # Surfaces where a coding posture makes sense under ``auto``. Messaging
 # platforms (telegram, discord, slack, …) are intentionally absent — a chat bot
 # in a group is not pair-programming.
-INTERACTIVE_CODING_PLATFORMS = {"cli", "tui", "acp", "desktop", ""}
+INTERACTIVE_CODING_PLATFORMS = {"cli", "acp", ""}
 
 # Project-root signals that mark a directory as a code workspace even when it
 # isn't (yet) a git repo. Cheap filename checks — no parsing.
@@ -511,7 +511,7 @@ class RuntimeMode:
         messaging for build notifications, …) keeps it while coding.
 
         Callers apply this only when the user hasn't pinned an explicit
-        selection (``--toolsets``, ``HERMES_TUI_TOOLSETS``, …); they never
+        selection (``--toolsets``); they never
         override a pin. Returns the profile's toolset plus enabled MCP servers.
         """
         if self.config_mode != "focus":

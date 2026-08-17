@@ -455,7 +455,7 @@ class TestInsightsPopulated:
     def test_missing_index_falls_back_to_unpinned_queries(self, populated_db):
         """INDEXED BY would be a hard error if the index is missing — which
         happens on read-only opens of a state.db written by an older version
-        (web dashboard analytics). The engine must probe and fall back to the
+        (external analytics consumers). The engine must probe and fall back to the
         unpinned variants instead of crashing, returning identical rows."""
         engine_pinned = InsightsEngine(populated_db)
         tools_before = engine_pinned._get_tool_usage(0.0)
@@ -772,5 +772,4 @@ class TestEdgeCases:
         # The session has no cost data, so it falls in the "unknown" bucket.
         assert "💰 Cost" in text
         assert "Unknown" in text
-
 

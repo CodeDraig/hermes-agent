@@ -51,27 +51,6 @@ node_env=()
 if [ -n "${DEV_SANDBOX_NODE_DIR:-}" ]; then
   node_env+=(--setenv npm_config_nodedir "$DEV_SANDBOX_NODE_DIR")
 fi
-electron_env=()
-if [ -n "${DEV_SANDBOX_ELECTRON_LD_LIBRARY_PATH:-}" ]; then
-  electron_env+=(
-    --setenv LD_LIBRARY_PATH "$DEV_SANDBOX_ELECTRON_LD_LIBRARY_PATH"
-    --setenv HERMES_DESKTOP_DISABLE_GPU 1
-  )
-fi
-gui_mounts=()
-if [ -n "${DEV_SANDBOX_WAYLAND_SOCKET:-}" ]; then
-  runtime_dir="${DEV_SANDBOX_XDG_RUNTIME_DIR:?missing DEV_SANDBOX_XDG_RUNTIME_DIR}"
-  runtime_parent="$(dirname "$runtime_dir")"
-  runtime_grandparent="$(dirname "$runtime_parent")"
-  gui_mounts+=(
-    --dir "$runtime_grandparent"
-    --dir "$runtime_parent"
-    --dir "$runtime_dir"
-    --bind "$DEV_SANDBOX_WAYLAND_SOCKET" "$DEV_SANDBOX_WAYLAND_SOCKET"
-    --setenv XDG_RUNTIME_DIR "$runtime_dir"
-    --setenv WAYLAND_DISPLAY "${DEV_SANDBOX_WAYLAND_DISPLAY:?missing DEV_SANDBOX_WAYLAND_DISPLAY}"
-  )
-fi
 
 # How the sandbox gets a usable runtime, and where its own shims go.
 #
@@ -200,7 +179,6 @@ exec bwrap \
   --unshare-pid \
   --die-with-parent --proc /proc --tmpfs /tmp \
   "${dev_mounts[@]}" \
-  "${gui_mounts[@]}" \
   "${runtime_mounts[@]}" \
   --bind "$DEV_SANDBOX_ROOT/root" /work \
   "${shim_mounts[@]}" \
@@ -223,9 +201,7 @@ exec bwrap \
   --setenv ALL_PROXY http://127.0.0.1:8080 \
   --setenv NO_PROXY '' \
   --setenv DEV_SANDBOX_INTERACTIVE "$DEV_SANDBOX_INTERACTIVE" \
-  --setenv ELECTRON_DISABLE_SANDBOX 1 \
   "${node_env[@]}" \
-  "${electron_env[@]}" \
   -- "$DEV_SANDBOX_BASH" -ceu '
     python3 /work/proxy.py /work/http /work/certs /work/certs/real-ca.pem >/work/logs/proxy.log 2>&1 &
     proxy_pid=$!

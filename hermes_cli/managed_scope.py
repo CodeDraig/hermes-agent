@@ -4,10 +4,8 @@ A system-level directory (default ``/etc/hermes``, root-owned and not
 user-writable) supplies ``config.yaml`` and ``.env`` values that WIN over the
 user's ``~/.hermes/config.yaml`` and ``~/.hermes/.env`` on a per-leaf-key basis.
 
-This is DISTINCT from ``hermes_cli.config.is_managed()`` / ``HERMES_MANAGED``,
-which is a coarse package-manager write-lock (declarative-distro / formula
-installs). That lock blocks all mutation; this layer injects specific immutable
-values. The two are independent and may coexist.
+This layer injects specific immutable values without locking unrelated user
+configuration.
 
 v1 enforcement is filesystem permissions only — see
 ``docs/design/managed-scope.md`` §7. v1 is Linux/POSIX-first; ``get_managed_dir()``

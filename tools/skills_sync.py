@@ -28,13 +28,12 @@ import logging
 import os
 import shutil
 import sys
-from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 
 # Force stdout/stderr to UTF-8. On non-UTF-8 Windows locales (e.g. CP936/GBK
 # on zh-CN), Python's default stream encoding can't represent the checkmark /
 # arrow glyphs this script prints (✓ U+2713, ↑ U+2191), raising
-# UnicodeEncodeError mid-run. The bootstrap installer (install.ps1) captures
+# UnicodeEncodeError mid-run. The PowerShell installer captures
 # this script's stdout and parses it as UTF-8; a GBK byte stream then surfaces
 # as "stream did not contain valid UTF-8" and aborts the config-templates
 # stage even though the script itself exits 0. Reconfigure unconditionally so
@@ -45,7 +44,7 @@ for _stream in (sys.stdout, sys.stderr):
             _stream.reconfigure(encoding="utf-8", errors="replace")
         except (ValueError, TypeError):
             pass
-from hermes_constants import get_bundled_skills_dir, get_hermes_home, get_optional_skills_dir
+from hermes_constants import get_bundled_skills_dir, get_hermes_home
 from agent.skill_utils import is_excluded_skill_path
 from typing import Dict, List, Optional, Set, Tuple
 from utils import atomic_replace
@@ -74,11 +73,6 @@ def _get_bundled_dir() -> Path:
     then falls back to the relative path from this source file.
     """
     return get_bundled_skills_dir(Path(__file__).parent.parent / "skills")
-
-
-def _get_optional_dir() -> Path:
-    """Locate the official optional-skills/ directory."""
-    return get_optional_skills_dir(Path(__file__).parent.parent / "optional-skills")
 
 
 def _build_external_skill_index() -> Set[str]:
@@ -272,7 +266,7 @@ def _safe_rel_install_path(path: Path, base: Path) -> str:
     pure = PurePosixPath(posix)
     parts = [part for part in pure.parts if part not in {"", "."}]
     if pure.is_absolute() or not parts or any(part == ".." for part in parts):
-        raise ValueError(f"Unsafe optional skill path: {posix}")
+        raise ValueError(f"Unsafe bundled skill path: {posix}")
     return "/".join(parts)
 
 
@@ -285,283 +279,6 @@ def _skill_file_list(skill_dir: Path) -> List[str]:
     return files
 
 
-def _content_hash(directory: Path) -> str:
-    """Return the same hash style the skills hub lock uses, falling back locally."""
-    try:
-        from tools.skills_guard import content_hash
-
-        return content_hash(directory)
-    except Exception:
-        # Hashing is provenance metadata only; keep sync resilient if guard
-        # dependencies are unavailable in a packaged/update context.
-        return _dir_hash(directory)
-
-
-def _optional_skill_index() -> Dict[str, Tuple[str, str, Path]]:
-    """Return official optional skills keyed by folder name and frontmatter name.
-
-    Values are ``(folder_name, install_path, source_dir)``. Multiple keys may
-    point to the same skill so callers can accept either the folder slug used
-    by the hub lock or the user-facing frontmatter name.
-    """
-    optional_dir = _get_optional_dir()
-    index: Dict[str, Tuple[str, str, Path]] = {}
-    if not optional_dir.exists():
-        return index
-    for skill_md in sorted(optional_dir.rglob("SKILL.md")):
-        if is_excluded_skill_path(
-            skill_md.relative_to(optional_dir), root=optional_dir
-        ):
-            continue
-        src = skill_md.parent
-        try:
-            install_path = _safe_rel_install_path(src, optional_dir)
-        except ValueError:
-            continue
-        folder_name = src.name
-        frontmatter_name = _read_skill_name(skill_md, folder_name)
-        value = (folder_name, install_path, src)
-        index[folder_name] = value
-        index[frontmatter_name] = value
-    return index
-
-
-def _move_to_restore_backup(path: Path, backup_root: Path) -> str:
-    """Move an existing skill directory into a restore backup, preserving rel path."""
-    rel = path.relative_to(SKILLS_DIR)
-    target = backup_root / rel
-    target.parent.mkdir(parents=True, exist_ok=True)
-    if target.exists():
-        suffix = 1
-        while target.with_name(f"{target.name}-{suffix}").exists():
-            suffix += 1
-        target = target.with_name(f"{target.name}-{suffix}")
-    shutil.move(str(path), str(target))
-    return rel.as_posix()
-
-
-def restore_official_optional_skill(name: str, *, restore: bool = False) -> dict:
-    """Restore one or all official optional skills from repo source.
-
-    ``restore=False`` only performs exact-match provenance backfill. ``restore=True``
-    repairs already-mutated/reorganized skills by backing up matching active
-    copies and copying the official optional source into its canonical path.
-    """
-    index = _optional_skill_index()
-    if not index:
-        return {"ok": False, "message": "No official optional skills directory found.", "restored": [], "backfilled": [], "backed_up": []}
-
-    targets = sorted(set(index.values()), key=lambda item: item[1]) if name in {"all", "*"} else []
-    if not targets:
-        target = index.get(name)
-        if target is None:
-            return {"ok": False, "message": f"Official optional skill not found: {name}", "restored": [], "backfilled": [], "backed_up": []}
-        targets = [target]
-
-    restored: List[str] = []
-    backed_up: List[str] = []
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-    backup_root = SKILLS_DIR / ".restore-backups" / f"official-optional-{timestamp}"
-
-    for folder_name, install_path, src in targets:
-        dest = SKILLS_DIR / Path(*install_path.split("/"))
-        src_hash = _dir_hash(src)
-        canonical_ok = dest.exists() and _dir_hash(dest) == src_hash
-
-        # Find already-active copies of this official skill by frontmatter name
-        # or folder slug, even if curator moved it into another category.
-        src_frontmatter = _read_skill_name(src / "SKILL.md", folder_name)
-        matches: List[Path] = []
-        if SKILLS_DIR.exists():
-            for skill_md in sorted(SKILLS_DIR.rglob("SKILL.md")):
-                if is_excluded_skill_path(skill_md):
-                    continue
-                candidate = skill_md.parent
-                try:
-                    candidate.relative_to(SKILLS_DIR)
-                except ValueError:
-                    continue
-                candidate_name = _read_skill_name(skill_md, candidate.name)
-                if candidate == dest:
-                    continue
-                if candidate.name == folder_name or candidate_name in {folder_name, src_frontmatter}:
-                    matches.append(candidate)
-
-        if restore:
-            for match in matches:
-                if match.exists():
-                    backed_up.append(_move_to_restore_backup(match, backup_root))
-            if dest.exists() and not canonical_ok:
-                backed_up.append(_move_to_restore_backup(dest, backup_root))
-            if not dest.exists():
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copytree(src, dest)
-                restored.append(folder_name)
-        elif not canonical_ok:
-            continue
-
-    backfilled = _backfill_optional_provenance(quiet=True)
-    return {
-        "ok": True,
-        "message": "Official optional skill repair complete.",
-        "restored": restored,
-        "backfilled": backfilled,
-        "backed_up": backed_up,
-        "backup_dir": str(backup_root) if backed_up else "",
-    }
-
-
-def _index_installed_skill_dirs_by_name() -> Dict[str, List[Path]]:
-    """Index installed skills by directory name with one active-tree scan."""
-    index: Dict[str, List[Path]] = {}
-    if not SKILLS_DIR.exists():
-        return index
-    for skill_md in SKILLS_DIR.rglob("SKILL.md"):
-        if is_excluded_skill_path(skill_md):
-            continue
-        candidate = skill_md.parent
-        # Never reach outside the skills tree (symlinked/external dirs).
-        try:
-            candidate.resolve().relative_to(SKILLS_DIR.resolve())
-        except (OSError, ValueError):
-            continue
-        index.setdefault(candidate.name, []).append(candidate)
-    return index
-
-
-def _find_installed_skill_dir_by_name(
-    skill_dir_name: str,
-    installed_index: Optional[Dict[str, List[Path]]] = None,
-) -> Optional[Path]:
-    """Locate an installed skill directory by its directory name.
-
-    Used only as a fallback when the repo-derived install path doesn't exist in
-    the active tree (upstream recategorized the skill after it was installed).
-    Returns None when there is no match, or when the name is AMBIGUOUS — two
-    skills sharing a directory name give us no basis to pick one, and guessing
-    would write provenance onto the wrong skill. The caller still verifies a
-    byte-identical content hash before recording anything.
-    """
-    if not skill_dir_name or not SKILLS_DIR.exists():
-        return None
-    if installed_index is None:
-        installed_index = _index_installed_skill_dirs_by_name()
-    matches = installed_index.get(skill_dir_name, [])
-    if len(matches) != 1:
-        return None
-    return matches[0]
-
-
-def _backfill_optional_provenance(quiet: bool = False) -> List[str]:
-    """Mark already-present official optional skills as hub-installed.
-
-    This covers the migration case where a skill used to be bundled (or was
-    manually copied into the active skills tree) and later lives under
-    optional-skills/. If the active copy is byte-identical to the official
-    optional source, record official hub provenance without copying or
-    reinstalling anything. Modified/local skills are left alone.
-    """
-    optional_dir = _get_optional_dir()
-    if not optional_dir.exists():
-        return []
-
-    lock_path = SKILLS_DIR / ".hub" / "lock.json"
-    try:
-        data = json.loads(lock_path.read_text(encoding="utf-8")) if lock_path.exists() else {"version": 1, "installed": {}}
-    except (json.JSONDecodeError, OSError):
-        data = {"version": 1, "installed": {}}
-    installed = data.setdefault("installed", {})
-    existing_paths = {
-        entry.get("install_path")
-        for entry in installed.values()
-        if isinstance(entry, dict)
-    }
-
-    backfilled: List[str] = []
-    changed = False
-    installed_dir_index: Optional[Dict[str, List[Path]]] = None
-    for skill_md in sorted(optional_dir.rglob("SKILL.md")):
-        if is_excluded_skill_path(skill_md):
-            continue
-        src = skill_md.parent
-        try:
-            install_path = _safe_rel_install_path(src, optional_dir)
-        except ValueError as e:
-            logger.debug("Skipping optional skill with unsafe path %s: %s", src, e)
-            continue
-        lock_name = src.name
-        if lock_name in installed or install_path in existing_paths:
-            continue
-        dest = SKILLS_DIR / Path(*install_path.split("/"))
-        if not dest.exists() or not dest.is_dir():
-            # The active tree may hold the same skill under a DIFFERENT
-            # category path than the repo uses — categories get reorganized
-            # upstream (e.g. mlops/chroma → mlops/vector-databases/chroma)
-            # while the already-installed copy keeps its old location. A
-            # path-only lookup misses every one of those, so provenance repair
-            # silently skips them forever. Fall back to a unique
-            # same-directory-name match anywhere in the tree, then still
-            # require a byte-identical hash below before claiming provenance.
-            if installed_dir_index is None:
-                installed_dir_index = _index_installed_skill_dirs_by_name()
-            dest = _find_installed_skill_dir_by_name(src.name, installed_dir_index)
-            if dest is None:
-                continue
-            try:
-                install_path = _safe_rel_install_path(dest, SKILLS_DIR)
-            except ValueError as e:
-                logger.debug("Skipping relocated optional skill %s: %s", dest, e)
-                continue
-        if install_path in existing_paths:
-            continue
-        if _dir_hash(dest) != _dir_hash(src):
-            continue
-
-        timestamp = datetime.now(timezone.utc).isoformat()
-        installed[lock_name] = {
-            "source": "official",
-            "identifier": f"official/{install_path}",
-            "trust_level": "builtin",
-            "scan_verdict": "backfilled",
-            "content_hash": _content_hash(dest),
-            "install_path": install_path,
-            "files": _skill_file_list(dest),
-            "metadata": {"backfilled_from": "optional-skills"},
-            "installed_at": timestamp,
-            "updated_at": timestamp,
-        }
-        existing_paths.add(install_path)
-        backfilled.append(lock_name)
-        changed = True
-        if not quiet:
-            print(f"  = {lock_name} (official optional provenance backfilled)")
-
-    if changed:
-        lock_path.parent.mkdir(parents=True, exist_ok=True)
-        # Atomic write so a crash mid-write can't silently wipe all provenance
-        # via the JSONDecodeError fallback above (which resets `installed` to
-        # an empty dict).
-        import tempfile
-
-        payload = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
-        fd, tmp_path = tempfile.mkstemp(
-            dir=str(lock_path.parent),
-            prefix=".lock_",
-            suffix=".tmp",
-        )
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                f.write(payload)
-                f.flush()
-                os.fsync(f.fileno())
-            atomic_replace(tmp_path, lock_path)
-        except BaseException:
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
-            raise
-    return backfilled
 
 
 def _read_hub_install_paths() -> Set[str]:
@@ -691,7 +408,7 @@ def sync_skills(quiet: bool = False) -> dict:
         return {
             "copied": [], "updated": [], "skipped": 0,
             "user_modified": [], "cleaned": [], "total_bundled": 0,
-            "optional_provenance_backfilled": [], "skipped_opt_out": True,
+            "skipped_opt_out": True,
         }
 
     bundled_dir = _get_bundled_dir()
@@ -699,7 +416,6 @@ def sync_skills(quiet: bool = False) -> dict:
         return {
             "copied": [], "updated": [], "skipped": 0,
             "user_modified": [], "cleaned": [], "suppressed": [], "total_bundled": 0,
-            "optional_provenance_backfilled": [],
         }
 
     SKILLS_DIR.mkdir(parents=True, exist_ok=True)
@@ -932,8 +648,6 @@ def sync_skills(quiet: bool = False) -> dict:
                 logger.debug("Could not copy %s: %s", desc_md, e)
 
     _write_manifest(manifest)
-    optional_provenance_backfilled = _backfill_optional_provenance(quiet=quiet)
-
     return {
         "copied": copied,
         "updated": updated,
@@ -943,7 +657,6 @@ def sync_skills(quiet: bool = False) -> dict:
         "suppressed": suppressed_skipped,
         "relocated": relocated,
         "total_bundled": len(bundled_skills),
-        "optional_provenance_backfilled": optional_provenance_backfilled,
         "shadowed_by_external": shadowed_by_external,
     }
 
@@ -1405,6 +1118,4 @@ if __name__ == "__main__":
         parts.append(f"{len(names)} user-modified (kept): {shown}")
     if result["cleaned"]:
         parts.append(f"{len(result['cleaned'])} cleaned from manifest")
-    if result.get("optional_provenance_backfilled"):
-        parts.append(f"{len(result['optional_provenance_backfilled'])} official optional backfilled")
     print(f"\nDone: {', '.join(parts)}. {result['total_bundled']} total bundled.")

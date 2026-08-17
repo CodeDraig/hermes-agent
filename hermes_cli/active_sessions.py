@@ -405,7 +405,7 @@ def release_orphaned_leases(live_lease_ids: set[str]) -> int:
     """Drop this process's registry entries that no live session owns.
 
     ``_prune_dead`` only reclaims leases whose owning process died. A server
-    that runs for days (``hermes dashboard`` / ``serve``) never trips that
+    that runs for days never trips that
     check, so a lease whose session skipped teardown is held until restart.
     The owning process is the only authority on which of its own leases are
     real, so it drops the rest itself — exact, with no heartbeat write on the

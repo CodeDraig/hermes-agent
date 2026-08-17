@@ -38,7 +38,7 @@ def agent_db():
     tmp = tempfile.mkdtemp(prefix="synthetic_display_kind_")
     db = SessionDB(Path(tmp) / "state.db")
     sid = "sess-synthetic"
-    db.create_session(session_id=sid, source="desktop", model="test-model")
+    db.create_session(session_id=sid, source="cli", model="test-model")
     agent = AIAgent(
         api_key="test-key",
         base_url="https://openrouter.ai/api/v1",

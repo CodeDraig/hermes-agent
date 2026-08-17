@@ -3864,7 +3864,7 @@ def _strip_markdown_for_tts(text: str) -> str:
     """Prepare text for speech via the shared cleaner in tts_text_normalize.
 
     One cleaner for every TTS path (tool, gateway auto-TTS, voice-mode
-    streaming, web dashboard): strips <think> reasoning blocks, the
+    streaming gateway paths): strips <think> reasoning blocks, the
     file-mutation verifier footer, markdown, and emoji; expands units and
     symbols; and flattens newlines to sentence breaks so newline-sensitive
     providers (Kokoro) speak the whole script.  Falls back to the legacy

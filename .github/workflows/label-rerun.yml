@@ -5,9 +5,8 @@ name: Label rerun
 # label) and GitHub reruns the dependent ``all-checks-pass`` gate.
 #
 # ``gh run rerun`` only works on a completed run. Thus this waits when the
-# run is still in progress. The wait is now short. The two slowest jobs are
-# the 40-minute comment poller and the 45-minute image build. Each one moved
-# to its own workflow, so a CI run ends when its required jobs end.
+# run is still in progress. The live comment poller runs separately, so a CI
+# run ends when its required jobs end.
 #
 # The review comment updates without help. The poller in
 # ci-review-comment.yml watches the CI run through the API. It gets the

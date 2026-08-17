@@ -8,8 +8,6 @@ Log files produced:
     agent.log   — INFO+, all agent/tool/session activity (the main log)
     errors.log  — WARNING+, errors and warnings only (quick triage)
     gateway.log — INFO+, gateway-only events (created when mode="gateway")
-    gui.log     — INFO+, dashboard/websocket/TUI-gateway events
-                  (created when mode="gui")
 
 All files use ``RotatingFileHandler`` with ``RedactingFormatter`` so
 secrets are never written to disk.
@@ -17,8 +15,6 @@ secrets are never written to disk.
 Component separation:
     gateway.log only receives records from ``gateway.*`` loggers —
     platform adapters, session management, slash commands, delivery.
-    gui.log receives dashboard-side records from ``hermes_cli.web_server``,
-    ``hermes_cli.pty_bridge``, ``tui_gateway.*``, and ``uvicorn.*``.
     agent.log remains the catch-all (everything goes there).
 
 Session context:
@@ -53,11 +49,6 @@ from typing import Optional, Sequence
 #   * The bug (WinError 32 on rename-while-open) is specific to Windows file
 #     locking semantics — POSIX renames an open file fine, so stdlib already
 #     works correctly on Linux/macOS.
-#   * On POSIX, managed-mode (NixOS) relies on the exact ``_open()`` /
-#     ``doRollover()`` lifecycle of stdlib ``RotatingFileHandler`` (the
-#     ``_ManagedRotatingFileHandler`` subclass chmods 0660 after each). CLH
-#     opens lazily and rotates differently, which breaks the group-writable
-#     guarantee and the eager file-creation those paths depend on.
 # Aliasing keeps every existing ``RotatingFileHandler`` reference in this
 # module (class declaration, ``isinstance`` checks, docstring) working
 # unchanged. See #44873.
@@ -243,12 +234,6 @@ COMPONENT_PREFIXES = {
     "tools": ("tools",),
     "cli": ("hermes_cli", "cli"),
     "cron": ("cron",),
-    "gui": (
-        "hermes_cli.web_server",
-        "hermes_cli.pty_bridge",
-        "tui_gateway",
-        "uvicorn",
-    ),
 }
 
 
@@ -286,11 +271,9 @@ def setup_logging(
         Number of rotated backup files to keep.
         Defaults to 3 or the value from config.yaml ``logging.backup_count``.
     mode
-        Caller context: ``"cli"``, ``"gateway"``, ``"gui"``, ``"cron"``.
+        Caller context: ``"cli"``, ``"gateway"``, or ``"cron"``.
         When ``"gateway"``, an additional ``gateway.log`` file is created
         that receives only gateway-component records.
-        When ``"gui"``, an additional ``gui.log`` file is created that
-        receives dashboard and TUI-gateway component records.
     force
         Re-run setup even if it has already been called.
 
@@ -347,18 +330,6 @@ def setup_logging(
             backup_count=3,
             formatter=RedactingFormatter(_LOG_FORMAT),
             log_filter=_ComponentFilter(COMPONENT_PREFIXES["gateway"]),
-        )
-
-    # --- gui.log (INFO+, dashboard/tui-gateway components) -----------------
-    if mode == "gui":
-        _add_rotating_handler(
-            root,
-            log_dir / "gui.log",
-            level=logging.INFO,
-            max_bytes=10 * 1024 * 1024,
-            backup_count=5,
-            formatter=RedactingFormatter(_LOG_FORMAT),
-            log_filter=_ComponentFilter(COMPONENT_PREFIXES["gui"]),
         )
 
     if _logging_initialized and not force:
@@ -418,14 +389,7 @@ class _ManagedRotatingFileHandler(RotatingFileHandler):
 
     Two responsibilities:
 
-    1.  In managed mode (NixOS), the stateDir uses setgid (2770) so new files
-        inherit the hermes group. However, both ``_open()`` (initial creation)
-        and ``doRollover()`` create files via ``open()``, which uses the
-        process umask — typically 0022, producing 0644. This subclass applies
-        ``chmod 0660`` after both operations so the gateway and interactive
-        users can share log files.
-
-    2.  ``RotatingFileHandler`` keeps an open file descriptor.  If anything
+    ``RotatingFileHandler`` keeps an open file descriptor.  If anything
         rotates the file *externally* (``logrotate``, manual ``mv``,
         another process rotating under us, a transient unlink), our fd
         keeps pointing at the renamed/unlinked inode and every subsequent
@@ -438,21 +402,12 @@ class _ManagedRotatingFileHandler(RotatingFileHandler):
     """
 
     def __init__(self, *args, **kwargs):
-        from hermes_cli.config import is_managed
-        self._managed = is_managed()
         super().__init__(*args, **kwargs)
         # Snapshot the inode of the currently open stream so emit() can
         # detect external rotation without an extra fstat per write.
         self._stat_dev: Optional[int] = None
         self._stat_ino: Optional[int] = None
         self._record_stream_stat()
-
-    def _chmod_if_managed(self):
-        if self._managed:
-            try:
-                os.chmod(self.baseFilename, 0o660)
-            except OSError:
-                pass
 
     def _record_stream_stat(self) -> None:
         """Snapshot dev/ino of ``baseFilename`` so we can detect external rotation."""
@@ -536,12 +491,10 @@ class _ManagedRotatingFileHandler(RotatingFileHandler):
 
     def _open(self):
         stream = super()._open()
-        self._chmod_if_managed()
         return stream
 
     def doRollover(self):
         super().doRollover()
-        self._chmod_if_managed()
         # Our own rollover writes a new baseFilename; refresh the snapshot
         # so the next emit doesn't mistake it for external rotation.
         self._record_stream_stat()

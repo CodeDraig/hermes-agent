@@ -1,13 +1,9 @@
 """Regression: a stale ``--commit`` pin must not roll an install backwards.
 
-``hermes-setup.exe`` bakes its build-time commit into the binary
-(``BUILD_PIN_COMMIT``) and passes it as ``-Commit`` / ``--commit`` on every
-install-mode run — including the retry the desktop's "Update didn't finish"
-screen kicks off. The repository stage used to ``git checkout --detach`` that
-SHA unconditionally, so an installer built months earlier rewound a current
-managed checkout to its build commit (observed: ~9k commits back), leaving
-ancient source against a current venv — npm workspaces and Python deps that no
-longer match, and every subsequent update failing against the wrong tree.
+Install automation can repeatedly pass a stale ``-Commit`` / ``--commit``.
+The repository stage used to ``git checkout --detach`` that SHA
+unconditionally, rewinding a current managed checkout to an old commit and
+leaving ancient source against a current venv.
 
 The pin is skipped when its target is already an ancestor of HEAD, unless the
 caller explicitly passes ``--force-commit`` / ``-ForceCommit``. A fresh clone

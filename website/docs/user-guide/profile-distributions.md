@@ -621,7 +621,7 @@ When you don't need versioning, skip the repo. `/export` packs a profile into a 
 
 ### Export
 
-In the CLI, TUI, or desktop chat:
+In CLI chat:
 
 ```
 /export                          # the active profile → <name>.tar.gz
@@ -635,14 +635,6 @@ Or from a shell, same machinery:
 hermes profile export research-bot
 hermes profile export research-bot -o ./research-bot.tar.gz
 ```
-
-In the **desktop app** there are three doors, all landing on a native save dialog:
-
-- **⌘K → Export profile…**
-- Right-click a profile square in the sidebar rail → **Export profile…**
-- The import button beside the rail's **+** covers the other direction
-
-A desktop export adds one extra file the CLI doesn't: `desktop.json`, carrying your skin, light/dark mode, any custom theme definitions the skin needs, the profile's rail color, and your window layout. That's why a profile shared from the desktop arrives *looking* like yours, not just behaving like yours.
 
 ### Import
 
@@ -658,8 +650,6 @@ hermes profile import ./research-bot.tar.gz --name research-bot-2
 
 The profile name is inferred from the archive unless you pass `--name`. Importing over an existing profile is refused — rename or delete the old one first. A shell wrapper (`research-bot` → `hermes -p research-bot`) is created when the name doesn't collide with an existing command.
 
-Importing in the desktop app also applies the `desktop.json` overlay and drops you into the new profile on a fresh chat. Importing a desktop-made archive from the CLI is fine — the overlay file rides along on disk and applies the next time you open that profile in the desktop.
-
 :::note
 You cannot import as `default` — that name is the built-in root profile (`~/.hermes`). Pass `--name something-else`.
 :::
@@ -670,7 +660,7 @@ Always excluded, both profiles types: `auth.json` and `.env`. Your API keys neve
 
 **The default profile** (`~/.hermes`) is exported through an allow-list — only known Hermes artifacts, so an unrelated file sitting in your home directory can't get swept in:
 
-`config.yaml`, `SOUL.md`, `MEMORY.md`, `USER.md`, `todo.json`, `system_prompt.md`, `AGENTS.md`, `CLAUDE.md`, `.cursorrules`, `skills/`, `plugins/`, `cron/`, `scripts/`, `sessions/`, `memories/`, `knowledge/`, `preferences/`, and `desktop.json` when the desktop staged one.
+`config.yaml`, `SOUL.md`, `MEMORY.md`, `USER.md`, `todo.json`, `system_prompt.md`, `AGENTS.md`, `CLAUDE.md`, `.cursorrules`, `skills/`, `plugins/`, `cron/`, `scripts/`, `sessions/`, `memories/`, `knowledge/`, and `preferences/`.
 
 **A named profile** (`~/.hermes/profiles/<name>`) copies the whole directory minus `auth.json` / `.env`. That's broader — if the profile has `state.db`, logs, or caches, they go in the archive too, and the file gets big.
 

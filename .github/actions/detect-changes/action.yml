@@ -1,6 +1,6 @@
 name: Detect affected areas
 description: >-
-  Classify a PR's changed files into CI work lanes (python, frontend, site,
+  Classify a PR's changed files into CI work lanes (python, site,
   scan, deps, mcp_catalog) so the orchestrator can conditionally call only
   the sub-workflows a PR can affect. Outputs are always "true" on push/dispatch
   events and fail open (everything "true") when the diff cannot be computed.
@@ -16,14 +16,8 @@ outputs:
     description: Run Python tests / ruff / ty / windows-footguns.
     value: ${{ steps.classify.outputs.python }}
   python_prod:
-    description: Python changes outside tests/ — gates product jobs (Desktop E2E, Docker).
+    description: Python changes outside tests/ — gates product jobs.
     value: ${{ steps.classify.outputs.python_prod }}
-  frontend:
-    description: Run the TypeScript testing matrix + desktop build.
-    value: ${{ steps.classify.outputs.frontend }}
-  docker_meta:
-    description: Docker setup and meta files have changed.
-    value: ${{ steps.classify.outputs.docker_meta }}
   site:
     description: Build the Docusaurus docs site.
     value: ${{ steps.classify.outputs.site }}

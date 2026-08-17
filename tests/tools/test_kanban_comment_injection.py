@@ -69,7 +69,7 @@ def test_seed_then_inject_new_comment(worker_home, monkeypatch):
     conn = kb.connect()
     try:
         tid = kb.create_task(conn, title="live task")
-        kb.add_comment(conn, tid, author="desktop", body="pre-existing note")
+        kb.add_comment(conn, tid, author="operator", body="pre-existing note")
     finally:
         conn.close()
 
@@ -84,7 +84,7 @@ def test_seed_then_inject_new_comment(worker_home, monkeypatch):
 
     conn = kb.connect()
     try:
-        kb.add_comment(conn, tid, author="desktop", body="actually use the v2 API")
+        kb.add_comment(conn, tid, author="operator", body="actually use the v2 API")
     finally:
         conn.close()
 

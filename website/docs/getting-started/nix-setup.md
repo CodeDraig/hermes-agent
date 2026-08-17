@@ -53,7 +53,7 @@ nix run github:NousResearch/hermes-agent -- --tui
 # or install it in your profile
 nix profile install github:NousResearch/hermes-agent
 hermes setup
-hermes --tui
+hermes
 ```
 
 After `nix profile install`, `hermes`, `hermes-agent`, and `hermes-acp` are on your PATH. From here, the workflow is identical to the [standard installation](./installation.md) — `hermes setup` walks you through provider selection, `hermes gateway install` sets up a launchd (macOS) or systemd user service, and config lives in `~/.hermes/`.

@@ -736,66 +736,6 @@ STEER_CHANNEL_NOTE += (
 )
 
 
-def hud_surface_note(valid_tool_names: "set[str] | None" = None) -> str:
-    """Per-turn note for a message typed into the desktop's floating HUD.
-
-    HUD mode is a strip of Hermes floating over another application, so the
-    user is rarely asking about Hermes — they are asking about the thing behind
-    it, and the work they want done usually belongs in that app rather than in
-    a surface of our own. Left to itself the model answers from its own
-    browser and panes, which is the wrong half of the screen.
-
-    It is a per-turn fact, not a platform — one desktop session can be driven
-    from the app window on one turn and the HUD on the next — so it rides the
-    model-bound message beside the reaction / speech-interrupted notes rather
-    than the system prompt, which has to stay byte-stable for a conversation's
-    whole life.
-
-    The same is true one level down: the app underneath changes as the user
-    drags the strip around, and they carry a thought across the move ("pause
-    that and play X here"). Earlier windows are already in context as
-    read_window_below results, so the note only has to say they still count —
-    without that, the latest window reads as the only one and half of a
-    two-app request is silently dropped.
-
-    Each sentence is gated on the tool it names — naming a tool outside this
-    agent's schema invites a hallucinated call — and the note as a whole is
-    withheld without the one it rests on.
-    """
-    names = valid_tool_names or set()
-    if "read_window_below" not in names:
-        return ""
-
-    sentences = [
-        "[Note: this message came from HUD mode — a small floating Hermes "
-        "window sitting over whatever the user is actually working in, so an "
-        'unqualified "this" or "here" usually means the app behind the HUD '
-        "rather than anything inside Hermes. read_window_below identifies "
-        "that app.",
-        "They move the HUD from app to app mid-conversation, so one you "
-        "identified on an earlier turn is still a live target: a reference "
-        "that does not fit the window below may name one from a turn or two "
-        "ago, and a single message can span both.",
-    ]
-    if "computer_use" in names:
-        sentences.append(
-            "Prefer carrying the work out in that same app — computer_use "
-            "takes its name in `app` — over pulling the task into a surface "
-            "of your own."
-        )
-        if "browser_navigate" in names:
-            sentences.append(
-                "When the app underneath is a browser, that means driving the "
-                "user's browser rather than opening yours with "
-                "browser_navigate."
-            )
-    sentences.append(
-        "This is a prior, not a rule: when the request names its own target, "
-        "follow the request.]"
-    )
-    return " ".join(sentences)
-
-
 # Model name substrings that should use the 'developer' role instead of
 # 'system' for the system prompt.  OpenAI's newer models (GPT-5, Codex)
 # give stronger instruction-following weight to the 'developer' role.
@@ -907,31 +847,6 @@ PLATFORM_HINTS = {
         "or 'all'). Do not promise the user that a deliver='origin' or "
         "default-deliver cron job will message them in this session."
     ),
-    "tui": (
-        "You are running in the Hermes terminal UI (TUI). "
-        "Cron jobs scheduled from this session are LOCAL-ONLY: their output is "
-        "saved (viewable via cronjob action='list') but is NOT delivered back "
-        "into this TUI session — there is no live-delivery channel here. If the "
-        "user wants to be notified when a job runs, the job's `deliver` must "
-        "target a gateway-connected messaging platform (e.g. deliver='telegram' "
-        "or 'all'). Do not promise the user that a deliver='origin' or "
-        "default-deliver cron job will message them in this session."
-    ),
-    "desktop": (
-        "You are chatting inside the Hermes desktop app — a graphical chat "
-        "surface, not a terminal. Use markdown freely: it renders with full "
-        "GitHub flavor (tables, code blocks with syntax highlighting, math "
-        "via $...$, task lists, blockquote callouts). "
-        "You can deliver files natively — include MEDIA:/absolute/path/to/file "
-        "in your response. Images (.png, .jpg, .webp) appear inline, audio and "
-        "video play inline, and other files arrive as download links. You can "
-        "also include image URLs in markdown format ![alt](url) and they "
-        "render inline as photos. "
-        "When the user asks to add, enable, or authorize an MCP server (or a "
-        "task clearly needs one that is missing), use the setup_mcp tool if "
-        "it is available — it shows an inline consent card right in the chat; "
-        "never hand-edit mcp_servers config for them."
-    ),
     "sms": (
         "You are communicating via SMS. Keep responses concise and use plain text "
         "only — no markdown, no formatting. SMS messages are limited to ~1600 "
@@ -1042,18 +957,6 @@ PLATFORM_HINTS = {
         "intercepts nothing — a MEDIA: tag there renders as literal text exposing "
         "a raw host filesystem path. For those cases, state the plain file path "
         "in your response text instead of a MEDIA: tag."
-    ),
-    "webui": (
-        "You are in the Hermes WebUI, a browser-based chat interface. "
-        "Full Markdown rendering is supported — headings, bold, italic, code "
-        "blocks, tables, math (LaTeX), and Mermaid diagrams all render natively. "
-        "To display local or remote media/files inline, include "
-        "MEDIA:/absolute/path/to/file or MEDIA:https://... in your response. "
-        "Local file paths must be absolute. Images, audio (with playback speed "
-        "controls), video, PDFs, HTML, CSV, diffs/patches, and Excalidraw files "
-        "render as rich previews. Do not use Markdown image syntax like "
-        "![alt](/path) for local files; local paths are not served that way. "
-        "Use MEDIA:/absolute/path instead."
     ),
 }
 

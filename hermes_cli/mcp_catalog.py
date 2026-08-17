@@ -1,7 +1,7 @@
 """MCP catalog — curated, Nous-approved MCP servers shipped with the repo.
 
-Mirrors the optional-skills/ pattern: each catalog entry lives under
-``optional-mcps/<name>/manifest.yaml`` and ships disabled. Users discover
+Each catalog entry lives under ``optional-mcps/<name>/manifest.yaml`` and
+ships disabled. Users discover
 entries via ``hermes mcp catalog`` or the interactive ``hermes mcp picker``,
 and install them with ``hermes mcp install <name>`` (or by toggling in the
 picker, which flows them through any required env/OAuth setup).

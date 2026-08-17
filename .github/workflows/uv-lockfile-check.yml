@@ -2,9 +2,8 @@ name: uv.lock check
 
 # Verify uv.lock is in sync with pyproject.toml.  Blocking check — PRs
 # that modify pyproject.toml without regenerating uv.lock (or vice versa)
-# must not merge, because the Docker build's `uv sync --frozen` step will
-# fail on a stale lockfile and we'd rather catch it here than in the
-# docker workflow on main.
+# must not merge, because frozen dependency installation fails on a stale
+# lockfile.
 #
 # ─────────────────────────────────────────────────────────────────────────
 # IMPORTANT: this check runs against the MERGED state, not just your branch
@@ -39,9 +38,8 @@ name: uv.lock check
 # at the same time — one regeneration covers both your changes and the
 # drift from main.
 #
-# This is the correct behavior!  The check is protecting main's Docker
-# build: a post-merge build would see the same merged state and fail
-# the same way.  Better to catch it here than after merge.
+# This is the correct behavior: a post-merge install would see the same
+# merged state and fail the same way.
 
 on:
   workflow_call:
@@ -153,10 +151,7 @@ jobs:
           **If you only changed pyproject.toml:** run `uv lock` locally
           and commit the result.
 
-          This check is blocking because the Docker image build uses
-          `uv sync --frozen --extra all`, which rejects stale lockfiles
-          — catching it here avoids a ~15 min failed docker run
-          on `main` post-merge.
+          This check is blocking because installation uses the frozen lockfile.
           EOF
             echo "::error title=uv.lock out of sync::Run \`uv lock\` locally and commit the result. If on a PR, sync with main first."
             review_status='[{"source":"uv.lock check","results":[{"kind":"action_required","title":"uv.lock out of sync","summary":"uv.lock is out of sync with pyproject.toml.","how_to_fix":"Run `uv lock` locally and commit the result. If on a PR, sync with main first:\n```\ngit fetch origin main\ngit rebase origin/main\nuv lock\ngit add uv.lock\ngit commit -m \"chore: refresh uv.lock\"\n```\n"}]}]'

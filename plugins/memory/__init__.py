@@ -178,14 +178,9 @@ def find_provider_dir(name: str) -> Optional[Path]:
     Checks bundled, then user-installed, then project-local, then the package
     directory of a pip entry-point provider.
 
-    The entry-point case matters because two of a provider's files are read
-    from disk rather than imported: ``config_schema.py`` (loaded by path so the
-    web server never pulls in the agent runtime — see
-    ``plugins/memory/config_schema.py``) and ``cli.py`` (loaded by
-    ``discover_plugin_cli_commands`` at argparse time). Without a directory, a
-    pip-installed provider silently loses its dashboard config panel and its
-    ``hermes <provider>`` subcommands — working, but a second-class citizen next
-    to a directory install.
+    The entry-point case matters because ``cli.py`` is read from disk by
+    ``discover_plugin_cli_commands`` at argparse time. Without a directory, a
+    pip-installed provider cannot expose ``hermes <provider>`` subcommands.
     """
     # Bundled
     bundled = _MEMORY_PLUGINS_DIR / name
@@ -206,14 +201,14 @@ def _entry_point_package_dir(entry_point) -> Optional[Path]:
     """The directory of an entry point's module, resolved WITHOUT importing it.
 
     Discovery must stay free of third-party imports: ``find_provider_dir`` is
-    called from the dashboard and from argparse setup, long before the operator
-    has selected a provider, so importing every installed candidate would run
-    arbitrary code on the strength of a package merely being present.
+    called during argparse setup, long before the operator has selected a
+    provider, so importing every installed candidate would run arbitrary code
+    on the strength of a package merely being present.
     ``resolve_module_origin`` walks the module's file layout instead.
 
-    Only package entry points (``pkg/__init__.py``) yield a directory — a
-    provider pointed at a bare ``module.py`` has nowhere to put a sibling
-    ``config_schema.py``, so it correctly resolves to None.
+    Only package entry points (``pkg/__init__.py``) yield a directory. A
+    provider pointed at a bare ``module.py`` has no sibling ``cli.py``, so it
+    correctly resolves to None.
     """
     if entry_point is None:
         return None

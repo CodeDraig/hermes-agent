@@ -1278,32 +1278,6 @@ def _save_disabled_set(disabled: set) -> None:
     save_config(config)
 
 
-_BASIC_AUTH_PLUGIN_KEYS = frozenset({"basic", "dashboard_auth/basic"})
-
-
-def ensure_basic_auth_plugin_enabled_in_config(cfg: dict) -> bool:
-    """Re-enable the bundled basic dashboard-auth plugin in *cfg*.
-
-    ``hermes setup`` / ``hermes plugins disable basic`` can park the plugin
-    in ``plugins.disabled`` while ``dashboard.basic_auth`` is configured.
-    The basic provider is a bundled backend that still respects the
-    deny-list, so password auth silently fails until the block is removed.
-
-    Returns True when ``plugins.disabled`` was modified.
-    """
-    plugins_cfg = cfg.get("plugins")
-    if not isinstance(plugins_cfg, dict):
-        return False
-    disabled = plugins_cfg.get("disabled")
-    if not isinstance(disabled, list):
-        return False
-    if not (set(disabled) & _BASIC_AUTH_PLUGIN_KEYS):
-        return False
-    plugins_cfg["disabled"] = sorted(
-        set(disabled) - _BASIC_AUTH_PLUGIN_KEYS
-    )
-    return True
-
 
 def _get_enabled_set() -> set:
     """Read the enabled plugins allow-list from config.yaml.
@@ -2614,75 +2588,6 @@ def _run_composite_fallback(plugin_keys, plugin_labels, plugin_selected,
     print()
 
 
-def dashboard_install_plugin(
-    identifier: str,
-    *,
-    force: bool,
-    enable: bool,
-) -> dict[str, Any]:
-    """Non-interactive install for the web dashboard. Returns a JSON-serializable dict."""
-    warnings: list[str] = []
-    try:
-        git_url, _subdir = _resolve_git_url(identifier)
-        if git_url.startswith(("http://", "file://")):
-            warnings.append(
-                "Insecure URL scheme; prefer https:// or git@ for production installs.",
-            )
-    except ValueError:
-        pass
-
-    try:
-        target, installed_manifest, installed_name = _install_plugin_core(
-            identifier,
-            force=force,
-        )
-    except PluginScanBlocked as exc:
-        findings = []
-        if exc.scan_result is not None:
-            findings = [
-                {
-                    "pattern_id": f.pattern_id,
-                    "severity": f.severity,
-                    "category": f.category,
-                    "file": f.file,
-                    "line": f.line,
-                    "description": f.description,
-                }
-                for f in exc.scan_result.findings
-            ]
-        return {
-            "ok": False,
-            "error": str(exc),
-            "scan_blocked": True,
-            "scan_verdict": getattr(exc.scan_result, "verdict", "dangerous"),
-            "scan_findings": findings,
-        }
-    except PluginOperationError as exc:
-        return {"ok": False, "error": str(exc)}
-
-    missing_env = _missing_requires_env_names(installed_manifest)
-    if enable:
-        en = _get_enabled_set()
-        dis = _get_disabled_set()
-        en.add(installed_name)
-        dis.discard(installed_name)
-        _save_enabled_set(en)
-        _save_disabled_set(dis)
-
-    hint: str | None = None
-    ap = target / "after-install.md"
-    if ap.exists():
-        hint = str(ap)
-
-    return {
-        "ok": True,
-        "plugin_name": installed_name,
-        "warnings": warnings,
-        "missing_env": missing_env,
-        "after_install_path": hint,
-        "enabled": enable,
-    }
-
 
 def _get_plugin_toolset_key(name: str) -> Optional[str]:
     """Return the toolset key a plugin registers its tools under, or None.
@@ -2767,101 +2672,6 @@ def _toggle_plugin_toolset(name: str, *, enable: bool) -> None:
     if changed:
         save_config(config)
 
-
-def dashboard_set_agent_plugin_enabled(name: str, *, enabled: bool) -> dict[str, Any]:
-    """Enable or disable a plugin in ``config.yaml`` (runtime allow/deny lists).
-
-    For plugins that provide tools (toolsets), also toggles the toolset in
-    ``platform_toolsets`` so the agent actually sees the tools in sessions.
-    """
-    if not _plugin_exists(name):
-        return {"ok": False, "error": f"Plugin '{name}' is not installed or bundled."}
-
-    en = _get_enabled_set()
-    dis = _get_disabled_set()
-
-    if enabled:
-        if name in en and name not in dis:
-            return {"ok": True, "name": name, "unchanged": True}
-        en.add(name)
-        dis.discard(name)
-        _save_enabled_set(en)
-        _save_disabled_set(dis)
-        _toggle_plugin_toolset(name, enable=True)
-        return {"ok": True, "name": name, "unchanged": False}
-
-    if name not in en and name in dis:
-        return {"ok": True, "name": name, "unchanged": True}
-
-    en.discard(name)
-    dis.add(name)
-    _save_enabled_set(en)
-    _save_disabled_set(dis)
-    _toggle_plugin_toolset(name, enable=False)
-    return {"ok": True, "name": name, "unchanged": False}
-
-
-def _user_installed_plugin_dir(name: str) -> Optional[Path]:
-    """Resolved path under ``~/.hermes/plugins/<name>`` if it exists."""
-    plugins_dir = _plugins_dir()
-    try:
-        target = _sanitize_plugin_name(name, plugins_dir, allow_subdir=True)
-    except ValueError:
-        return None
-    return target if target.is_dir() else None
-
-
-def dashboard_update_user_plugin(name: str) -> dict[str, Any]:
-    """``git pull`` inside ``~/.hermes/plugins/<name>``."""
-    target = _user_installed_plugin_dir(name)
-    if target is None:
-        return {
-            "ok": False,
-            "error": f"Plugin '{name}' was not found under {_plugins_dir()}.",
-        }
-
-    try:
-        metadata = _read_install_metadata()
-    except PluginOperationError as exc:
-        return {"ok": False, "error": str(exc)}
-    install_record = metadata.get(target.name, {})
-    if install_record.get("pinned") is True:
-        recorded_source = install_record.get("source", "<source>")
-        return {
-            "ok": False,
-            "error": (
-                f"Plugin '{name}' is pinned to {install_record.get('revision')}; "
-                f"run `hermes plugins install {recorded_source} --force "
-                "--ref <40-character commit SHA>` to move it."
-            ),
-        }
-
-    if not (target / ".git").exists():
-        return {
-            "ok": False,
-            "error": f"Plugin '{name}' is not a git checkout; cannot pull updates.",
-        }
-
-    ok, msg = _git_pull_plugin_dir(target)
-    if not ok:
-        return {"ok": False, "error": msg}
-
-    if install_record:
-        git_exe = _resolve_git_executable()
-        if git_exe:
-            install_record["revision"] = _git_head_revision(target, git_exe)
-            metadata[target.name] = install_record
-            _write_install_metadata(metadata)
-
-    # Sibling of the CLI ``hermes plugins update`` path: drop bytecode
-    # compiled from the pre-pull plugin revision.
-    _clear_plugin_bytecode(target)
-
-    from rich.console import Console
-
-    _copy_example_files(target, Console())
-    unchanged = "Already up to date" in msg
-    return {"ok": True, "name": name, "output": msg, "unchanged": unchanged}
 
 
 def _clear_plugin_bytecode(target: Path) -> int:
@@ -3004,26 +2814,6 @@ def _git_pull_plugin_dir(target: Path) -> tuple[bool, str]:
     except subprocess.TimeoutExpired:
         return False, "Git operation timed out after 60 seconds."
 
-
-def dashboard_remove_user_plugin(name: str) -> dict[str, Any]:
-    """Delete a plugin tree under ``~/.hermes/plugins/`` only."""
-    plugins_dir = _plugins_dir()
-    for n, _ver, _d, src, _path, _key in _discover_all_plugins():
-        if n == name and src == "bundled":
-            return {"ok": False, "error": "Bundled plugins cannot be removed from the dashboard."}
-
-    target = _user_installed_plugin_dir(name)
-    if target is None:
-        return {
-            "ok": False,
-            "error": f"Plugin '{name}' was not found under {plugins_dir}.",
-        }
-
-    try:
-        _remove_plugin_core(target)
-    except (OSError, PluginOperationError) as exc:
-        return {"ok": False, "error": f"Could not remove plugin '{name}': {exc}"}
-    return {"ok": True, "name": name}
 
 
 def cmd_plugin_doctor(target: str = ".", *, ci: bool = False) -> None:

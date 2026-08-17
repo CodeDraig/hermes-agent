@@ -193,7 +193,6 @@ def _persist_pending_completion(event):
     async_delegation._persist_dispatch({
         "delegation_id": event["delegation_id"],
         "session_key": event["session_key"],
-        "origin_ui_session_id": "",
         "parent_session_id": event.get("parent_session_id"),
         "dispatched_at": event["dispatched_at"],
     })

@@ -33,8 +33,7 @@ from utils import (
     atomic_replace,
 )
 
-# Shared formatter; the private alias is kept because claw.py and the backup
-# tests import ``_format_size`` from this module.
+# Shared formatter; the private alias is retained for the backup tests.
 from hermes_cli.sizefmt import format_bytes as _format_size
 
 logger = logging.getLogger(__name__)
@@ -113,18 +112,11 @@ _EXCLUDED_NAMES = {
 # recorded run/desired state. Restoring them onto a different host (or a hosted
 # container) is at best meaningless and at worst actively harmful:
 #
-#   - ``gateway_state.json`` drives the container-boot reconciler
-#     (``container_boot._read_desired_state``), which only auto-starts a
-#     gateway whose recorded state is ``running``. A backup taken from a
-#     machine where the gateway was stopped (or carrying a stale/foreign
-#     value) overwrites the container's own state and leaves the gateway
-#     stuck "starting"/"cooking", disconnecting it from the Nous portal
-#     (NS-508 / the second half of NS-501).
+#   - ``gateway_state.json`` records machine-local lifecycle state that must
+#     not replace the destination host's own state.
 #   - ``gateway.pid`` / ``cron.pid`` / ``gateway.lock`` / ``processes.json``
 #     reference PIDs and locks in the *source* machine's process namespace; a
 #     numerically-equal PID in the new environment is a different process.
-#     These mirror exactly what ``container_boot._STALE_RUNTIME_FILES`` already
-#     sweeps on every container boot.
 #
 # Older backups predate the backup-side exclusions, so we filter on import too
 # rather than trusting the archive's contents.
@@ -2007,81 +1999,4 @@ def create_pre_update_backup(
         return None
 
     _prune_pre_update_backups(backup_dir, keep=keep)
-    return out_path
-
-
-# ---------------------------------------------------------------------------
-# Pre-migration auto-backup (used by `hermes claw migrate`)
-# ---------------------------------------------------------------------------
-
-_PRE_MIGRATION_PREFIX = "pre-migration-"
-_PRE_MIGRATION_DEFAULT_KEEP = 5
-
-
-def _prune_pre_migration_backups(backup_dir: Path, keep: int) -> int:
-    """Remove oldest pre-migration backups beyond the keep limit.
-
-    Only touches files matching ``pre-migration-*.zip`` so other backups in
-    the same directory are never touched.
-    """
-    keep = max(keep, 0)
-    if not backup_dir.exists():
-        return 0
-
-    backups = sorted(
-        (p for p in backup_dir.iterdir()
-         if p.is_file() and p.name.startswith(_PRE_MIGRATION_PREFIX) and p.suffix.lower() == ".zip"),
-        key=lambda p: p.name,
-        reverse=True,
-    )
-
-    deleted = 0
-    for p in backups[keep:]:
-        try:
-            p.unlink()
-            deleted += 1
-        except OSError as exc:
-            logger.warning("Failed to prune pre-migration backup %s: %s", p.name, exc)
-
-    return deleted
-
-
-def create_pre_migration_backup(
-    hermes_home: Optional[Path] = None,
-    keep: int = _PRE_MIGRATION_DEFAULT_KEEP,
-) -> Optional[Path]:
-    """Create a full zip backup of HERMES_HOME under ``backups/`` before a
-    ``hermes claw migrate`` apply.
-
-    Shares implementation with :func:`create_pre_update_backup` via
-    ``_write_full_zip_backup`` — same exclusions, same SQLite safe-copy,
-    restorable with ``hermes import <archive>``.  Writes to
-    ``<HERMES_HOME>/backups/pre-migration-<timestamp>.zip`` and auto-prunes
-    old pre-migration backups.
-
-    Returns the path to the created zip, or ``None`` if nothing was found
-    to back up (fresh install) or the write failed.  Never raises — the
-    caller decides whether to abort or proceed.
-    """
-    hermes_root = hermes_home or get_default_hermes_root()
-    if not hermes_root.is_dir():
-        return None
-
-    # Reuses the shared backups/ directory so `hermes import` and the
-    # update-backup listing pick up pre-migration archives too.
-    backup_dir = _pre_update_backup_dir(hermes_root)
-    try:
-        backup_dir.mkdir(parents=True, exist_ok=True)
-    except OSError as exc:
-        logger.warning("Could not create pre-migration backup dir %s: %s", backup_dir, exc)
-        return None
-
-    stamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
-    out_path = backup_dir / f"{_PRE_MIGRATION_PREFIX}{stamp}.zip"
-
-    result = _write_full_zip_backup(out_path, hermes_root)
-    if result is None:
-        return None
-
-    _prune_pre_migration_backups(backup_dir, keep=keep)
     return out_path

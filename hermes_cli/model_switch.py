@@ -110,7 +110,7 @@ def _models_config_is_allowlist(value: Any) -> bool:
 
     A mapping like ``{model_id: {context_length: N}}`` is per-model *metadata*
     written by ``_save_custom_provider`` / the ``hermes model`` wizard — not a
-    catalog narrow. Treating that shape as an allowlist made Desktop/Telegram
+    catalog narrow. Treating that shape as an allowlist made model pickers
     pickers show only the saved default for local Ollama (no ``api_key``),
     while ``hermes model`` still live-probed the full ``/v1/models`` list.
     Refresh could not help because the same gate skipped probing.
@@ -631,7 +631,7 @@ def resolve_persist_behavior(
 # ---------------------------------------------------------------------------
 #
 # Historically each surface (cli.py, gateway/slash_commands.py,
-# tui_gateway/server.py) re-implemented flag parsing + conflict checks, and
+# gateway/slash_commands.py) re-implemented flag parsing + conflict checks, and
 # each resolution surface (gateway/run.py, gateway/platforms/api_server.py)
 # re-implemented the session-override > channel/session > global precedence.
 # Commit 7dd00bb47d had to re-fix the api_server discarding session-persisted
@@ -676,7 +676,7 @@ class ModelSwitchRequest:
     errors: tuple = ()
 
     # Compat properties so a ModelSwitchRequest can be passed anywhere a
-    # ModelFlagParseResult was accepted (e.g. tui_gateway._apply_model_switch).
+    # ModelFlagParseResult was accepted (e.g. gateway handler).
     @property
     def model_input(self) -> str:
         return self.target
@@ -703,7 +703,7 @@ def parse_model_switch_args(raw: str) -> ModelSwitchRequest:
     The ONE parser for every /model surface.  Wraps
     :func:`parse_model_flags_detailed` (tokenization + Unicode-dash
     normalization) and layers on the flag-conflict validation that cli.py,
-    gateway/slash_commands.py, and tui_gateway/server.py each used to
+    gateway/slash_commands.py, and gateway/slash_commands.py each used to
     re-implement:
 
     * ``--once`` + ``--global``  → ``MODEL_SWITCH_ERR_ONCE_WITH_GLOBAL``
@@ -2350,15 +2350,15 @@ def list_authenticated_providers(
     ``refresh`` busts the per-provider model-id disk cache
     (``provider_models_cache.json``) up front so every row re-fetches its
     live catalog. Use for an explicit user-triggered "refresh models" action
-    (e.g. the desktop picker's refresh control); leave false for normal picker
+    (for example an explicit picker refresh); leave false for normal picker
     opens so they stay snappy on the 1h cache.
 
     ``probe_custom_providers`` controls live ``/models`` discovery for saved
     custom OpenAI-compatible endpoints. Keep the default true for CLI parity;
-    GUI picker opens can pass false to show configured models immediately
+    Lightweight picker opens can pass false to show configured models immediately
     without waiting on offline local endpoints.
 
-    ``probe_current_custom_provider`` is the middle ground for GUI picker
+    ``probe_current_custom_provider`` is the middle ground for picker
     opens: probe only the currently-selected custom endpoint so its model list
     matches the active provider without blocking on every saved/offline custom
     endpoint.
@@ -3433,7 +3433,7 @@ def list_authenticated_providers(
             #   ollama.com). Preserve that list and skip live discovery.
             # - A dict-shaped ``models:`` is per-model metadata written by
             #   ``_save_custom_provider`` for context_length — not an
-            #   allowlist. Still probe so Desktop/Telegram match
+            #   allowlist. Still probe so external pickers match
             #   ``hermes model``. Pin a dict catalog with
             #   ``discover_models: false``.
             # - The singular ``model:`` field is only the current active

@@ -151,26 +151,17 @@ def _check_dispatcher_presence(
     probe itself errors, we return ``(True, "")`` so we don't spam
     false warnings (better to miss a warning than to cry wolf).
 
-    ``hermes_home`` scopes the probe to a named profile's directory. The
-    dashboard plugin API passes it because the dashboard backend process can
-    be running under a different HERMES_HOME than the profile the request
-    targets, which otherwise produced a "no gateway is running" warning
-    against a perfectly healthy profile gateway (#71211). CLI callers leave
-    it ``None`` and keep the existing process-level behavior.
+    ``hermes_home`` scopes the probe to a named profile's directory. CLI callers
+    normally leave it ``None`` and keep process-level behavior.
     """
     try:
         from gateway.status import resolve_gateway_liveness  # type: ignore
     except Exception:
         return (True, "")  # can't probe — silent
     try:
-        # Same shared ladder the dashboard status endpoints use, so a
-        # PID-file-less (launch-service-managed) or cross-container gateway
-        # is not misreported as absent. use_cache=False: this is a one-shot
-        # CLI/create-time probe, not a polling loop, and it must observe the
-        # gateway's state right now rather than a cached snapshot.
-        liveness = resolve_gateway_liveness(
-            profile_dir=hermes_home, use_cache=False
-        )
+        # Include runtime-state fallbacks so a PID-file-less service-managed
+        # gateway is not misreported as absent.
+        liveness = resolve_gateway_liveness(profile_dir=hermes_home)
     except Exception:
         return (True, "")  # probe errored — silent
     if liveness.probe_error:

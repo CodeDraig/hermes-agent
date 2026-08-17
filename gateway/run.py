@@ -3303,8 +3303,8 @@ def _skill_slug_from_frontmatter(skill_md: Path) -> tuple[str | None, str | None
 def _check_unavailable_skill(command_name: str) -> str | None:
     """Check if a command matches a known-but-inactive skill.
 
-    Returns a helpful message if the skill exists but is disabled or only
-    available as an optional install. Returns None if no match found.
+    Returns a helpful message if the skill exists but is disabled. Returns
+    None if no match is found.
 
     The slug for each on-disk skill is derived from its frontmatter ``name:``
     (via :func:`_skill_slug_from_frontmatter`), NOT from its containing
@@ -3339,26 +3339,6 @@ def _check_unavailable_skill(command_name: str) -> str | None:
                         f"Enable it with: `hermes skills config`"
                     )
 
-        # Check optional skills (shipped with repo but not installed)
-        from hermes_constants import get_optional_skills_dir
-        repo_root = Path(__file__).resolve().parent.parent
-        optional_dir = get_optional_skills_dir(repo_root / "optional-skills")
-        if optional_dir.exists():
-            for skill_md in optional_dir.rglob("SKILL.md"):
-                if is_excluded_skill_path(skill_md):
-                    continue
-                slug, _declared = _skill_slug_from_frontmatter(skill_md)
-                if not slug:
-                    continue
-                if slug == normalized:
-                    # Build install path: official/<category>/<name>
-                    rel = skill_md.parent.relative_to(optional_dir)
-                    parts = list(rel.parts)
-                    install_path = f"official/{'/'.join(parts)}"
-                    return (
-                        f"The **{command_name}** skill is available but not installed.\n"
-                        f"Install it with: `hermes skills install {install_path}`"
-                    )
     except Exception:
         pass
     return None
@@ -6425,7 +6405,6 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
     _cron_drain_timeout: float = DEFAULT_GATEWAY_CRON_DRAIN_TIMEOUT
     _exit_code: Optional[int] = None
     _draining: bool = False
-    _external_drain_active: bool = False
     _restart_requested: bool = False
     _restart_task_started: bool = False
     _restart_detached: bool = False
@@ -6607,27 +6586,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
         self._draining = False
         self._profile_failed_platforms: Dict[str, Dict[Platform, asyncio.Task]] = {}
         self._systemd_watchdog = None
-        # External (NAS-driven) drain state — distinct from the shutdown
-        # ``_draining`` flag above. Set by ``_drain_control_watcher`` when the
-        # ``.drain_request.json`` marker is present: the gateway flips
-        # ``gateway_state -> draining`` and refuses NEW turns, but the process
-        # does NOT exit (the whole point — quiesce-without-restart, D4a). It is
-        # fully reversible: removing the marker reverts to ``running`` and
-        # re-accepts turns. ``_draining`` (shutdown) is one-way and ends in
-        # process exit; this one is a steady state NAS polls during its
-        # request -> poll -> proceed loop.
-        self._external_drain_active = False
         self._restart_requested = False
-        # Set by shutdown_signal_handler when a SIGTERM/SIGINT arrived
-        # WITHOUT a planned-stop / takeover marker — i.e. an unexpected
-        # external signal (container/s6 SIGTERM on `docker restart` or
-        # image upgrade, OOM-killer, bare `kill`). Distinct from an
-        # operator-requested stop, which writes a marker first. Used by
-        # _stop_impl to decide whether to persist gateway_state=stopped
-        # (see issue #42675): an unexpected signal must NOT persist
-        # "stopped", or container_boot refuses to auto-start the gateway
-        # on the next boot.
-        self._signal_initiated_shutdown = False
         self._restart_task_started = False
         self._restart_detached = False
         self._restart_via_service = False
@@ -8688,92 +8647,6 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
         except Exception:
             pass
 
-    # ------------------------------------------------------------------
-    # External drain control (NAS-driven quiesce-without-restart, Phase 2).
-    # The dashboard's begin/cancel-drain endpoint writes/removes the
-    # ``.drain_request.json`` marker (gateway/drain_control.py); this watcher
-    # observes the marker and flips the gateway between accepting and refusing
-    # NEW turns, WITHOUT exiting the process. Reversible by design (D4a): NAS
-    # POSTs begin-drain, polls /api/status until active_agents hits 0, proceeds
-    # with its lifecycle action, then (on cancel/abort) the marker is removed
-    # and the gateway re-accepts turns.
-    # ------------------------------------------------------------------
-    def _enter_external_drain(self) -> None:
-        """Begin external drain: stop accepting new turns, flip state.
-
-        Idempotent — re-entering while already draining is a no-op beyond a
-        best-effort status re-write. In-flight turns are NOT interrupted (the
-        whole point is to let them finish); only NEW turns are refused.
-        """
-        if self._external_drain_active:
-            return
-        self._external_drain_active = True
-        logger.info(
-            "External drain ENGAGED (.drain_request.json present) — refusing "
-            "new turns; %d in-flight turn(s) will finish. Process stays up.",
-            self._active_work_count(),
-        )
-        # Flip the persisted lifecycle state so /api/status.gateway_busy /
-        # gateway_drainable track the drain. Preserve active_agents (the
-        # read-merge keeps the live count); only the state changes.
-        self._update_runtime_status("draining")
-
-    def _exit_external_drain(self) -> None:
-        """Cancel external drain: revert state, re-accept new turns.
-
-        Idempotent. Only reverts to ``running`` when we are actually mid-drain
-        AND not also shutting down (a real shutdown ``_draining`` must win —
-        never resurrect a stopping gateway to ``running``).
-        """
-        if not self._external_drain_active:
-            return
-        self._external_drain_active = False
-        if self._draining or not self._running:
-            # A shutdown drain is in progress / the loop has stopped — do not
-            # clobber the terminal state back to running.
-            logger.info(
-                "External drain marker cleared during shutdown — not reverting "
-                "to running (shutdown takes precedence)."
-            )
-            return
-        logger.info(
-            "External drain RELEASED (.drain_request.json removed) — "
-            "re-accepting new turns; gateway_state -> running."
-        )
-        self._update_runtime_status("running")
-
-    async def _drain_control_watcher(self, interval: float = 1.0) -> None:
-        """Background task: reconcile gateway accept-state with the drain marker.
-
-        Polls ``.drain_request.json`` (presence-based contract,
-        gateway/drain_control.py). Marker present -> ``_enter_external_drain``;
-        marker absent -> ``_exit_external_drain``. The 1s cadence bounds the
-        observe-the-marker latency the live-validation gate checks (point a).
-        Reconciles once at startup. A marker stamped with a PRIOR
-        instantiation epoch (one that survived a machine restart on the durable
-        HERMES_HOME volume — NS-570) is treated as absent by ``drain_requested``
-        and is NOT honoured; only a marker from the current instantiation flips
-        the gateway into drain. Best-effort: any tick error is logged and the
-        loop continues (a transient stat() failure must not wedge the gateway).
-        """
-        from gateway.drain_control import drain_requested
-
-        while self._running:
-            try:
-                if drain_requested():
-                    self._enter_external_drain()
-                    # API and cron work live outside messaging's
-                    # _running_agents map. Refresh the aggregate while an
-                    # external caller polls this reversible drain state.
-                    self._persist_active_agents()
-                else:
-                    self._exit_external_drain()
-            except asyncio.CancelledError:
-                raise
-            except Exception as exc:
-                logger.debug("Drain-control watcher tick error: %s", exc, exc_info=True)
-            await asyncio.sleep(interval)
-
     def _update_platform_runtime_status(
         self,
         platform: str,
@@ -10476,32 +10349,6 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
             logger.debug("Skipping home-channel shutdown notifications for in-chat restart")
             return
 
-        # Suppress ONLY the home-channel broadcast when the drain that is ending
-        # in this shutdown asked us to be quiet (e.g. a NAS auto-update image
-        # migration — drain-gated, then the machine is recreated). On the
-        # always-on Hermes Cloud fleet that broadcast would otherwise fire on
-        # every routine auto-update, spamming home channels with operator-
-        # flavoured "gateway shutting down" pings the user doesn't care about.
-        # The per-active-session interrupt pings above are deliberately NOT
-        # gated: on a drained shutdown they're empty by construction, and in the
-        # force-interrupt (deadline-exceeded) case they carry the genuinely
-        # useful "your task was cut off, message me to resume" hint. The flag is
-        # only honoured for a CURRENT-epoch marker (drain_notification_suppressed
-        # reuses the NS-570 staleness check), so an orphaned marker can never
-        # silence a fresh gateway's legitimate broadcast.
-        try:
-            from gateway.drain_control import drain_notification_suppressed
-            if drain_notification_suppressed():
-                logger.info(
-                    "Home-channel shutdown broadcast suppressed by drain marker "
-                    "(suppress_notification=true)"
-                )
-                return
-        except Exception as e:
-            # Never let the suppression check block the shutdown broadcast —
-            # fail toward the louder, more-visible behaviour.
-            logger.debug("drain_notification_suppressed check failed: %s", e)
-
         # Snapshot adapters up front: adapter.send() can hit a fatal error
         # path that pops the adapter from self.adapters (see _handle_fatal
         # elsewhere), which would otherwise trigger
@@ -11071,8 +10918,8 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                 *cmd_argv,
             ]
             # The watcher process must itself break away from any job object the
-            # parent CLI lives in (Electron/Tauri-wrapped Hermes Desktop, Windows
-            # Terminal, schtasks shells); otherwise it is reaped when the CLI
+            # parent CLI lives in (Windows Terminal, scheduled tasks, or another
+            # process supervisor); otherwise it is reaped when the CLI
             # exits and the gateway never respawns.  windows_detach_popen_kwargs()
             # carries CREATE_BREAKAWAY_FROM_JOB, but a restrictive job object
             # (no JOB_OBJECT_LIMIT_BREAKAWAY_OK) rejects that bit with
@@ -12916,14 +12763,6 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
         except Exception:  # noqa: BLE001 - arming must never block startup
             logger.debug("scale-to-zero: arm check failed at startup", exc_info=True)
 
-        # Start background drain-control watcher — reconciles the gateway's
-        # new-turn accept-state with the external ``.drain_request.json`` marker
-        # the dashboard begin/cancel-drain endpoint writes (Phase 2). A marker
-        # left behind by a prior instantiation (durable-volume restart, NS-570)
-        # is ignored via its instantiation epoch; only a current-epoch marker
-        # engages drain on the first tick.
-        self._spawn_supervised(self._drain_control_watcher, "drain_control_watcher")
-
         logger.info("Press Ctrl+C to stop")
         
         return True
@@ -14640,36 +14479,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                 self._exit_reason = self._exit_reason or "Gateway restart requested"
 
             self._draining = False
-            # Persist the terminal gateway_state. The default is "stopped",
-            # but when this teardown was triggered by an UNEXPECTED external
-            # signal (container/s6 SIGTERM on `docker restart` or image
-            # upgrade, OOM-killer, bare `kill`) we instead persist "running"
-            # to preserve the operator's run-intent across the restart.
-            #
-            # On Docker (s6-overlay), container_boot.py reads gateway_state
-            # on the next boot and only auto-starts gateways whose last
-            # state was "running" (_AUTOSTART_STATES). Persisting "stopped"
-            # — or leaving the mid-shutdown "draining" marker in place — for
-            # a routine `docker compose up --force-recreate` permanently
-            # suppresses auto-start, so the messaging channels silently stay
-            # dark until the operator manually restarts (issue #42675).
-            #
-            # An operator-initiated stop (`hermes gateway stop`,
-            # systemd/launchd ExecStop, the s6 stop path, Ctrl+C) writes a
-            # planned-stop marker BEFORE signalling, so it is classified as
-            # a planned stop (not signal-initiated) and correctly persists
-            # "stopped" — respecting the explicit intent. A restart also
-            # persists "stopped" here; the restarting process brings the
-            # gateway back up itself.
-            if getattr(self, "_signal_initiated_shutdown", False) and not self._restart_requested:
-                logger.info(
-                    "Gateway stopped by an unexpected signal — persisting "
-                    "gateway_state=running so container_boot auto-starts on "
-                    "the next boot (issue #42675)"
-                )
-                self._update_runtime_status("running", self._exit_reason)
-            else:
-                self._update_runtime_status("stopped", self._exit_reason)
+            self._update_runtime_status("stopped", self._exit_reason)
             _shutdown_gateway_health_export(self)
             logger.info("Gateway stopped (total teardown %.2fs)", _phase_elapsed())
 
@@ -17482,27 +17292,6 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
             if self._should_send_telegram_lobby_reminder(source):
                 return self._telegram_topic_root_lobby_message()
             return None
-
-        # ── External-drain new-turn gate (Phase 2) ────────────────────
-        # When NAS has engaged an external drain (.drain_request.json present,
-        # observed by _drain_control_watcher), refuse to START a new turn so
-        # the in-flight set can only fall to zero — eliminating the TOCTOU race
-        # (D4a: stop accepting new turns FIRST, then NAS polls until
-        # active_agents==0). In-flight turns are untouched; this only blocks the
-        # claim of a NEW session slot. Internal/system events (restart-recovery
-        # replays, background-process completions) bypass the gate — they are
-        # not user-initiated new work and must still flow during a drain.
-        # Reversible: once the marker is removed the gate opens again.
-        if self._external_drain_active and not is_internal:
-            logger.info(
-                "Refusing new turn for session %s — external drain active.",
-                _quick_key,
-            )
-            return (
-                "⏳ This agent is draining for a maintenance action and isn't "
-                "accepting new turns right now. It'll be back in a moment — "
-                "please resend shortly."
-            )
 
         # ── Claim this session before any await ───────────────────────
         # Between here and _run_agent registering the real AIAgent, there
@@ -30026,13 +29815,6 @@ async def start_gateway(config: Optional[GatewayConfig] = None, replace: bool = 
             )
         else:
             _signal_initiated_shutdown = True
-            # Mirror onto the runner so _stop_impl can suppress the
-            # gateway_state=stopped persist for unexpected signals
-            # (container/s6 SIGTERM on restart, OOM, bare kill) — see
-            # issue #42675. Operator-initiated stops set a planned-stop
-            # marker first, land in the `planned_stop` branch above, and
-            # leave this flag False so they DO persist "stopped".
-            runner._signal_initiated_shutdown = True
             logger.info(
                 "Received %s — initiating shutdown",
                 _shutdown_ctx["signal"] if _shutdown_ctx else "SIGTERM/SIGINT",
@@ -30276,13 +30058,8 @@ async def start_gateway(config: Optional[GatewayConfig] = None, replace: bool = 
                 exc,
             )
 
-    # External cron providers own their remote scheduling contract. Only the
-    # in-process ticker polls local due jobs, so only it receives the local
-    # external-drain dispatch gate.
     if isinstance(cron_provider, InProcessCronScheduler):
-        cron_start_kwargs["can_dispatch"] = lambda: not (
-            runner._draining or runner._external_drain_active
-        )
+        cron_start_kwargs["can_dispatch"] = lambda: not runner._draining
     cron_thread = threading.Thread(
         target=cron_provider.start,
         args=(cron_stop,),

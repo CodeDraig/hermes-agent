@@ -3,8 +3,8 @@
 
 Two data sources:
 
-1. Local SKILL.md files under ``skills/`` (built-in) and ``optional-skills/``
-   (official optional). These give us full metadata — overview prose, version,
+1. Local SKILL.md files under ``skills/`` (built-in). These give us full
+   metadata — overview prose, version,
    license, env vars, commands — that the unified index doesn't carry.
 
 2. The unified Hermes Skills Index at ``website/static/api/skills-index.json``,
@@ -26,10 +26,7 @@ from datetime import datetime, timezone
 import yaml
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-LOCAL_SKILL_DIRS = [
-    ("skills", "built-in"),
-    ("optional-skills", "optional"),
-]
+LOCAL_SKILL_DIRS = [("skills", "built-in")]
 UNIFIED_INDEX_PATH = os.path.join(REPO_ROOT, "website", "static", "api", "skills-index.json")
 LEGACY_INDEX_CACHE_DIR = os.path.join(REPO_ROOT, "skills", "index-cache")
 # Output to static/api/ so the file is CDN-served at /api/skills.json
@@ -76,7 +73,6 @@ CATEGORY_LABELS = {
 # Skills Hub UI uses. Keep these in sync with the SOURCE_CONFIG dict in
 # website/src/pages/skills/index.tsx.
 UNIFIED_SOURCE_LABELS = {
-    "official": "official",   # treated as our "optional" tier in the UI
     "skills.sh": "skills.sh",
     "skills-sh": "skills.sh",
     "clawhub": "ClawHub",
@@ -142,12 +138,11 @@ def _docs_page_path(rel_dir: str, source_label: str) -> str:
     Mirrors the slug logic in website/scripts/generate-skill-docs.py:
       bundled  + skills/<cat>/<slug>/SKILL.md          -> bundled/<cat>/<cat>-<slug>
       bundled  + skills/<cat>/<sub>/<slug>/SKILL.md    -> bundled/<cat>/<cat>-<sub>-<slug>
-      optional + optional-skills/<cat>/<slug>/SKILL.md -> optional/<cat>/<cat>-<slug>
     """
     parts = [p for p in rel_dir.split(os.sep) if p]
     if not parts:
         return ""
-    source_dir = "bundled" if source_label == "built-in" else "optional"
+    source_dir = "bundled"
     if len(parts) == 1:
         category, slug = parts[0], parts[0]
         return f"{source_dir}/{category}/{category}-{slug}"
@@ -169,9 +164,6 @@ def _install_command(source: str, identifier: str, name: str) -> str:
     if not identifier:
         return f"hermes skills install {name}"
     src = source.lower()
-    if src in {"official", "built-in", "optional"}:
-        # OptionalSkillSource emits identifiers like "official/security/1password"
-        return f"hermes skills install {identifier}"
     if src in {"skills.sh", "skills-sh"}:
         # Already wrapped as "skills-sh/owner/repo/skill" by the source
         return f"hermes skills install {identifier}"
@@ -382,11 +374,6 @@ def extract_unified_index_skills():
         tags = entry.get("tags", []) or []
         if not isinstance(tags, list):
             tags = []
-
-        # Skip official entries here — extract_local_skills() already covered
-        # those from optional-skills/ with full metadata (overview, version, etc.).
-        if source_id == "official":
-            continue
 
         # Map source id -> display label
         if source_id == "github":
@@ -638,7 +625,7 @@ def main():
 
     all_skills = _consolidate_small_categories(local + external)
 
-    source_order = {"built-in": 0, "optional": 1}
+    source_order = {"built-in": 0}
     all_skills.sort(key=lambda s: (
         source_order.get(s["source"], 2),
         1 if s["category"] == "other" else 0,
@@ -669,8 +656,8 @@ def main():
         json.dump(meta, f, separators=(",", ":"), ensure_ascii=False)
 
     print(f"Extracted {len(all_skills)} skills to {OUTPUT}")
-    print(f"  {len(local)} local ({sum(1 for s in local if s['source'] == 'built-in')} built-in, "
-          f"{sum(1 for s in local if s['source'] == 'optional')} optional)")
+    print(f"  {len(local)} local "
+          f"({sum(1 for s in local if s['source'] == 'built-in')} built-in)")
     print(f"  {len(external)} from {external_source}")
 
     print("By source:")

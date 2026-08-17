@@ -25,14 +25,9 @@ DEFAULT_CONFIG = {
     "runtime": {
         "nofile_soft_limit": 4096,
     },
-    # Global active chat session cap across CLI, TUI/dashboard, and messaging.
+    # Global active chat session cap across CLI and messaging.
     # None/0 = unbounded.
     "max_concurrent_sessions": None,
-    # Soft LRU cap on in-memory TUI/desktop/dashboard sessions. When more than
-    # this many are live, the gateway evicts the least-recently-active DETACHED
-    # sessions (no live client) so accumulated agents don't pile up under memory
-    # pressure. Reopening one re-resumes it from disk. 0/null disables.
-    "max_live_sessions": 16,
     "session": {
         # Per-terminal `hermes -c`: each CLI session drops a breadcrumb file
         # under $HERMES_HOME/terminal-sessions/<terminal-id>, and a bare
@@ -179,9 +174,6 @@ DEFAULT_CONFIG = {
         # (docker/modal/ssh — they have their own probe).  Set False to
         # disable entirely.
         "environment_probe": True,
-        # Bot Mode teammate-messaging protocol section (silent unless a
-        # profile is managed by the desktop's Bot Mode).
-        "bot_mode_protocol": True,
         # Embedder-supplied environment description appended to the system
         # prompt's environment-hints block. Lets a host that wraps Hermes
         # (sandbox runner, managed platform) explain the runtime environment
@@ -189,8 +181,8 @@ DEFAULT_CONFIG = {
         # identity slot (SOUL.md). Empty by default. The HERMES_ENVIRONMENT_HINT
         # env var overrides this (build-time/container mechanism).
         "environment_hint": "",
-        # Coding posture — on interactive coding surfaces (CLI, TUI, desktop
-        # app, ACP) in a code workspace, Hermes adds a coding operating brief
+        # Coding posture — on interactive coding surfaces (CLI and ACP) in a
+        # code workspace, Hermes adds a coding operating brief
         # + a live git/workspace snapshot to the system prompt. See
         # agent/coding_context.py.
         #   "auto" (default) — prompt-only posture when the surface is
@@ -228,8 +220,8 @@ DEFAULT_CONFIG = {
         # and the docs tell users to treat off as the effective default — a
         # fresh install must not be the one population that still gets the
         # nudges. Set true to force on everywhere, or "auto" for the legacy
-        # surface-aware behavior (on for interactive coding surfaces — CLI,
-        # TUI, desktop — and programmatic callers, off for conversational
+        # surface-aware behavior (on for interactive coding surfaces and
+        # programmatic callers, off for conversational
         # messaging surfaces). Doc/markdown/skill-only edits never fire it.
         "verify_on_stop": False,
         # Staged inactivity warning: send a warning to the user at this
@@ -316,7 +308,7 @@ DEFAULT_CONFIG = {
         #              (see run_agent._prepare_messages_for_api).
         #   "text"   — always pre-analyze with vision_analyze and prepend the
         #              description as text; the main model never sees pixels.
-        # Affects gateway platforms, the TUI, and CLI /attach.  vision_analyze
+        # Affects gateway platforms and CLI /attach. vision_analyze
         # remains available as a tool regardless of this setting — the routing
         # only controls how inbound user images are presented.
         "image_input_mode": "auto",
@@ -340,14 +332,6 @@ DEFAULT_CONFIG = {
         # preserves the historical error + traceback behavior.
         "degraded_mode": "warn",
         "cwd": ".",  # Use current directory
-        # Terminal font family for the desktop app's embedded xterm.js terminal.
-        # When set (e.g. "'CaskaydiaCoveNerdFont', 'JetBrains Mono', monospace"),
-        # the desktop terminal uses this as the CSS font-family value, with the
-        # built-in default ("'JetBrains Mono', 'Cascadia Code', 'SF Mono', Menlo,
-        # Consolas, monospace") as fallback when the field is empty or unset.
-        # This lets users install a Nerd Font (or any custom font) and configure
-        # it here without patching the built desktop app.
-        "font_family": "",
         "timeout": 180,
         # Bounded grace period (seconds) between SIGTERM and an escalated
         # SIGKILL when terminating a host process tree (browser daemons, etc.).
@@ -629,7 +613,7 @@ DEFAULT_CONFIG = {
 
     # Tool loop guardrails nudge models when they repeat failed or
     # non-progressing tool calls. Soft warnings are always-on by default;
-    # hard stops are opt-in so interactive CLI/TUI sessions keep flowing.
+    # hard stops are opt-in so interactive CLI sessions keep flowing.
     "tool_loop_guardrails": {
         "warnings_enabled": True,
         "hard_stop_enabled": False,
@@ -1095,8 +1079,7 @@ DEFAULT_CONFIG = {
         },
         # Profile describer — auto-generates a 1-2 sentence description
         # of what a profile is good at. Invoked by
-        # ``hermes profile describe <name> --auto`` and the dashboard's
-        # auto-generate button. Short, cheap call.
+        # ``hermes profile describe <name> --auto``. Short, cheap call.
         "profile_describer": {
             "provider": "auto",
             "model": "",
@@ -1222,22 +1205,6 @@ DEFAULT_CONFIG = {
         # Set false to restore the legacy c-j submit fallback on unusual POSIX
         # PTYs whose plain Enter arrives as LF instead of CR.
         "cli_multiline_shortcuts": True,
-        # Which interface bare `hermes` (and `hermes chat`) launches by default:
-        #   "cli" — the classic prompt_toolkit REPL (default, preserves prior behavior)
-        #   "tui" — the modern Ink TUI (same as passing `--tui`)
-        # Explicit flags always win over this setting: `--cli` forces the classic
-        # REPL and `--tui` (or HERMES_TUI=1) forces the TUI regardless of config.
-        "interface": "cli",
-        # When true, `hermes --tui` auto-resumes the most recent human-
-        # facing session on launch instead of forging a fresh one.
-        # Mirrors `hermes -c` muscle memory.  Default off so existing
-        # users aren't surprised.  HERMES_TUI_RESUME=<id> always wins.
-        "tui_auto_resume_recent": False,
-        # When true (default), `hermes --tui` drops a one-time hint
-        # ("subagents working · /agents to watch live") the first time a turn
-        # starts delegating, nudging the user toward the live spawn-tree
-        # dashboard. Set false to suppress the hint.
-        "tui_agents_nudge": True,
         "bell_on_complete": False,
         # Stream the model's reasoning/thinking live before the response.
         # Default ON: on thinking models the reasoning phase can run tens of
@@ -1264,7 +1231,7 @@ DEFAULT_CONFIG = {
         #   "off"     — no watcher messages at all
         "background_process_notifications": "concise",
         "streaming": False,
-        "timestamps": False,      # Show message timestamps (CLI labels, TUI rows, desktop transcript)
+        "timestamps": False,      # Show message timestamps in CLI labels
         "timestamp_format": "%H:%M",  # strftime format for timestamps (e.g. "%b-%d %H:%M")
         "final_response_markdown": "strip",  # render | strip | raw
         # Preserve recent classic CLI output across Ctrl+L, /redraw, and
@@ -1305,10 +1272,10 @@ DEFAULT_CONFIG = {
         "turn_completion_explainer": True,
         "show_cost": False,       # Show $ cost in the status bar (off by default)
         # Show a color-coded battery read-out as the first status-bar element in
-        # the CLI/TUI (off by default). No-op on machines without a battery.
+        # the CLI (off by default). No-op on machines without a battery.
         "battery": False,
         # Focus view (/focus): display-only reduced-output mode. When true the
-        # CLI/TUI pins tool_progress to "off" (reusing the existing suppression
+        # CLI pins tool_progress to "off" (reusing the existing suppression
         # path), reports a per-turn hidden-line count with a recovery hint, and
         # pins a "focus" segment in the status bar. focus_saved_tool_progress
         # holds the mode /focus off restores. Never affects what is sent to the
@@ -1321,9 +1288,6 @@ DEFAULT_CONFIG = {
         # responses, log lines, tool outputs, or slash-command descriptions.
         # Supported: en, zh, ja, de, es, fr, tr, uk.  Unknown values fall back to en.
         "language": "en",
-        # TUI busy indicator style: kaomoji (default), emoji, unicode (braille
-        # spinner), or ascii.  Live-swappable via `/indicator <style>`.
-        "tui_status_indicator": "kaomoji",
         # Seconds between prompt_toolkit redraws in the classic CLI when idle.
         # Default 1.0 keeps the wall-clock status-bar read-outs (idle-since-
         # last-turn) ticking and keeps the bottom chrome alive during idle —
@@ -1336,7 +1300,7 @@ DEFAULT_CONFIG = {
             "first_lines": 2,
             "last_lines": 2,
         },
-        "interim_assistant_messages": True,  # Gateway: send natural mid-turn assistant status messages. Desktop: keep mid-turn narration between tool calls instead of collapsing to the final message.
+        "interim_assistant_messages": True,  # Gateway: send natural mid-turn assistant status messages.
         # Codex Responses models narrate progress in a dedicated commentary
         # channel. When true (default), completed commentary messages are
         # delivered as visible mid-turn updates via the interim message path.
@@ -1351,7 +1315,7 @@ DEFAULT_CONFIG = {
         "tool_preview_length": 0,  # Max chars for tool call previews (0 = no limit, show full paths/commands)
         # Human-phrased tool status labels for built-in tools: "Searching the
         # web for ...", "Reading <file>", "Browsing <url>" instead of the raw
-        # tool name. Applies to CLI spinner + gateway/desktop tool-progress.
+        # tool name. Applies to CLI spinner and gateway tool-progress.
         # Custom/plugin/MCP tools always fall back to the raw preview.
         "friendly_tool_labels": True,
         # CLI-only post-turn accounting line printed after each interactive turn:
@@ -1425,8 +1389,8 @@ DEFAULT_CONFIG = {
         },
         "copy_shortcut": "auto",  # "auto" (platform default) | "ctrl_c" | "ctrl_shift_c" | "disabled"
         # Petdex animated mascot (https://github.com/crafter-station/petdex).
-        # A purely cosmetic sprite that reacts to agent activity across the
-        # CLI, TUI, and desktop app. Manage with `hermes pets`. Disabled until
+        # A purely cosmetic sprite that reacts to CLI agent activity. Manage
+        # with `hermes pets`. Disabled until
         # a pet is installed + selected (no effect on prompt caching — this is
         # a display concern only).
         "pet": {
@@ -1434,128 +1398,19 @@ DEFAULT_CONFIG = {
             # Active pet slug; resolved against installed pets in
             # get_hermes_home()/pets/. Empty → first installed pet.
             "slug": "",
-            # Terminal render protocol for CLI/TUI:
+            # Terminal render protocol for the CLI:
             #   auto  — detect kitty/iTerm2/sixel, else unicode half-blocks
             #   kitty | iterm | sixel | unicode | off
             "render_mode": "auto",
-            # Master size scalar (relative to native 192×208 frames). One knob
-            # shrinks every surface: the desktop canvas scales its pixels by it
-            # and the CLI/TUI derive their terminal column width from it. The
-            # half-block fallback clamps to a legibility floor (it can't shrink
-            # as far as true-pixel kitty/GUI without turning to mush).
+            # Master size scalar (relative to native 192×208 frames). The CLI
+            # derives its terminal column width from it; the half-block
+            # fallback clamps to a legibility floor.
             "scale": 0.33,
             # Hard override for terminal column width. 0 = auto (derive from
             # scale); set a positive int only to pin the half-block/kitty width
             # independently of scale.
             "unicode_cols": 0,
         },
-    },
-
-    # Web dashboard settings
-    "dashboard": {
-        "theme": "default",  # Dashboard visual theme: "default", "midnight", "ember", "mono", "cyberpunk", "rose"
-        # Process-isolation rollout controls. Runtime reads these through the
-        # raw config loader, so tui_gateway.server also owns explicit defaults.
-        "turn_isolation": False,
-        "compute_host_heartbeat_secs": 15,
-        "compute_host_respawn_max": 3,
-        # Hide the token/cost analytics surfaces (Analytics page, token bars and
-        # cost figures on the Models page) by default.  The numbers shown there
-        # are a local debug estimate: they only count successful main-agent
-        # responses with a usable ``response.usage``, and silently exclude every
-        # auxiliary call (context compression, title generation, vision,
-        # session search, web extract, smart approval, MCP routing, plugin LLM
-        # access) plus provider-side retries, fallback attempts, and any call
-        # whose usage block didn't come back.  Cache writes are also missing
-        # from the API response.  On models with heavy auxiliary traffic
-        # (Kimi K2.6, MiniMax M2.7) the local total can be 10x-100x lower than
-        # the provider bill, which is worse than hiding the numbers entirely
-        # because they look precise enough to compare against the provider.
-        # Set this to True to re-enable the surfaces with the understanding
-        # that the numbers are a local lower-bound estimate, not billing.
-        "show_token_analytics": False,
-        # OAuth gate configuration (engaged when ``--host`` is set and
-        # ``--insecure`` is not). The bundled Nous Portal plugin reads
-        # both keys at startup; they are the canonical surface for these
-        # settings. Each can be overridden by an environment variable —
-        # ``HERMES_DASHBOARD_OAUTH_CLIENT_ID`` and
-        # ``HERMES_DASHBOARD_PORTAL_URL`` respectively — and the env var
-        # wins when set to a non-empty value. The override path is what
-        # Fly.io's platform-secret injection uses to push the per-deploy
-        # client_id at provisioning time without operators needing to
-        # touch config.yaml. Local dev / non-Fly deploys can set either
-        # surface; missing values fall through to the plugin's defaults
-        # (no provider registered when ``client_id`` is empty;
-        # ``portal_url`` defaults to https://portal.nousresearch.com).
-        "oauth": {
-            "client_id": "",  # agent:{instance_id} — Portal provisions this
-            "portal_url": "",  # blank → use plugin default (production Portal)
-        },
-        # Username/password gate configuration — read by the bundled
-        # ``dashboard_auth/basic`` plugin (a self-hosted "just put a
-        # password on my dashboard" provider that needs no OAuth IDP).
-        # The plugin registers a password provider when ``username`` plus
-        # either ``password_hash`` (preferred — no plaintext at rest) or
-        # ``password`` (plaintext, hashed in-memory at load) are set. Each
-        # key is overridable by an env var
-        # (``HERMES_DASHBOARD_BASIC_AUTH_USERNAME`` /
-        # ``_PASSWORD_HASH`` / ``_PASSWORD`` / ``_SECRET`` /
-        # ``_TTL_SECONDS``), env winning when non-empty. Leave ``username``
-        # empty (the default) to keep the plugin a no-op — loopback /
-        # ``--insecure`` operators and OAuth users are unaffected.
-        #
-        # ``secret`` is the HMAC key used to sign the stateless session
-        # tokens this provider mints. When empty, a random per-process key
-        # is generated — fine for a single process, but sessions then
-        # don't survive a restart or span multiple workers. Set an
-        # explicit ``secret`` (32+ random bytes, base64/hex/raw) for
-        # stable multi-worker / restart-surviving sessions. Compute a
-        # ``password_hash`` with
-        # ``python -c "from plugins.dashboard_auth.basic import hash_password; print(hash_password('PW'))"``.
-        "basic_auth": {
-            "username": "",  # blank → plugin no-op (no password provider)
-            "password_hash": "",  # scrypt$... (preferred — no plaintext at rest)
-            "password": "",  # plaintext fallback (hashed in-memory at load)
-            "secret": "",  # token-signing key; blank → random per-process
-            "session_ttl_seconds": 0,  # 0 → plugin default (12h)
-        },
-        # Drain-control service-credential configuration — read by the
-        # bundled ``dashboard_auth/drain`` plugin (the first consumer of the
-        # generic non-interactive token-auth capability). The SECRET itself
-        # is a credential and is NOT configured here: it is provisioned by
-        # nous-account-service at deploy time via the
-        # ``HERMES_DASHBOARD_DRAIN_SECRET`` env var (the .env-is-for-secrets
-        # rule). These are the behavioural knobs only. The plugin is a no-op
-        # unless that env var is set to a >=256-bit secret; a weak secret is
-        # rejected at registration (fail-closed) and the drain endpoint stays
-        # disabled. ``scope`` is the capability label attached to the verified
-        # principal; ``min_secret_chars`` is the entropy bar (url-safe-b64
-        # chars; 43 ~= 256 bits).
-        "drain_auth": {
-            "scope": "drain",
-            "min_secret_chars": 43,
-        },
-        # Public URL override (env: ``HERMES_DASHBOARD_PUBLIC_URL``).
-        # When set, this is the complete authority — scheme + host +
-        # optional path prefix (e.g. ``https://example.com/hermes``) —
-        # the OAuth ``redirect_uri`` is built from. Set this for deploys
-        # behind reverse proxies that don't reliably forward
-        # ``X-Forwarded-Host`` / ``X-Forwarded-Proto`` / ``X-Forwarded-Prefix``
-        # (manual nginx setups, on-prem ingresses, custom-domain Fly
-        # deploys without proper proxy headers). When set,
-        # ``X-Forwarded-Prefix`` is IGNORED on the OAuth path because
-        # the operator has declared the public URL — we no longer need
-        # to guess from proxy headers, and stacking the prefix on top
-        # would double-prefix the common case where the prefix is
-        # already baked into ``public_url``. Leave empty to use the
-        # existing proxy-header reconstruction (the default).
-        #
-        # Validation: rejects values without ``http(s)://`` scheme or
-        # without a host, and any string containing quote / angle /
-        # whitespace / control characters. A malformed value silently
-        # falls through to request reconstruction rather than breaking
-        # the login flow.
-        "public_url": "",
     },
 
     # Privacy settings
@@ -1709,7 +1564,6 @@ DEFAULT_CONFIG = {
 
     "voice": {
         "record_key": "ctrl+b",
-        "submit_mode": "direct",       # TUI: direct submits immediately; draft leaves an editable transcript
         "max_recording_seconds": 120,
         "auto_tts": False,
         "beep_enabled": True,         # Play record start/stop beeps in CLI voice mode
@@ -1731,9 +1585,7 @@ DEFAULT_CONFIG = {
     # Off by default; toggle with /wake or `wake_word.enabled: true`.
     "wake_word": {
         "enabled": False,
-        "surface": "auto",            # eligible surface: "auto" (first claimant) | "cli" | "tui" | "gui"
         "input_device": None,          # PortAudio input device index/name; null uses the process default
-        "capture": "auto",            # auto | local | client — where PCM is captured (client = desktop streams mic via wake.feed)
         "provider": "openwakeword",   # "openwakeword" (free, local) | "sherpa" (free, ANY phrase, no training) | "porcupine" (premium; needs PORCUPINE_ACCESS_KEY)
         "phrase": "hey hermes",       # for "sherpa" this IS the detected phrase (any text works); for other engines it's a cosmetic label — detection is keyed by the model/keyword below
         "sensitivity": 0.6,           # 0.0-1.0 detection threshold, consistent across engines (higher = stricter, fewer false triggers)
@@ -1778,7 +1630,7 @@ DEFAULT_CONFIG = {
     # a plugin in plugins/context_engine/<name>/ or ~/.hermes/plugins/.
     "context": {
         "engine": "compressor",
-        # Return freed glibc allocator pages after long-running agent/TUI
+        # Return freed glibc allocator pages after long-running agent
         # cleanup boundaries. Unsupported platforms are safe no-ops.
         "memory_trim": {
             "enabled": True,
@@ -1873,8 +1725,8 @@ DEFAULT_CONFIG = {
         "max_spawn_depth": 1,        # depth (1 = flat [default], 2 = orchestrator→leaf, 3+ = deeper)
         "orchestrator_enabled": True,  # kill switch for role="orchestrator"
         # When a subagent hits a dangerous-command approval prompt, the parent's
-        # prompt_toolkit TUI owns stdin — a thread-local input() call from the
-        # subagent worker would deadlock the parent UI. To avoid the deadlock,
+        # prompt-toolkit owns stdin — a thread-local input() call from the
+        # subagent worker would deadlock the parent. To avoid the deadlock,
         # subagent threads ALWAYS resolve approvals non-interactively:
         #   false (default) → auto-deny with a logger.warning audit line (safe)
         #   true             → auto-approve "once" with a logger.warning audit line
@@ -1997,7 +1849,7 @@ DEFAULT_CONFIG = {
         #                     instead of committing (a SKILL.md is too large to
         #                     review inline, so skills always stage rather than
         #                     prompt). List with /skills pending, inspect with
-        #                     /skills diff <id> (full diff — CLI/dashboard/file,
+        #                     /skills diff <id> (full diff — CLI/file,
         #                     never crammed into a chat bubble), apply with
         #                     /skills approve <id> or drop with /skills reject <id>.
         "write_approval": False,
@@ -2281,9 +2133,7 @@ DEFAULT_CONFIG = {
         # through tools.slash_confirm — native yes/no buttons on Telegram,
         # Discord, and Slack; text fallback elsewhere.  Users click "Always
         # Approve" to silence the prompt permanently; that flips this key to
-        # false.  TUI also honors this setting for its /clear, /new, and /reset
-        # modal; HERMES_TUI_NO_CONFIRM=1 force-skips that modal regardless of
-        # the configured value.
+        # false.
         "destructive_slash_confirm": True,
     },
 
@@ -2336,7 +2186,7 @@ DEFAULT_CONFIG = {
         # prints the full warning on every run and never bypasses cost guards.
         "allow_data_training_tiers_noninteractive": False,
         # Human approval presentation transport. "builtin" preserves the
-        # current CLI/TUI/gateway/ACP surfaces. A plugin transport is used only
+        # current CLI/gateway/ACP surfaces. A plugin transport is used only
         # when named explicitly here. Transport timeout/error/invalid response
         # denies unless transport_fallback is explicitly set to "builtin".
         # This is presentation only: plugins cannot detect, suppress, or
@@ -2489,7 +2339,7 @@ DEFAULT_CONFIG = {
     # each claimable ready task. One dispatcher per profile is sufficient;
     # running more than one on the same kanban.db will race for claims.
     "kanban": {
-        # Auto-subscribe the originating gateway/TUI session to task
+        # Auto-subscribe the originating gateway session to task
         # completion + block events when ``kanban_create`` is called from
         # inside a session that has a persistent delivery channel. The
         # agent that dispatched the task will get notified automatically
@@ -2505,7 +2355,7 @@ DEFAULT_CONFIG = {
         "dispatch_in_gateway": True,
         # Automatically claim tasks in the first-class review column and spawn
         # the assigned profile with the bundled sdlc-review skill. Disable for
-        # boards where every review is performed manually from the dashboard.
+        # boards where every review is performed manually.
         "review_dispatch": True,
         # Seconds between dispatcher ticks (idle or not). Lower = snappier
         # pickup of newly-ready tasks; higher = less SQL pressure.
@@ -2553,8 +2403,7 @@ DEFAULT_CONFIG = {
         "max_in_progress_per_profile": None,
         # When true, the kanban dispatcher auto-runs the decomposer on
         # tasks that land in Triage (every dispatcher tick). When false,
-        # decomposition is manual via `hermes kanban decompose <id>` or
-        # the dashboard's Decompose button.
+        # decomposition is manual via `hermes kanban decompose <id>`.
         "auto_decompose": True,
         # Max triage tasks to decompose per dispatcher tick. Prevents a
         # large bulk-load of triage tasks from spending a burst of aux
@@ -3065,7 +2914,7 @@ DEFAULT_CONFIG = {
         # one shot, so interactive resume and in-memory export are guarded by
         # bounded row counts. Set a limit to 0 to disable that guard.
         # Max active messages (across the full compression lineage) a session
-        # may hold and still be resumed interactively (CLI/TUI/desktop).
+        # may hold and still be resumed interactively.
         "max_resume_messages": 20000,
         # Max active messages a single session may hold for an in-memory
         # (non-streaming) export such as `hermes sessions export`. Checked
@@ -3129,7 +2978,7 @@ DEFAULT_CONFIG = {
         "backup_keep": 5,
         # What `hermes update` does with uncommitted local changes to the
         # source tree when it runs NON-interactively — i.e. triggered from
-        # the desktop/chat app or the gateway, where there's no TTY to answer
+        # the gateway or with --yes, where there's no TTY to answer
         # a restore prompt. Interactive (terminal) updates are unaffected:
         # they always stash the changes and ask whether to restore, exactly
         # as they always have.
@@ -3296,7 +3145,7 @@ DEFAULT_CONFIG = {
             # Name of the env var holding a 1Password service-account token
             # for headless auth.  Sourced from ~/.hermes/.env (or the shell)
             # and exported to the op child as OP_SERVICE_ACCOUNT_TOKEN.
-            # Leave the var unset to use an interactive/desktop op session.
+            # Leave the var unset to use an interactive op session.
             "service_account_token_env": "OP_SERVICE_ACCOUNT_TOKEN",
             # Optional absolute path to the op binary.  When set it is used
             # verbatim (PATH is not consulted) — pin this to avoid trusting
@@ -3312,7 +3161,7 @@ DEFAULT_CONFIG = {
         },
     },
 
-    # Paste collapse thresholds (TUI + CLI).
+    # Paste collapse thresholds for the CLI.
     #
     # paste_collapse_threshold (default 5)
     #   Bracketed-paste handler. Pastes with this many newlines or more
@@ -3445,61 +3294,6 @@ DEFAULT_CONFIG = {
         # Together, DeepSeek, Nous).  Wildcards (`*.foo.com`) are supported.
         "extra_allowed_hosts": [],
     },
-
-    # Hermes Desktop (Electron app) launch options. These only affect
-    # `hermes desktop`; they do not touch the CLI/gateway.
-    "desktop": {
-        # Git repository discovery for the Desktop Projects sidebar. Empty
-        # roots preserve the historical bounded scan of the user's home.
-        "repo_scan_enabled": True,
-        "repo_scan_roots": [],
-        "repo_scan_exclude_paths": [],
-        # Extra Electron command-line flags appended to every desktop launch,
-        # e.g. ["--ozone-platform=x11"] on headless/VM X11 hosts that need an
-        # explicit ozone backend, or GPU workaround flags. A list of strings;
-        # a single string is also accepted and shell-split.
-        "electron_flags": [],
-        # GPU hardware acceleration policy for the desktop app:
-        #   "auto"  - let the app detect remote displays (SSH/VNC/RDP) and
-        #             disable GPU only then (default; current behavior).
-        #   true    - always disable GPU acceleration (software rendering).
-        #             Use on no-GPU VMs / Proxmox hosts where the GPU path hangs.
-        #   false   - always keep GPU acceleration on, even over a remote display.
-        # Bridged to the HERMES_DESKTOP_DISABLE_GPU env var the Electron app reads.
-        "disable_gpu": "auto",
-        # Linux keychain backend for secure token storage (Chromium's
-        # --password-store switch, which safeStorage needs before it can
-        # encrypt remote gateway tokens):
-        #   "auto"  - detect the session keychain: KWallet via KDE session env
-        #             vars, GNOME Keyring / any org.freedesktop.secrets
-        #             provider (e.g. KeePassXC) via D-Bus (default).
-        #   "gnome-libsecret" / "kwallet" / "kwallet5" / "kwallet6" / "basic"
-        #           - force a specific backend ("basic" = unencrypted store).
-        # Ignored on macOS/Windows. Bridged to the HERMES_DESKTOP_PASSWORD_STORE
-        # env var the Electron app reads, so an explicit env var still wins.
-        "password_store": "auto",
-        # macOS only: optional persistent code-signing identity (a cert in the
-        # login keychain — a self-signed "Code Signing" cert from Keychain
-        # Access works; no Apple Developer account needed) used to re-sign
-        # locally rebuilt desktop apps. A certificate-anchored Designated
-        # Requirement stays stable across rebuilds, so TCC grants (Full Disk
-        # Access, Desktop/Downloads/Documents, Accessibility, Automation,
-        # microphone) survive every update. Empty keeps the default stable
-        # ad-hoc signing (identifier-pinned requirement).
-        "macos_signing_identity": "",
-        # Auto-continue a turn that was killed mid-run by an app/backend/machine
-        # crash: resuming that session re-submits the interrupted prompt (shown
-        # as a "resumed interrupted turn" event) if the interruption is fresh.
-        # A stale interruption just shows the recovered partial transcript.
-        "auto_continue": {
-            "enabled": True,
-            # How recent the interruption must be to auto-continue (minutes).
-            "freshness_minutes": 15,
-            # Crash-loop breaker: max automatic re-runs of one interrupted turn.
-            "max_attempts": 2,
-        },
-    },
-
 
     # Google Vertex AI provider (Gemini via the OpenAI-compatible endpoint).
     # Auth is OAuth2 (short-lived access tokens minted from a service-account
@@ -4697,8 +4491,8 @@ OPTIONAL_ENV_VARS = {
     # gateway still falls back to HERMES_TOOL_PROGRESS_MODE for backward
     # compatibility, so it lives in _EXTRA_ENV_KEYS (known to reload and
     # compatibility paths) but is intentionally NOT listed here:
-    # OPTIONAL_ENV_VARS feeds user-facing surfaces (dashboard keys page, setup
-    # checklists) and deprecated knobs shouldn't be offered there. The boolean
+    # OPTIONAL_ENV_VARS feeds setup checklists, where deprecated knobs should
+    # not be offered. The boolean
     # HERMES_TOOL_PROGRESS is fully unsupported since the v12 config support
     # floor retired its only consumer (the v3→4 migration).
     "HERMES_PREFILL_MESSAGES_FILE": {

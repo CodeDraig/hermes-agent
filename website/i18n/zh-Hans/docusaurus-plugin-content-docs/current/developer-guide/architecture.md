@@ -128,7 +128,6 @@ hermes-agent/
 ├── plugins/memory/           # 记忆提供者插件
 ├── plugins/context_engine/   # 上下文引擎插件
 ├── skills/                   # 内置 skill（始终可用）
-├── optional-skills/          # 官方可选 skill（需显式安装）
 ├── website/                  # Docusaurus 文档站点
 └── tests/                    # Pytest 测试套件（3,000+ 个测试）
 ```

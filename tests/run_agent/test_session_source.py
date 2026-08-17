@@ -18,7 +18,7 @@ def test_session_source_context_overrides_platform(monkeypatch):
 
     tokens = set_session_vars(source="tool")
     try:
-        assert _session_source_for_agent("tui") == "tool"
+        assert _session_source_for_agent("cli") == "tool"
     finally:
         clear_session_vars(tokens)
 
@@ -26,6 +26,5 @@ def test_session_source_context_overrides_platform(monkeypatch):
 def test_session_source_falls_back_to_platform(monkeypatch):
     monkeypatch.delenv("HERMES_SESSION_SOURCE", raising=False)
 
-    assert _session_source_for_agent("tui") == "tui"
-
+    assert _session_source_for_agent("cli") == "cli"
 

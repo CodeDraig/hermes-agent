@@ -56,7 +56,7 @@ class _SpyProvider:
 
 @pytest.mark.asyncio
 async def test_valid_fire_reservation_blocks_drain_before_body_and_task(adapter, monkeypatch):
-    runner = SimpleNamespace(_draining=False, _external_drain_active=False)
+    runner = SimpleNamespace(_draining=False)
     body_started = asyncio.Event()
     release_body = asyncio.Event()
     fired = threading.Event()
@@ -341,7 +341,6 @@ async def test_fire_passes_live_adapters_to_provider(adapter, monkeypatch):
     live_adapters = {"relay": object()}
     runner = SimpleNamespace(
         _draining=False,
-        _external_drain_active=False,
         adapters=live_adapters,
     )
 

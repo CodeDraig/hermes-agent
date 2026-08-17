@@ -5,7 +5,7 @@ per-skill source links and a cleaned-up category sidebar:
 
 1. ``_source_url`` — every community skill must resolve to a clickable
    origin URL (explicit ``extra`` URL preferred, else synthesized from the
-   identifier shape). Built-in/optional skills intentionally return "" —
+   identifier shape). Built-in skills intentionally return "" —
    they have a generated docs page (docsPath) instead.
 
 2. ``_guess_category`` — tags only map to a curated category bucket;

@@ -398,8 +398,7 @@ def test_nous_inference_auth_logs_do_not_include_secret_values(
 def test_get_nous_auth_status_checks_credential_pool(tmp_path, monkeypatch):
     """get_nous_auth_status() should find Nous credentials in the pool
     even when the auth store has no Nous provider entry — this is the
-    case when login happened via the dashboard device-code flow which
-    saves to the pool only.
+    case when login saved directly to the credential pool.
     """
     from hermes_cli.auth import get_nous_auth_status
 
@@ -424,9 +423,9 @@ def test_get_nous_auth_status_checks_credential_pool(tmp_path, monkeypatch):
         "agent_key": token,
         "agent_key_expires_at": expires_at,
         "scope": "inference:invoke",
-        "label": "dashboard device_code",
+        "label": "device_code",
         "auth_type": "oauth",
-        "source": "manual:dashboard_device_code",
+        "source": "manual:device_code",
         "base_url": "https://inference.example.com/v1",
     })
     pool.add_entry(entry)
@@ -623,7 +622,7 @@ class TestLoginNousSkipKeepsCurrent:
 
 
 # =============================================================================
-# persist_nous_credentials: shared helper for CLI + web dashboard login paths
+# persist_nous_credentials: shared credential persistence helper
 # =============================================================================
 
 
@@ -737,7 +736,7 @@ def test_persist_nous_credentials_idempotent_no_duplicate_pool_entries(tmp_path,
     assert len(pool_entries) == 1, pool_entries
     assert pool_entries[0]["source"] == NOUS_DEVICE_CODE_SOURCE
     assert pool_entries[0]["agent_key"] == second_token
-    # And no stray `manual:device_code` / `manual:dashboard_device_code` rows
+    # And no stray `manual:device_code` rows
     assert not any(
         e["source"].startswith("manual:") for e in pool_entries
     )
@@ -1098,8 +1097,7 @@ class TestNousDeviceAuthTimeoutMessage:
 
 def test_poll_for_token_timeout_raises_actionable_message():
     """The poll deadline must raise the CAPTCHA-aware guidance at the SOURCE,
-    so both the CLI login and the dashboard poller (web_server._nous_poller,
-    which surfaces str(e) to the UI) inherit it."""
+    so the CLI login surfaces the actionable error."""
     import httpx
     import pytest
 

@@ -304,13 +304,13 @@ class TestSessionLifecycle:
 
     def test_branch_resume_does_not_include_parent_messages_added_after_fork(self, db):
         """A branch owns its copied transcript, not the parent's later turns."""
-        db.create_session("parent", source="tui")
+        db.create_session("parent", source="cli")
         db.append_message("parent", role="user", content="before branch")
         db.append_message("parent", role="assistant", content="initial answer")
 
         db.create_session(
             "branch",
-            source="tui",
+            source="cli",
             parent_session_id="parent",
             model_config={"_branched_from": "parent"},
         )
@@ -1345,142 +1345,6 @@ class TestDeleteSessionOrphansChildren:
         assert grandchild is not None
         assert grandchild["parent_session_id"] == "child"
 
-
-class TestBulkDeleteSessions:
-    """``delete_sessions(ids)`` — the bulk-delete primitive backing the
-    sessions-page "Delete N selected" button. Per-row contract matches
-    :meth:`SessionDB.delete_session` (children orphaned, not cascade-
-    deleted), but applied across the whole list in one transaction.
-
-    Invariants this class locks in:
-
-    1. Returns the real deleted count (existing intersection), not
-       just ``len(session_ids)`` — selection state in the UI can race
-       against another tab's delete.
-    2. Unknown IDs are silently skipped, never raise.
-    3. ``message_count > 0`` sessions are deleted too — unlike
-       ``delete_empty_sessions``, the user explicitly picked them, so
-       we trust the selection.
-    4. Live (un-ended) and archived sessions ARE deleted on explicit
-       selection (no bulk-sweep safety guards apply when the user
-       hand-picks the row).
-    5. Children of any deleted parent are orphaned, even when the
-       parent is mid-list.
-    6. ``[]`` / ``None``-laden lists are safe no-ops.
-    """
-
-    def test_deletes_listed_sessions(self, db):
-        db.create_session(session_id="a", source="cli")
-        db.append_message("a", role="user", content="hi")
-        db.create_session(session_id="b", source="cli")
-        db.create_session(session_id="c", source="cli")
-
-        deleted = db.delete_sessions(["a", "b"])
-        assert deleted == 2
-        assert db.get_session("a") is None
-        assert db.get_session("b") is None
-        # Unlisted survives.
-        assert db.get_session("c") is not None
-
-
-
-
-
-    def test_orphans_children_of_deleted_parents(self, db):
-        """Bulk-deleting a parent leaves its children alive but
-        re-parented to NULL. Same contract as the single-session
-        :meth:`delete_session` path."""
-        db.create_session(session_id="parent", source="cli")
-        db.create_session(
-            session_id="child", source="cli", parent_session_id="parent"
-        )
-
-        deleted = db.delete_sessions(["parent"])
-        assert deleted == 1
-        child = db.get_session("child")
-        assert child is not None
-        assert child["parent_session_id"] is None
-
-
-    def test_cleans_up_transcript_files(self, db, tmp_path):
-        """When ``sessions_dir`` is provided, on-disk transcripts are
-        swept as part of the bulk operation — mirrors the per-row
-        :meth:`delete_session(sessions_dir=...)` behaviour so the
-        bulk-delete CLI / web flows don't leak files."""
-        db.create_session(session_id="s1", source="cli")
-        db.create_session(session_id="s2", source="cli")
-        (tmp_path / "s1.jsonl").write_text("")
-        (tmp_path / "s2.json").write_text("{}")
-
-        deleted = db.delete_sessions(["s1", "s2"], sessions_dir=tmp_path)
-        assert deleted == 2
-        assert not (tmp_path / "s1.jsonl").exists()
-        assert not (tmp_path / "s2.json").exists()
-
-
-class TestDeleteEmptySessions:
-    """``delete_empty_sessions`` sweeps every ended, non-archived session
-    whose ``message_count`` is 0. Backs the dashboard's "Delete empty"
-    button — see ``SessionsPage.tsx`` + ``DELETE /api/sessions/empty``
-    in ``hermes_cli/web_server.py``.
-
-    Invariants this class locks in:
-
-    1. Only ``message_count = 0`` rows are touched.
-    2. Active (un-ended) sessions are skipped even if they're empty —
-       the agent might be mid-handshake, and yanking the row would
-       race the live runtime.
-    3. Archived sessions are skipped — the user already filed them away.
-    4. Children of a deleted parent are orphaned (parent_session_id →
-       NULL) rather than cascade-deleted, matching the
-       ``delete_session`` / ``prune_sessions`` contract.
-    5. The pre-DB count matches the post-DB delete return value.
-    """
-
-    def test_count_and_delete_empties_only(self, db):
-        # Two empty + ended sessions → both should be in the kill list.
-        db.create_session(session_id="empty1", source="cli")
-        db.end_session("empty1", end_reason="done")
-        db.create_session(session_id="empty2", source="cli")
-        db.end_session("empty2", end_reason="done")
-
-        # One non-empty + ended session → must survive.
-        db.create_session(session_id="hasmsg", source="cli")
-        db.append_message("hasmsg", role="user", content="Hello")
-        db.end_session("hasmsg", end_reason="done")
-
-        assert db.count_empty_sessions() == 2
-
-        deleted = db.delete_empty_sessions()
-        assert deleted == 2
-        assert db.get_session("empty1") is None
-        assert db.get_session("empty2") is None
-        assert db.get_session("hasmsg") is not None
-        assert db.count_empty_sessions() == 0
-
-
-
-
-
-    def test_cleans_up_on_disk_transcript_files(self, db, tmp_path):
-        """When ``sessions_dir`` is provided, transcript files left
-        behind by a crashed gateway (``request_dump_*.json``) are swept
-        too. Empty sessions rarely have ``{id}.json`` / ``.jsonl``
-        transcripts, but the request-dump path is real — the gateway
-        writes one before the first reply lands, so a crash mid-reply
-        produces an empty session with a non-empty dump file."""
-        db.create_session(session_id="empty_with_dump", source="cli")
-        db.end_session("empty_with_dump", end_reason="done")
-
-        dump = tmp_path / "request_dump_empty_with_dump_0.json"
-        dump.write_text("{}")
-        transcript = tmp_path / "empty_with_dump.jsonl"
-        transcript.write_text("")
-
-        deleted = db.delete_empty_sessions(sessions_dir=tmp_path)
-        assert deleted == 1
-        assert not dump.exists()
-        assert not transcript.exists()
 
 
 # =========================================================================
@@ -4421,7 +4285,7 @@ class TestDisplayMetadataReadPaths:
 
     @staticmethod
     def _seed(db):
-        db.create_session("s1", source="desktop")
+        db.create_session("s1", source="cli")
         message_id = db.append_message(
             "s1", "user", "event",
             display_kind="async_delegation_complete",

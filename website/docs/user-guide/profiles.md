@@ -209,19 +209,6 @@ If you want this profile to work in a specific project by default, also set its 
 coder config set terminal.cwd /absolute/path/to/project
 ```
 
-### From the dashboard
-
-The [web dashboard](features/web-dashboard.md#managing-multiple-profiles)
-is a machine-level surface that can manage **any** profile's config, API
-keys, skills, MCPs, and model via the profile switcher in its sidebar — no
-per-profile dashboard needed. `coder dashboard` routes to the machine
-dashboard with the `coder` profile preselected. The dashboard's Chat tab
-also follows the switcher, spawning a conversation under the selected
-profile's home.
-
-Note: "Set as active" on the dashboard's Profiles page is the sticky
-default for **future CLI/gateway runs** (same as `hermes profile use`) —
-to edit a profile from the dashboard, use the switcher instead.
 
 ## Updating
 
@@ -245,7 +232,7 @@ hermes profile export coder   # pack into coder.tar.gz (shareable; keys stripped
 hermes profile import coder.tar.gz   # install an archive as a new profile
 ```
 
-In chat, the same two live as `/export` and `/import` — and in the desktop app as **⌘K → Export/Import profile…**. See [Sharing a profile](#sharing-a-profile).
+In chat, the same two live as `/export` and `/import`. See [Sharing a profile](#sharing-a-profile).
 
 ## Deleting a profile
 
@@ -311,7 +298,7 @@ The default profile is simply `~/.hermes` itself. No migration needed — existi
 
 A profile you built on one machine can go to another — your own workstation, a teammate's laptop, or the community. Two paths:
 
-**Send a file.** `/export` packs the profile into one `.tar.gz` — skills, memory, persona, crons, plugins, settings, and (from the desktop) your theme and layout. API keys are stripped. The recipient runs `/import`.
+**Send a file.** `/export` packs the profile into one `.tar.gz` — skills, memory, persona, crons, plugins, and settings. API keys are stripped. The recipient runs `/import`.
 
 ```bash
 # In chat, run /export, hand over the file, and they run /import on it

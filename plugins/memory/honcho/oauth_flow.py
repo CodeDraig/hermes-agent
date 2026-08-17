@@ -1,10 +1,8 @@
-"""Browser sign-in flow for the Honcho memory provider — no CLI step.
+"""Browser sign-in flow for the Honcho memory provider.
 
 ``begin_authorization`` / ``complete_authorization`` are the transport-agnostic
-core: the code can arrive via the loopback listener here or a future
-``hermes://`` handler. Endpoints are env-overridable with local-dev defaults
-because ``/authorize`` (dashboard) and ``/oauth/token`` (API) live on
-different origins.
+core: the code arrives through the CLI loopback listener. Endpoints are
+env-overridable with local-development defaults.
 """
 
 from __future__ import annotations
@@ -158,9 +156,8 @@ def begin_authorization(
 ) -> tuple[str, str]:
     """Start an authorization: return ``(authorize_url, state)`` and stash PKCE.
 
-    ``source`` tags the authorize link with the initiating surface
-    (``hermes-desktop`` / ``hermes-cli``) so the consent side can attribute
-    connects and vary behavior per surface. ``config_path`` is a home-relative
+    ``source`` tags the authorize link with the initiating CLI flow so the
+    consent side can attribute connects. ``config_path`` is a home-relative
     *display* string for the consent screen (never the absolute path); callers
     pass the actual write path separately to ``complete_authorization``.
     """
@@ -575,82 +572,3 @@ def authorize_via_device_code(
     reset_honcho_client()
     logger.info("Honcho OAuth device grant installed for host %s", target_host)
     return cred
-
-
-# — Background launcher + status, for the desktop "Connect" button —
-# The flow blocks on a browser round-trip, so the web_server endpoint kicks it
-# off in a thread and the UI polls status rather than holding the request open.
-
-
-@dataclass
-class FlowStatus:
-    state: str = "idle"  # idle | pending | connected | error
-    detail: str = ""
-
-
-_status = FlowStatus()
-_status_lock = threading.Lock()
-_flow_thread: threading.Thread | None = None
-
-
-def _detect_connection() -> tuple[bool, str | None]:
-    """Report whether a credential is already stored: 'oauth', 'apikey', or none."""
-    try:
-        from plugins.memory.honcho.client import HonchoClientConfig
-
-        cfg = HonchoClientConfig.from_global_config()
-        block = (cfg.raw.get("hosts") or {}).get(cfg.host) or {}
-        if oauth.OAuthCredential.from_host_block(block) is not None:
-            return True, "oauth"
-        if cfg.api_key:
-            return True, "apikey"
-    except Exception:
-        pass
-    return False, None
-
-
-def get_flow_status() -> dict[str, object]:
-    with _status_lock:
-        state, detail = _status.state, _status.detail
-    connected, auth = _detect_connection()
-    return {"state": state, "detail": detail, "connected": connected, "auth": auth}
-
-
-def _set_status(state: str, detail: str = "") -> None:
-    with _status_lock:
-        _status.state, _status.detail = state, detail
-
-
-def start_loopback_flow_background(
-    *,
-    config_path: Path | None = None,
-    host: str | None = None,
-    source: str = "hermes-desktop",
-    timeout: float = 300.0,
-) -> dict[str, str]:
-    """Launch the loopback flow in a daemon thread; returns the initial status.
-
-    Idempotent while a flow is pending — a second call is a no-op so a
-    double-clicked button can't open two browser tabs / bind :8765 twice.
-    """
-    global _flow_thread
-    # Resolve under the caller's profile scope NOW — the worker thread outlives
-    # the request, where a context-local HERMES_HOME override can't reach.
-    config_path = config_path or resolve_config_path()
-    host = host or resolve_active_host()
-    with _status_lock:
-        if _status.state == "pending" and _flow_thread and _flow_thread.is_alive():
-            return {"state": _status.state, "detail": _status.detail}
-        _status.state, _status.detail = "pending", "waiting for browser consent"
-
-    def _run() -> None:
-        try:
-            authorize_via_loopback(config_path=config_path, host=host, source=source, timeout=timeout)
-            _set_status("connected", "Honcho connected")
-        except Exception as exc:
-            logger.warning("Honcho OAuth loopback flow failed: %s", exc)
-            _set_status("error", str(exc))
-
-    _flow_thread = threading.Thread(target=_run, name="honcho-oauth-loopback", daemon=True)
-    _flow_thread.start()
-    return get_flow_status()

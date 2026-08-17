@@ -6,8 +6,7 @@ zero-touch enrollment in the connector repo's
 ``docs/connector-gateway-auth-design.md``:
 
   1. Resolve a fresh Nous Portal access token from the existing login
-     (``~/.hermes/auth.json``) — the same path ``hermes dashboard register``
-     uses (``resolve_nous_access_token``). This proves *which Nous org (tenant)*
+     (``~/.hermes/auth.json``). This proves *which Nous org (tenant)*
      the caller owns; the connector derives the authoritative tenant from it via
      ``GET /api/oauth/account`` (never from anything the gateway asserts).
   2. POST ``{enrollmentToken, gatewayId}`` to the connector's ``/relay/enroll``
@@ -19,10 +18,6 @@ zero-touch enrollment in the connector repo's
      ``GATEWAY_RELAY_DELIVERY_KEY`` (+ ``GATEWAY_RELAY_URL`` if supplied) into
      ``~/.hermes/.env``. The per-gateway secret authenticates the WS upgrade;
      the per-tenant delivery key verifies signed inbound deliveries.
-
-Managed/hosted installs do NOT self-enroll: the orchestrator (NAS) mints the
-secret directly and stamps it into the container env, so this command refuses to
-run under ``is_managed()`` (mirrors ``dashboard register``).
 
 EXPERIMENTAL: the relay auth scheme may change without a deprecation cycle until
 ≥2 Class-1 platforms validate the contract.
@@ -161,18 +156,7 @@ def _post_enroll(
 def cmd_gateway_enroll(args) -> None:
     """Enroll this gateway with a relay connector; persist the auth creds to .env."""
     from hermes_cli.auth import AuthError
-    from hermes_cli.config import is_managed, save_env_value
-
-    # Managed installs get GATEWAY_RELAY_* stamped in by the orchestrator (NAS
-    # mints the secret directly per the design's managed shape). Self-enrolling
-    # from inside such a container is a mistake — and save_env_value refuses to
-    # write anyway.
-    if is_managed():
-        print(
-            "✗ `hermes gateway enroll` is not available in a managed/hosted install.\n"
-            "  The relay gateway secret is provisioned by the hosting platform."
-        )
-        sys.exit(1)
+    from hermes_cli.config import save_env_value
 
     enrollment_token = (getattr(args, "token", None) or os.environ.get("GATEWAY_RELAY_ENROLL_TOKEN", "")).strip()
     if not enrollment_token:

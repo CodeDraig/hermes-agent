@@ -439,7 +439,7 @@ def _title_turn(platform, message="Fix the login button"):
     return titler
 
 
-@pytest.mark.parametrize("platform", ["cli", "telegram", "desktop", "acp", None])
+@pytest.mark.parametrize("platform", ["cli", "telegram", "acp", None])
 def test_prologue_titles_the_surfaces_a_person_reads(platform):
     assert _title_turn(platform).called
 
