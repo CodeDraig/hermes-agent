@@ -88,16 +88,6 @@ mini-swe-agent/
 .direnv/
 .nix-stamps/
 result
-website/static/api/skills-index.json
-# skills.json + skills-meta.json are build artifacts emitted by
-# website/scripts/extract-skills.py during prebuild — keep them out of
-# git for the same reason as skills-index.json (large, generated, change
-# every build).
-website/static/api/skills.json
-website/static/api/skills-meta.json
-# automation-blueprints-index.json is a build artifact emitted by
-# website/scripts/extract-automation-blueprints.py during prebuild.
-website/static/api/automation-blueprints-index.json
 models-dev-upstream/
 
 # Local editor / agent tooling (machine-specific; keep in global config, not the repo)

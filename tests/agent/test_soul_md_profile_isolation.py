@@ -1,6 +1,6 @@
 """Regression (#50233, SOUL.md half): a profile agent's SOUL.md must load from
 ITS OWN home, never the ambient/launch home — even on a thread that did not
-bind the HERMES_HOME ContextVar. Same bug class as the skills-index leak
+bind the HERMES_HOME ContextVar. Same bug class as the index-cache leak
 fixed in #86313; load_soul_md now accepts home_override.
 """
 

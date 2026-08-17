@@ -820,7 +820,7 @@ class StreamingConfig:
         # wins so callers can force either state.
         #
         # ``transport`` alone does NOT imply ``enabled``: ``streaming.enabled``
-        # is the documented master switch (see website/docs/user-guide/
+        # is the documented master switch (see README.md
         # configuration.md), so a bare ``transport`` only selects HOW to stream
         # once streaming is on. Only the ``mode`` alias flips ``enabled``.
         raw_transport = data.get("transport")

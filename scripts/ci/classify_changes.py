@@ -12,7 +12,6 @@ Lanes:
 * ``python_prod`` — Python changes OUTSIDE tests/ — gates jobs that run the
   product but never import the test suite. A tests-only PR keeps ``python``
   while skipping those product jobs.
-* ``site``        — Docusaurus + generated skill docs.
 * ``scan``        — supply-chain scan (Python files, .pth, setup hooks).
 * ``deps``        — pyproject.toml dependency bounds check.
 * ``uv_lock``     — ``uv lock --check``. Re-resolves the whole graph against
@@ -26,8 +25,8 @@ Contract — *fail open, never closed*. We may run a lane we didn't need, but
 must never skip one a change could break:
 
 * An empty diff, or any ``.github/`` change, runs everything.
-* ``python`` is a denylist: skipped only when *every* file is provably prose
-  site-only path; an unrecognized path keeps it on.
+* ``python`` is a denylist: skipped only when *every* file is provably prose;
+  an unrecognized path keeps it on.
 * ``skills/`` (incl. ``SKILL.md``) is python-relevant — the skill-doc tests
   read that tree, so a doc-looking edit can still break Python.
 """
@@ -38,9 +37,9 @@ import json
 import os
 import sys
 
-_SITE = ("website/", "skills/")  # docs site + skill pages
-# Prose/site trees that can't touch Python. skills/ is excluded on purpose.
-_PY_SKIP = ("docs/", "website/")
+# Prose trees that cannot touch Python. Skills remain Python-relevant because
+# retained tests load and validate their contents.
+_PY_SKIP = ("docs/",)
 
 # CI-sensitive files: eslint config, workflow files, composite actions.
 # Changes here can influence what code the autofix job executes and pushes to
@@ -120,7 +119,6 @@ def classify(files: list[str]) -> dict[str, bool]:
     ret = {
         "python": any(not _py_irrelevant(f) for f in files),
         "python_prod": any(not _py_irrelevant(f) and not _py_test_only(f) for f in files),
-        "site": any(f.startswith(_SITE) for f in files),
         "scan": any(_is_scan(f) for f in files),
         "deps": any(f == "pyproject.toml" for f in files),
         "uv_lock": any(f in ("pyproject.toml", "uv.lock") for f in files),
@@ -132,7 +130,6 @@ def classify(files: list[str]) -> dict[str, bool]:
     if not files or any(f.startswith(".github/") for f in files):
         ret["python"] = True
         ret["python_prod"] = True
-        ret["site"] = True
         ret["scan"] = True
         ret["deps"] = True
         ret["uv_lock"] = True

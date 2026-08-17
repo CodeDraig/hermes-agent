@@ -332,17 +332,7 @@ def do_browse(page: int = 1, page_size: int = 20, source: str = "all",
     # Collect results from all (or filtered) sources in parallel.
     # Per-source limits are generous — parallelism + 30s timeout cap prevents hangs.
     _TRUST_RANK = {"builtin": 3, "trusted": 2, "community": 1}
-    # NOTE: when the centralized index is available, parallel_search_sources
-    # skips the external API sources and serves everything from "hermes-index".
-    # That source MUST therefore carry a limit large enough to cover the whole
-    # catalog, or browse silently caps the hub — it shipped at 50 (surfaced
-    # ~136 of 88k skills), then 5000 (surfaced ~5.4k of 90k). The index is
-    # disk-cached and browse paginates client-side, so a ceiling above the
-    # current catalog size is the right call. The external-source limits below
-    # only apply when the index is unavailable (offline / first run before the
-    # cache populates).
     _PER_SOURCE_LIMIT = {
-        "hermes-index": 1000000,
         "skills-sh": 200, "well-known": 50,
         "github": 200, "clawhub": 500,
         "lobehub": 500, "browse-sh": 500,
@@ -818,17 +808,12 @@ def browse_skills(page: int = 1, page_size: int = 20, source: str = "all") -> di
 
     page_size = max(1, min(page_size, 100))
     _TRUST_RANK = {"builtin": 3, "trusted": 2, "community": 1}
-    # "hermes-index" must carry a high limit: when the index is available the
-    # router skips external API sources and serves everything from it, so a
-    # low cap here silently truncates the whole hub (see do_browse note).
-    _PER_SOURCE_LIMIT = {"hermes-index": 5000, "skills-sh": 100,
+    _PER_SOURCE_LIMIT = {"skills-sh": 100,
                          "well-known": 25, "github": 100, "clawhub": 50,
                          "lobehub": 50, "browse-sh": 500}
     auth = GitHubAuth()
     sources = create_source_router(auth)
-    # Delegate to the shared parallel walker so this inherits the index-aware
-    # source-skip logic — querying hermes-index AND the external APIs at once
-    # would double-count every skill.
+    # Delegate to the shared parallel walker for consistent source handling.
     all_results, _counts, _timed_out = parallel_search_sources(
         sources, query="", per_source_limits=_PER_SOURCE_LIMIT,
         source_filter=source, overall_timeout=30,

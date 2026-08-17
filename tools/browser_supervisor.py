@@ -15,7 +15,7 @@ agent via two channels:
 2. ``browser_dialog`` tool responds to a pending dialog by calling
    ``respond_to_dialog()`` on the active supervisor.
 
-Design spec: ``website/docs/developer-guide/browser-supervisor.md``.
+Design spec: ``README.md``.
 """
 
 from __future__ import annotations

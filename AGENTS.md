@@ -260,7 +260,6 @@ hermes-agent/
 ├── acp_adapter/          # ACP server (VS Code / Zed / JetBrains integration)
 ├── cron/                 # Scheduler — jobs.py, scheduler.py
 ├── scripts/              # run_tests.sh, release.py, auxiliary scripts
-├── website/              # Docusaurus docs site
 └── tests/                # Pytest suite (~17k tests across ~900 files as of May 2026)
 ```
 
@@ -271,7 +270,7 @@ Browse with `hermes logs [--follow] [--level ...] [--session ...]`.
 
 ## TypeScript Style
 
-Applies to TypeScript across Hermes: the website, independent bridges, and future TS packages.
+Applies to TypeScript in independent bridges and future TS packages.
 
 - Prefer small nanostores over component state when state is shared, reused, or read by distant UI.
 - Let each feature own its atoms. Chat state belongs near chat, shell state near shell, shared state in `src/store`.
@@ -674,8 +673,6 @@ explicitly (it's idempotent).
 
 #### Native plugin compatibility policy
 
-The canonical contract and deprecation policy live in
-`website/docs/developer-guide/plugins/index.md#native-plugin-compatibility-contract`.
 Compatibility is enforced as a behavior contract, not through a monolithic
 `PLUGIN_API_VERSION`, a manifest-wide native `api:` match, or version literals
 on unrelated payloads. Keep documented plugin surfaces additive:
@@ -781,8 +778,6 @@ The general PluginManager records `kind: model-provider` manifests but does
 NOT import them (would double-instantiate `ProviderProfile`). Plugins
 without an explicit `kind:` get auto-coerced via a source-text heuristic
 (`register_provider` + `ProviderProfile` in `__init__.py`).
-
-Full authoring guide: `website/docs/developer-guide/model-provider-plugin.md`.
 
 ### Context-engine / image-gen plugin directories
 
@@ -982,8 +977,6 @@ Config section (`curator:` in `config.yaml`):
 `enabled`, `interval_hours`, `min_idle_hours`, `stale_after_days`,
 `archive_after_days`, `backup.*`.
 
-Full user-facing docs: `website/docs/user-guide/features/curator.md`.
-
 ---
 
 ## Cron (scheduled jobs)
@@ -1061,8 +1054,6 @@ Isolation model:
 - After `kanban.failure_limit` consecutive non-success attempts on the
   same task (default: 2), the dispatcher auto-blocks it to prevent spin
   loops.
-
-Full user-facing docs: `website/docs/user-guide/features/kanban.md`.
 
 ---
 

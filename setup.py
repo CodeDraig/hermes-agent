@@ -23,7 +23,7 @@ from setuptools.command.sdist import sdist
 _BLOCK_MESSAGE = (
     "Building wheels or sdists for hermes-agent is not supported.\n"
     "Hermes is distributed via the shell installer.\n"
-    "See: https://hermes-agent.nousresearch.com/docs/getting-started/installation\n"
+    "See: https://github.com/NousResearch/hermes-agent"
     "\n"
     "If you are developing, use an editable install instead:\n"
     "  uv sync          # or: uv pip install -e ."

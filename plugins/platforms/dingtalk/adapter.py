@@ -1859,7 +1859,7 @@ def _apply_yaml_config(yaml_cfg: dict, dingtalk_cfg: dict) -> dict | None:
     allowed = dingtalk_cfg.get("allowed_users")
     if allowed is None:
         # Fall back to the documented nested paths (#44928). The docs
-        # (website/docs/user-guide/messaging/dingtalk.md) configure the
+        # (README.md) configure the
         # allowlist at gateway.platforms.dingtalk.extra.allowed_users; the
         # adapter reads it from PlatformConfig.extra, but gateway
         # authorization (_is_user_authorized in gateway/authz_mixin.py)

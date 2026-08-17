@@ -266,16 +266,16 @@ if [ -n "$HTTP_ROOT" ]; then
   cp -a "$HTTP_ROOT/." "$SANDBOX_ROOT/root/http/"
 fi
 if [ "$INSTALL_SHORTCUT" = true ]; then
-  mkdir -p "$SANDBOX_ROOT/root/http/hermes-agent.nousresearch.com"
+  mkdir -p "$SANDBOX_ROOT/root/http/raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts"
   if [ -n "$INSTALL_REF" ]; then
     git -C "$UPSTREAM_REPO" show "$UPSTREAM_COMMIT:scripts/install.sh" \
-      > "$SANDBOX_ROOT/root/http/hermes-agent.nousresearch.com/install.sh"
+      > "$SANDBOX_ROOT/root/http/raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh"
   else
-    cp -a "$INSTALLER_PATH" "$SANDBOX_ROOT/root/http/hermes-agent.nousresearch.com/install.sh"
+    cp -a "$INSTALLER_PATH" "$SANDBOX_ROOT/root/http/raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh"
   fi
   set -- bash -c '
     set +e
-    curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash -s -- "$@"
+    curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash -s -- "$@"
     install_status=$?
     if [ "$install_status" -eq 0 ] && [ -f /work/promote-main ]; then
       next_main=$(cat /work/promote-main)

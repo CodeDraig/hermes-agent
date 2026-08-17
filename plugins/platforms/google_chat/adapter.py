@@ -3466,7 +3466,7 @@ def interactive_setup() -> None:
     print_info("     point at the topic, enable 1:1 + group, restrict visibility.")
     print_info("  8. Install the bot in a space (fires ADDED_TO_SPACE and resolves its user_id).")
     print_info("")
-    print_info("Full guide: website/docs/user-guide/messaging/google_chat.md")
+    print_info("Full guide: README.md")
     print_info("")
 
     project = prompt(

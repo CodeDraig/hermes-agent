@@ -12,9 +12,6 @@ HELPER = REPO_ROOT / "skills/github/github-auth/scripts/git-credential-token.py"
 LEGACY_SED = r"sed 's|https://[^:]*:\([^@]*\)@.*|\1|'"
 SHIPPED_TREES = (
     REPO_ROOT / "skills/github",
-    REPO_ROOT / "website/docs/user-guide/skills/bundled/github",
-    REPO_ROOT
-    / "website/i18n/zh-Hans/docusaurus-plugin-content-docs/current/user-guide/skills/bundled/github",
 )
 
 
@@ -91,7 +88,7 @@ def test_rejects_ambiguous_lookalike_or_malformed_credentials(tmp_path, credenti
     assert result.stderr == ""
 
 
-def test_bundled_github_skills_and_docs_do_not_ship_legacy_sed_url_regex():
+def test_bundled_github_skills_do_not_ship_legacy_sed_url_regex():
     offenders = []
     for tree in SHIPPED_TREES:
         for path in tree.rglob("*"):

@@ -1,7 +1,7 @@
 # Configuration, Toolsets & Voice
 
 Edit with `hermes config edit` or `hermes config set section.key value`.
-Full reference: https://hermes-agent.nousresearch.com/docs/user-guide/configuration
+Full reference: https://github.com/NousResearch/hermes-agent
 
 ### Config Sections (most-used keys)
 

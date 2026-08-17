@@ -3,8 +3,8 @@
 
 This script reads the in-repo hardcoded curated lists (``OPENROUTER_MODELS``,
 ``_PROVIDER_MODELS["nous"]``) and writes them to a JSON manifest that the
-Hermes CLI fetches at runtime. Publishing the catalog through the docs site
-lets maintainers update model lists without shipping a Hermes release.
+Hermes CLI fetches at runtime. Publishing the catalog in the repository lets
+maintainers update model lists without shipping a Hermes release.
 
 The runtime fetcher falls back to the same in-repo hardcoded lists if the
 manifest is unreachable, so this script is a convenience for keeping the
@@ -14,10 +14,7 @@ Usage::
 
     python scripts/build_model_catalog.py
 
-Output: ``website/static/api/model-catalog.json``
-
-Live URL (after ``deploy-site.yml`` runs on merge to main):
-``https://hermes-agent.nousresearch.com/docs/api/model-catalog.json``
+Output: ``catalog/model-catalog.json``
 """
 
 from __future__ import annotations
@@ -39,7 +36,7 @@ from hermes_cli.models import (  # noqa: E402
     _PROVIDER_MODELS,
 )
 
-OUTPUT_PATH = os.path.join(REPO_ROOT, "website", "static", "api", "model-catalog.json")
+OUTPUT_PATH = os.path.join(REPO_ROOT, "catalog", "model-catalog.json")
 CATALOG_VERSION = 1
 
 
@@ -64,7 +61,7 @@ def build_catalog() -> dict:
         "updated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "metadata": {
             "source": "hermes-agent repo",
-            "docs": "https://hermes-agent.nousresearch.com/docs/reference/model-catalog",
+            "catalog": "https://github.com/NousResearch/hermes-agent/tree/main/catalog",
         },
         "providers": {
             "openrouter": {

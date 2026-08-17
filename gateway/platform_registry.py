@@ -176,7 +176,7 @@ class PlatformEntry:
     # (use ``not os.getenv(...)`` guards to preserve env > YAML precedence);
     # any returned dict is merged into ``PlatformConfig.extra``.  Exceptions
     # are caught and logged at debug level.
-    # See website/docs/developer-guide/adding-platform-adapters.md for the
+    # See README.md for the
     # full contract and a worked example.
     apply_yaml_config_fn: Optional[Callable[[dict, dict], Optional[dict]]] = None
 

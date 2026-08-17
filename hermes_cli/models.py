@@ -1415,7 +1415,7 @@ _PROVIDER_ALIASES = {
 # with ``"default": true`` (see get_default_model_from_cache in
 # model_catalog.py), so maintainers can rotate the default without shipping a
 # release. This constant is the offline/fresh-install fallback and MUST match
-# the labeled entry in website/static/api/model-catalog.json. Deliberately a
+# the labeled entry in catalog/model-catalog.json. Deliberately a
 # capable low-cost model rather than the curated lists' entry [0]: aggregator
 # lists are ordered most-capable-first, so [0] is the priciest Anthropic
 # flagship (claude-fable-5 / opus) — silently billing the most expensive model
@@ -1843,7 +1843,7 @@ def get_curated_nous_model_ids() -> list[str]:
     """Return the curated Nous Portal model-id list.
 
     Prefers the remotely-hosted catalog manifest (published under
-    ``website/static/api/model-catalog.json``); falls back to the in-repo
+    ``catalog/model-catalog.json``); falls back to the in-repo
     snapshot in ``_PROVIDER_MODELS["nous"]`` when the manifest is
     unreachable. Always returns a list (never None).
     """

@@ -24,7 +24,6 @@ ci_review_files = _mod.ci_review_files
 DEFAULT = {
     "python": True,
     "python_prod": True,
-    "site": True,
     "scan": True,
     "deps": True,
     "uv_lock": True,
@@ -35,13 +34,12 @@ DEFAULT = {
 }
 
 
-def _lanes(python=False, site=False, scan=False, deps=False, uv_lock=False, npm_lock=False, installer=False, mcp_catalog=False, ci_review=False, python_prod=None) -> dict[str, bool]:
+def _lanes(python=False, scan=False, deps=False, uv_lock=False, npm_lock=False, installer=False, mcp_catalog=False, ci_review=False, python_prod=None) -> dict[str, bool]:
     # python_prod tracks python except for tests-only diffs; default it to
     # python so the majority of cases don't need to spell it out.
     return {
         "python": python,
         "python_prod": python if python_prod is None else python_prod,
-        "site": site,
         "scan": scan,
         "deps": deps,
         "uv_lock": uv_lock,
@@ -57,15 +55,14 @@ CASES = {
     "python source → python": (["run_agent.py"], _lanes(python=True, scan=True)),
     "dep manifest → python": (["pyproject.toml"], _lanes(python=True, scan=True, deps=True, uv_lock=True)),
     "uv.lock → python": (["uv.lock"], _lanes(python=True, uv_lock=True)),
-    "nested lockfile → npm_lock": (["website/package-lock.json"], _lanes(site=True, npm_lock=True)),
-    "website → site": (["website/docs/intro.md"], _lanes(site=True)),
+    "nested lockfile → npm_lock": (["scripts/whatsapp-bridge/package-lock.json"], _lanes(python=True, npm_lock=True)),
     # uv lock --check re-resolves against PyPI, so it must stay off for any
     # diff that can't desync the lockfile — a registry blip on a docs PR
     # otherwise shows up as a blocking "uv.lock out of sync" red X.
-    "docs → no uv_lock": (["website/docs/user-guide/profiles.md"], _lanes(site=True)),
+    "docs → no uv_lock": (["docs/profile-routing.md"], _lanes()),
     # SKILL.md reads like docs, but the skill-doc tests read skills/, so a
     # skill edit must still run Python.
-    "skill md → python + site": (["skills/github/SKILL.md"], _lanes(python=True, site=True)),
+    "skill md → python": (["skills/github/SKILL.md"], _lanes(python=True)),
     # install.ps1 is a shell script Python never imports, but it's also not
     # provably prose, so python stays on (fail-open) alongside the Windows lane.
     "install.ps1 → installer": (["scripts/install.ps1"], _lanes(python=True, installer=True)),
@@ -136,11 +133,11 @@ def test_classify(files, expected):
 
 def test_ci_review_files_returns_only_sensitive_paths_sorted_and_unique():
     assert ci_review_files([
-        "website/src/app.tsx",
+        "README.md",
         ".github/workflows/ci.yml",
-        "website/eslint.config.mjs",
+        "scripts/whatsapp-bridge/eslint.config.mjs",
         ".github/workflows/ci.yml",
     ]) == [
         ".github/workflows/ci.yml",
-        "website/eslint.config.mjs",
+        "scripts/whatsapp-bridge/eslint.config.mjs",
     ]

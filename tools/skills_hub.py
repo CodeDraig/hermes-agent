@@ -131,7 +131,7 @@ class SkillMeta:
     """Minimal metadata returned by search results."""
     name: str
     description: str
-    source: str           # "hermes-index", "github", "clawhub", "lobehub"
+    source: str           # "github", "clawhub", "lobehub", etc.
     identifier: str       # source-specific ID (e.g. "openai/skills/skill-creator")
     trust_level: str      # "builtin" | "trusted" | "community"
     repo: Optional[str] = None
@@ -510,13 +510,9 @@ class SkillSource(ABC):
 # GitHub source adapter
 # ---------------------------------------------------------------------------
 
-# Map a GitHub tap repo (owner/repo) to the human-facing provider label used
-# in the docs-site catalog (website/scripts/extract-skills.py::GITHUB_TAP_LABELS).
-# The runtime index collapses every GitHub tap into source="github"; stamping
-# this provider label onto each skill's ``extra`` keeps the per-tap identity
-# (NVIDIA / OpenAI / Anthropic / HuggingFace / gstack / ...) searchable and
-# filterable at the CLI without disturbing the source="github" dedup / floor /
-# index-skip logic that keys off the bare source id.
+# Map a GitHub tap repo (owner/repo) to its human-facing provider label.
+# Stamping this label onto each skill's ``extra`` keeps the per-tap identity
+# searchable and filterable without disturbing source="github" deduplication.
 GITHUB_TAP_PROVIDERS = {
     "openai/skills": "OpenAI",
     "anthropics/skills": "Anthropic",
@@ -3808,292 +3804,6 @@ def check_for_skill_updates(
     return results
 
 
-# ---------------------------------------------------------------------------
-# Hermes centralized index source
-# ---------------------------------------------------------------------------
-
-HERMES_INDEX_URL = "https://hermes-agent.nousresearch.com/docs/api/skills-index.json"
-HERMES_INDEX_TTL = 6 * 3600  # 6 hours
-
-
-def _hermes_index_cache_file() -> Path:
-    return _index_cache_dir() / "hermes-index.json"
-
-
-def _load_hermes_index() -> Optional[dict]:
-    """Fetch the centralized skills index, with local cache.
-
-    The index is a JSON file hosted on the docs site, rebuilt daily by CI.
-    We cache it locally for HERMES_INDEX_TTL seconds to avoid repeated
-    downloads within a session.
-    """
-    # Check local cache
-    hermes_index_cache_file = _hermes_index_cache_file()
-    if hermes_index_cache_file.exists():
-        try:
-            age = time.time() - hermes_index_cache_file.stat().st_mtime
-            if age < HERMES_INDEX_TTL:
-                return json.loads(hermes_index_cache_file.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            pass
-
-    # Fetch from docs site.
-    #
-    # We deliberately DON'T let httpx negotiate Brotli here.  The index is a
-    # large body (tens of MB); httpx's streaming Brotli decoder, backed by
-    # brotlicffi 1.2.0.1 (pinned for Discord attachment decoding), trips over
-    # its own output_buffer_limit on payloads this size and raises
-    # DecodingError("brotli: decoder process called with data when
-    # 'can_accept_more_data()' is False").  That surfaces as an empty Skills
-    # Hub (blank Browse-hub landing, index contributes 0 search hits) because
-    # the error is caught below and we silently fall back to a (often absent)
-    # stale cache.  Requesting gzip/deflate sidesteps the broken decoder while
-    # still compressing the transfer.  The identity retry is belt-and-braces
-    # for any future proxy that ignores the header and returns Brotli anyway.
-    data = None
-    for accept_encoding in ("gzip, deflate", "identity"):
-        try:
-            resp = httpx.get(
-                HERMES_INDEX_URL,
-                timeout=15,
-                follow_redirects=True,
-                headers={"Accept-Encoding": accept_encoding},
-            )
-            if resp.status_code != 200:
-                logger.debug("Hermes index fetch returned %d", resp.status_code)
-                return _load_stale_index_cache()
-            data = resp.json()
-            break
-        except httpx.DecodingError as e:
-            # Content-Encoding decode failed — retry once uncompressed before
-            # giving up on the network path entirely.
-            logger.debug(
-                "Hermes index decode failed (Accept-Encoding=%s): %s",
-                accept_encoding,
-                e,
-            )
-            continue
-        except (httpx.HTTPError, json.JSONDecodeError) as e:
-            logger.debug("Hermes index fetch failed: %s", e)
-            return _load_stale_index_cache()
-
-    if data is None:
-        return _load_stale_index_cache()
-
-    # Validate structure
-    if not isinstance(data, dict) or "skills" not in data:
-        return _load_stale_index_cache()
-
-    # Cache locally
-    try:
-        hermes_index_cache_file.parent.mkdir(parents=True, exist_ok=True)
-        hermes_index_cache_file.write_text(json.dumps(data), encoding="utf-8")
-    except OSError:
-        pass
-
-    return data
-
-
-def _load_stale_index_cache() -> Optional[dict]:
-    """Fall back to stale cache when the network fetch fails."""
-    hermes_index_cache_file = _hermes_index_cache_file()
-    if hermes_index_cache_file.exists():
-        try:
-            return json.loads(hermes_index_cache_file.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            pass
-    return None
-
-
-class HermesIndexSource(SkillSource):
-    """Skill source backed by the centralized Hermes Skills Index.
-
-    The index is a JSON catalog published to the docs site and rebuilt
-    daily by CI.  It contains metadata + resolved GitHub paths for every
-    skill, eliminating the need for users to hit the GitHub API for
-    search or path discovery.
-
-    When the index is unavailable, all methods return empty / None so
-    downstream sources take over transparently.
-    """
-
-    def __init__(self, auth: GitHubAuth):
-        self._index: Optional[dict] = None
-        self._loaded = False
-        self.auth = auth
-        # Lazily create GitHubSource for fetch — only used when actually
-        # downloading files, which requires real GitHub API calls.
-        self._github: Optional[GitHubSource] = None
-
-    def _ensure_loaded(self) -> dict:
-        if not self._loaded:
-            self._index = _load_hermes_index()
-            self._loaded = True
-        return self._index or {}
-
-    def _get_github(self) -> GitHubSource:
-        if self._github is None:
-            self._github = GitHubSource(auth=self.auth)
-        return self._github
-
-    def source_id(self) -> str:
-        return "hermes-index"
-
-    @property
-    def is_available(self) -> bool:
-        """Whether the index is loaded and has skills."""
-        index = self._ensure_loaded()
-        return bool(index.get("skills"))
-
-    def trust_level_for(self, identifier: str) -> str:
-        index = self._ensure_loaded()
-        for skill in index.get("skills", []):
-            if skill.get("identifier") == identifier:
-                return skill.get("trust_level", "community")
-        return "community"
-
-    def search(self, query: str, limit: int = 10) -> List[SkillMeta]:
-        """Search the cached index.  Zero API calls.
-
-        Matches against name, description, tags, identifier, and the per-tap
-        ``extra.provider`` label (so a query like ``nvidia`` surfaces the
-        ``NVIDIA/skills/...`` entries even though their ``source`` is the bare
-        ``github``).  Results are scored and ranked (exact name > name prefix >
-        whole-word > substring) rather than returned in raw index order and
-        truncated at the first ``limit`` hits — that earlier break-at-limit
-        behaviour returned an arbitrary file-order slice and buried the most
-        relevant skills.
-        """
-        index = self._ensure_loaded()
-        skills = index.get("skills", [])
-        if not skills:
-            return []
-
-        if not query.strip():
-            # No query — return featured/popular (index order)
-            return [self._to_meta(s) for s in skills[:limit]]
-
-        query_lower = query.lower()
-        scored: List[Tuple[int, int, dict]] = []
-        for i, s in enumerate(skills):
-            name = str(s.get("name", "")).lower()
-            provider = str((s.get("extra") or {}).get("provider", "")).lower()
-            haystack = " ".join([
-                name,
-                str(s.get("description", "")).lower(),
-                " ".join(str(t).lower() for t in s.get("tags", [])),
-                str(s.get("identifier", "")).lower(),
-                provider,
-            ])
-            if query_lower not in haystack:
-                continue
-            # Lower score sorts first.
-            if name == query_lower:
-                score = 0
-            elif name.startswith(query_lower):
-                score = 1
-            elif provider == query_lower:
-                score = 2
-            elif query_lower in name.split() or query_lower in provider.split():
-                score = 3
-            elif query_lower in name:
-                score = 4
-            else:
-                score = 5
-            # i (original index order) is the stable tiebreaker.
-            scored.append((score, i, s))
-
-        scored.sort(key=lambda x: (x[0], x[1]))
-        return [self._to_meta(s) for _, _, s in scored[:limit]]
-
-    def fetch(self, identifier: str) -> Optional[SkillBundle]:
-        """Fetch a skill using the resolved path from the index.
-
-        If the index has a ``resolved_github_id`` for this skill, we skip
-        the entire candidate/discovery chain and go directly to GitHub
-        with the exact path.  This reduces install from ~31 API calls to
-        just the file content downloads (~5-22 depending on skill size).
-        """
-        index = self._ensure_loaded()
-        entry = self._find_entry(identifier, index)
-        if not entry:
-            return None
-
-        # Use resolved path if available
-        resolved = entry.get("resolved_github_id")
-        if resolved:
-            bundle = self._get_github().fetch(resolved)
-            if bundle:
-                bundle.source = entry.get("source", "hermes-index")
-                bundle.identifier = identifier
-                return bundle
-
-        # Fall back to identifier-based fetch via repo/path
-        repo = entry.get("repo", "")
-        path = entry.get("path", "")
-        if repo and path:
-            github_id = f"{repo}/{path}"
-            bundle = self._get_github().fetch(github_id)
-            if bundle:
-                bundle.source = entry.get("source", "hermes-index")
-                bundle.identifier = identifier
-                return bundle
-
-        return None
-
-    def inspect(self, identifier: str) -> Optional[SkillMeta]:
-        """Return metadata from the index.  Zero API calls."""
-        index = self._ensure_loaded()
-        entry = self._find_entry(identifier, index)
-        if entry:
-            return self._to_meta(entry)
-        return None
-
-    def _find_entry(self, identifier: str, index: dict) -> Optional[dict]:
-        """Look up a skill in the index by identifier or name."""
-        skills = index.get("skills", [])
-
-        # Exact identifier match
-        for s in skills:
-            if s.get("identifier") == identifier:
-                return s
-
-        # Try without source prefix (e.g. "skills-sh/" stripped)
-        normalized = identifier
-        for prefix in ("skills-sh/", "skills.sh/", "github/", "clawhub/"):
-            if identifier.startswith(prefix):
-                normalized = identifier[len(prefix):]
-                break
-
-        # Match on normalized identifier or name
-        for s in skills:
-            sid = s.get("identifier", "")
-            # Strip prefix from stored identifier too
-            stored_normalized = sid
-            for prefix in ("skills-sh/", "skills.sh/", "github/", "clawhub/"):
-                if sid.startswith(prefix):
-                    stored_normalized = sid[len(prefix):]
-                    break
-            if stored_normalized == normalized:
-                return s
-
-        return None
-
-    @staticmethod
-    def _to_meta(entry: dict) -> SkillMeta:
-        return SkillMeta(
-            name=entry.get("name", ""),
-            description=entry.get("description", ""),
-            source=entry.get("source", "hermes-index"),
-            identifier=entry.get("identifier", ""),
-            trust_level=entry.get("trust_level", "community"),
-            repo=entry.get("repo"),
-            path=entry.get("path"),
-            tags=entry.get("tags", []),
-            extra=entry.get("extra", {}),
-        )
-
-
 def create_source_router(auth: Optional[GitHubAuth] = None) -> List[SkillSource]:
     """
     Create all configured source adapters.
@@ -4106,7 +3816,6 @@ def create_source_router(auth: Optional[GitHubAuth] = None) -> List[SkillSource]
     extra_taps = taps_mgr.list_taps()
 
     sources: List[SkillSource] = [
-        HermesIndexSource(auth=auth), # Centralized index (search + resolved install paths)
         SkillsShSource(auth=auth),
         WellKnownSkillSource(),
         UrlSource(),                  # Direct HTTP(S) URL to a SKILL.md file
@@ -4150,35 +3859,15 @@ def parallel_search_sources(
     per_source_limits = per_source_limits or {}
 
     # A provider filter (e.g. "nvidia", "openai") targets GitHub-tap skills
-    # that the runtime index stores under source="github" with an
-    # ``extra.provider`` label. It is NOT a real source id, so source-level
-    # selection must treat it like "all" (the index / github source carries
-    # the data); the per-provider narrowing happens downstream on the merged
-    # results (see ``_filter_results_by_provider``).
+    # that carry an ``extra.provider`` label. It is not a real source id, so
+    # source selection treats it like "all" and narrows merged results later.
     _provider_filter = source_filter.strip().lower() in _PROVIDER_FILTER_VALUES
     _effective_filter = "all" if _provider_filter else source_filter
 
     active: List[SkillSource] = []
-    # When the centralized index is available and the user hasn't filtered
-    # to a specific source, skip external API sources (github, skills-sh,
-    # clawhub, etc.) — the index already has their data.  This avoids
-    # ~70 GitHub API calls per search for unauthenticated users.
-    _index_available = False
-    _api_source_ids = frozenset({"github", "skills-sh", "clawhub",
-                                  "lobehub", "well-known"})
-    if _effective_filter == "all":
-        for src in sources:
-            if (src.source_id() == "hermes-index"
-                    and getattr(src, "is_available", False)):
-                _index_available = True
-                break
-
     for src in sources:
         sid = src.source_id()
         if _effective_filter != "all" and sid != _effective_filter:
-            continue
-        # Skip external API sources when the index covers them
-        if _index_available and sid in _api_source_ids:
             continue
         active.append(src)
 

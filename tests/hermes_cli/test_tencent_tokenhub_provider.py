@@ -294,13 +294,13 @@ class TestTencentTokenhubAgentInit:
 
 
 class TestTencentTokenhubModelCatalogJSON:
-    """Verify tencent/hy3:free and tencent/hy3 are present in the website model-catalog.json."""
+    """Verify tencent/hy3:free and tencent/hy3 are present in model-catalog.json."""
 
     def test_in_model_catalog_json(self):
         catalog_path = os.path.join(
             os.path.dirname(__file__),
             "..", "..",
-            "website", "static", "api", "model-catalog.json",
+            "catalog", "model-catalog.json",
         )
         if not os.path.isfile(catalog_path):
             pytest.skip("model-catalog.json not found in workspace")

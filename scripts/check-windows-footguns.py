@@ -77,7 +77,6 @@ EXCLUDED_DIRS = {
     ".mypy_cache",
     ".pytest_cache",
     "site-packages",
-    "website/build",
 }
 
 # File globs we never scan (beyond the dirs above).

@@ -619,43 +619,6 @@ class TestGithubProviderLabeling:
         # ... but the per-tap provider label rides along in extra
         assert meta.extra.get("provider") == "NVIDIA"
 
-def _make_index_source(skills):
-    """Build a HermesIndexSource pre-loaded with a fixed skill list."""
-    from tools.skills_hub import HermesIndexSource
-    src = HermesIndexSource(auth=GitHubAuth())
-    src._index = {"skills": skills}
-    src._loaded = True
-    return src
-
-
-class TestHermesIndexSearch:
-    def test_search_matches_identifier_and_provider(self):
-        # NVIDIA skill whose name/description does NOT contain "nvidia" — only
-        # the identifier and the provider label do. The old substring-only
-        # search over name/description/tags would miss it entirely.
-        skills = [
-            {
-                "name": "accelerated-computing-cudf",
-                "description": "GPU DataFrames.",
-                "source": "github",
-                "identifier": "NVIDIA/skills/skills/accelerated-computing-cudf",
-                "tags": [],
-                "extra": {"provider": "NVIDIA"},
-            },
-            {
-                "name": "unrelated",
-                "description": "nothing here",
-                "source": "clawhub",
-                "identifier": "clawhub/unrelated",
-                "tags": [],
-            },
-        ]
-        src = _make_index_source(skills)
-        hits = src.search("nvidia", limit=25)
-        ids = [h.identifier for h in hits]
-        assert "NVIDIA/skills/skills/accelerated-computing-cudf" in ids
-        assert "clawhub/unrelated" not in ids
-
 class TestProviderFilter:
     def test_filter_results_by_provider_narrows_exactly(self):
         from tools.skills_hub import _filter_results_by_provider
@@ -672,7 +635,7 @@ class TestProviderFilter:
         oai = _filter_results_by_provider(results, "openai")
         assert [r.identifier for r in oai] == ["openai/skills/b"]
 
-    def test_unified_search_provider_filter_keeps_index_source(self):
+    def test_unified_search_provider_filter_keeps_github_source(self):
         # A provider filter must NOT be treated as a real source id (which would
         # exclude every source and return nothing). It selects sources like
         # "all", then narrows the merged results by provider.
@@ -682,8 +645,7 @@ class TestProviderFilter:
         other = SkillMeta(name="cuda-clone", description="gpu", source="clawhub",
                           identifier="clawhub/cuda-clone", trust_level="community")
         src = MagicMock()
-        src.source_id.return_value = "hermes-index"
-        src.is_available = True
+        src.source_id.return_value = "github"
         src.search.return_value = [nv, other]
         results = unified_search("cuda", [src], source_filter="nvidia", limit=25)
         assert [r.identifier for r in results] == ["NVIDIA/skills/cuda"]
@@ -1520,76 +1482,3 @@ class TestParallelSearchSourcesTimeout:
         assert source_counts.get("a") == 1
         assert source_counts.get("b") == 1
         assert len(all_results) == 2
-
-
-# ---------------------------------------------------------------------------
-# _load_hermes_index — centralized index fetch (Browse-hub landing / search)
-# ---------------------------------------------------------------------------
-
-
-class TestLoadHermesIndex:
-    """Regression coverage for the Skills-Hub index fetch.
-
-    The centralized index is a large body served with Content-Encoding: br.
-    httpx's streaming Brotli decoder (brotlicffi 1.2.0.1, pinned for Discord
-    attachment decoding) raises DecodingError on payloads this size, which
-    used to cascade into a silently-empty Skills Hub. The fetch must therefore
-    (a) not ask for Brotli, and (b) survive a DecodingError by retrying
-    uncompressed instead of blanking the hub.
-    """
-
-    @staticmethod
-    def _isolate_cache(monkeypatch, tmp_path):
-        """Point the on-disk cache at an empty tmp dir so no real cache leaks in."""
-        import tools.skills_hub as hub
-
-        cache_file = tmp_path / "hermes-index.json"
-        monkeypatch.setattr(hub, "_hermes_index_cache_file", lambda: cache_file)
-        return cache_file
-
-    def test_fetch_does_not_request_brotli(self, monkeypatch, tmp_path):
-        """The index fetch must not negotiate Brotli (the broken decoder path)."""
-        import tools.skills_hub as hub
-
-        self._isolate_cache(monkeypatch, tmp_path)
-
-        captured = {}
-
-        def fake_get(url, *args, **kwargs):
-            captured["headers"] = kwargs.get("headers", {})
-            resp = MagicMock()
-            resp.status_code = 200
-            resp.json.return_value = {"skills": [{"name": "x"}]}
-            return resp
-
-        monkeypatch.setattr(hub.httpx, "get", fake_get)
-
-        data = hub._load_hermes_index()
-        assert data == {"skills": [{"name": "x"}]}
-
-        accept = captured["headers"].get("Accept-Encoding", "")
-        assert "br" not in [tok.strip() for tok in accept.split(",")], (
-            f"index fetch must not request Brotli, got Accept-Encoding={accept!r}"
-        )
-
-    def test_persistent_decoding_error_falls_back_to_stale_cache(
-        self, monkeypatch, tmp_path
-    ):
-        """If every attempt fails to decode, serve the stale cache rather than None."""
-        import tools.skills_hub as hub
-
-        cache_file = self._isolate_cache(monkeypatch, tmp_path)
-        cache_file.write_text(json.dumps({"skills": [{"name": "stale"}]}))
-        # Force the cache to look expired so the network path runs.
-        old = time.time() - (hub.HERMES_INDEX_TTL + 100)
-        import os
-
-        os.utime(cache_file, (old, old))
-
-        def fake_get(url, *args, **kwargs):
-            raise httpx.DecodingError("brotli boom")
-
-        monkeypatch.setattr(hub.httpx, "get", fake_get)
-
-        data = hub._load_hermes_index()
-        assert data == {"skills": [{"name": "stale"}]}

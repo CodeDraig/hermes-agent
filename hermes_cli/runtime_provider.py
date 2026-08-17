@@ -2119,7 +2119,7 @@ def resolve_runtime_provider(
             # chain.  Accept both `key_env` (Hermes canonical — matches the
             # custom_providers field name) and `api_key_env` (documented in the
             # Azure Foundry guide and read by most Hermes-compatible importers).
-            # Matches the config.yaml examples in website/docs/guides/azure-foundry.md.
+            # Matches the config.yaml examples in README.md
             token = ""
             for hint_key in ("key_env", "api_key_env"):
                 env_var = str(model_cfg.get(hint_key) or "").strip()

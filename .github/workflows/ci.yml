@@ -42,7 +42,6 @@ jobs:
     outputs:
       python: ${{ steps.classify.outputs.python }}
       python_prod: ${{ steps.classify.outputs.python_prod }}
-      site: ${{ steps.classify.outputs.site }}
       scan: ${{ steps.classify.outputs.scan }}
       deps: ${{ steps.classify.outputs.deps }}
       uv_lock: ${{ steps.classify.outputs.uv_lock }}
@@ -96,12 +95,6 @@ jobs:
     # Windows-only, and only for PRs that touch install.ps1 or its tests.
     if: needs.detect.outputs.installer == 'true'
     uses: ./.github/workflows/installer-tests.yml
-
-  docs-site:
-    name: Docs Site
-    needs: detect
-    if: needs.detect.outputs.site == 'true'
-    uses: ./.github/workflows/docs-site-checks.yml
 
   history-check:
     name: Deny unrelated histories
@@ -180,7 +173,6 @@ jobs:
       - tests-os
       - lint
       - installer-tests
-      - docs-site
       - history-check
       - contributor-check
       - uv-lockfile

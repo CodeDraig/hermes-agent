@@ -21,7 +21,7 @@ def test_ci_review_status_links_to_each_sensitive_file_change():
         mcp_catalog=False,
         supply_chain=False,
         label_present=False,
-        ci_review_files='[".github/workflows/ci.yml", "website/docusaurus.config.ts"]',
+        ci_review_files='[".github/workflows/ci.yml", "scripts/whatsapp-bridge/eslint.config.mjs"]',
         repo_url="https://github.com/nousresearch/hermes-agent",
         base_sha="base456",
         head_sha="abc123",
@@ -30,7 +30,7 @@ def test_ci_review_status_links_to_each_sensitive_file_change():
     assert results[0]["detail"] == (
         "**Sensitive files changed:**\n"
         "- [`.github/workflows/ci.yml`](https://github.com/nousresearch/hermes-agent/compare/base456...abc123#diff-b803fcb7f17ed9235f1e5cb1fcd2f5d3b2838429d4368ae4c57ce4436577f03f)\n"
-        "- [`website/docusaurus.config.ts`](https://github.com/nousresearch/hermes-agent/compare/base456...abc123#diff-a45471520795db6e46840d1ba2a82c1f8a2841039bd60fb50624488c5f192438)"
+        "- [`scripts/whatsapp-bridge/eslint.config.mjs`](https://github.com/nousresearch/hermes-agent/compare/base456...abc123#diff-68e14fd1792ca6c7a5fb705cba52c5191983899b72249f5efd72556ad0e707b3)"
     )
 
 

@@ -21,7 +21,7 @@ Catalog policy:
   .env-is-for-secrets rule). Non-secret env vars also go to .env to keep
   one credential store.
 
-See website/docs/user-guide/mcp-catalog.md for user docs.
+See README.md for user docs.
 See references/mcp-catalog.md (this repo's skill) for the manifest schema.
 """
 
