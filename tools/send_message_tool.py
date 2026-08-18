@@ -171,8 +171,8 @@ def _handle_react(args, remove=False):
     if not chat_id:
         return tool_error(f"No chat specified and no home channel set for {platform_name}.")
     try:
-        from gateway.run import _gateway_runner_ref
-        runner = _gateway_runner_ref()
+        from gateway.runtime_registry import get_runner
+        runner = get_runner()
     except Exception:
         runner = None
     adapter = runner.adapters.get(platform) if runner is not None else None
@@ -350,8 +350,8 @@ async def _send_via_adapter(
 ):
     """Use a live retained adapter, falling back to its internal standalone sender."""
     try:
-        from gateway.run import _gateway_runner_ref
-        runner = _gateway_runner_ref()
+        from gateway.runtime_registry import get_runner
+        runner = get_runner()
     except Exception:
         runner = None
     adapter = runner.adapters.get(platform) if runner is not None else None

@@ -1,5 +1,3 @@
-import agent.interruption as interruption
-import agent.lifecycle as lifecycle
 """
 OpenAI-compatible API server platform adapter.
 
@@ -733,7 +731,7 @@ def _reap_disconnected_agent_processes(
 
         is_still_current = _epoch_still_current
 
-    from gateway.run import _reap_gateway_turn_processes
+    from gateway.turn_processes import _reap_gateway_turn_processes
 
     threading.Thread(
         target=_reap_gateway_turn_processes,
@@ -1542,9 +1540,9 @@ class APIServerAdapter(BasePlatformAdapter):
     def _gateway_is_draining() -> bool:
         """Whether the owning gateway currently refuses new agent turns."""
         try:
-            from gateway.run import _gateway_runner_ref
+            from gateway.runtime_registry import get_runner
 
-            runner = _gateway_runner_ref()
+            runner = get_runner()
             return bool(
                 runner
                 and (
@@ -1890,14 +1888,14 @@ class APIServerAdapter(BasePlatformAdapter):
                 from agent.secret_scope import is_multiplex_active
 
                 if is_multiplex_active():
-                    from gateway.run import _profile_runtime_scope
+                    from gateway.profile_routing import _profile_runtime_scope
                     from hermes_constants import get_hermes_home
 
                     return _profile_runtime_scope(get_hermes_home())
             except Exception:
                 pass
             return nullcontext()
-        from gateway.run import _profile_runtime_scope
+        from gateway.profile_routing import _profile_runtime_scope
         from hermes_cli.profiles import get_profile_dir
 
         return _profile_runtime_scope(get_profile_dir(profile))
@@ -2426,8 +2424,8 @@ class APIServerAdapter(BasePlatformAdapter):
         if not session_key:
             return None
         try:
-            from gateway.run import _gateway_runner_ref
-            runner = _gateway_runner_ref()
+            from gateway.runtime_registry import get_runner
+            runner = get_runner()
             if runner is None:
                 return None
             try:
@@ -2440,7 +2438,8 @@ class APIServerAdapter(BasePlatformAdapter):
                     session_key,
                     exc_info=True,
                 )
-            override = runner._session_model_overrides.get(session_key)
+            state = runner.sessions.peek(session_key)
+            override = state.conversation.model_override if state is not None else None
             return dict(override) if isinstance(override, dict) else None
         except Exception:
             return None
@@ -2530,13 +2529,13 @@ class APIServerAdapter(BasePlatformAdapter):
         be resolved.
         """
         from agent.agent_init import create_agent
-        from gateway.run import (
+        from gateway.run import GatewayRunner
+        from gateway.runtime_config import (
             _checkpoint_agent_kwargs,
             _current_max_iterations,
-            _resolve_runtime_agent_kwargs,
-            _resolve_gateway_model,
             _load_gateway_config,
-            GatewayRunner,
+            _resolve_gateway_model,
+            _resolve_runtime_agent_kwargs,
         )
         from hermes_cli.tools_config import _get_platform_tools
 
@@ -2592,7 +2591,7 @@ class APIServerAdapter(BasePlatformAdapter):
                 )
             except Exception as exc:
                 try:
-                    from gateway.run import _resolve_runtime_agent_kwargs_for_provider
+                    from gateway.runtime_config import _resolve_runtime_agent_kwargs_for_provider
 
                     return _resolve_runtime_agent_kwargs_for_provider(provider_name)
                 except Exception:
@@ -2860,7 +2859,7 @@ class APIServerAdapter(BasePlatformAdapter):
         # alive — gateway_running is True. Derive busy/drainable from the same
         # shared contract /api/status uses so the two surfaces never disagree.
         active_api_runs, process_depth, active_delegations = self._readiness_work_counts()
-        from gateway.run import _resolve_gateway_model
+        from gateway.runtime_config import _resolve_gateway_model
 
         readiness = collect_runtime_readiness(
             configured_model=_resolve_gateway_model(),
@@ -5824,9 +5823,9 @@ class APIServerAdapter(BasePlatformAdapter):
             runner = self.gateway_runner or request.app.get("gateway_runner")
             if runner is None:
                 try:
-                    from gateway.run import _gateway_runner_ref
+                    from gateway.runtime_registry import get_runner
 
-                    runner = _gateway_runner_ref()
+                    runner = get_runner()
                 except Exception:
                     runner = None
             adapters = getattr(runner, "adapters", None) or None
@@ -6671,7 +6670,7 @@ class APIServerAdapter(BasePlatformAdapter):
                     # transport: API/desktop clients would otherwise receive the
                     # raw command Tirith flagged. Reuse the gateway seam.
                     if "command" in event:
-                        from gateway.run import _redact_approval_command
+                        from gateway.response_filters import _redact_approval_command
 
                         event["command"] = _redact_approval_command(event.get("command"))
                     event.update({

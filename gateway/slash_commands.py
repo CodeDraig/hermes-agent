@@ -7,21 +7,16 @@ lifting them into a mixin that ``GatewayRunner`` inherits keeps every
 ``self._handle_*_command`` dispatch + test reference working via the MRO, while
 removing the bulk from run.py.
 
-Module-level run.py helpers a handler needs (``_hermes_home``,
-``_load_gateway_config``, ``_resolve_gateway_model``, etc.) are imported lazily
-inside the handler body — a deferred ``from gateway.run import ...`` resolves at
-call time (run.py fully loaded by then), avoiding an import cycle.
+Handlers import shared helpers from their responsibility-owning modules rather
+than reaching back through the gateway entry point.
 """
 
 from __future__ import annotations
 
-import agent.lifecycle as lifecycle
-import agent.status_output as status_output
 
 
 import asyncio
 import dataclasses
-import hashlib
 import inspect
 import logging
 import os
@@ -134,13 +129,13 @@ class GatewaySlashCommandsMixin:
 
         # Get existing session key
         session_key = self._session_key_for_source(source)
-        self._invalidate_session_run_generation(session_key, reason="session_reset")
+        self.sessions.invalidate_run_generation(session_key, reason="session_reset")
         # Evict the running-agent slot now that the generation is bumped. The
         # in-flight run's own guarded release (run_generation=old) will return
         # False and leave its dead agent behind; clearing here keeps the slot
         # from becoming a zombie that silently drops all later messages (#28686).
         # Idempotent, so the run's finally calling it again is harmless.
-        self._release_running_agent_state(session_key)
+        self._release_turn_state(session_key)
 
         # Snapshot the old entry so on_session_finalize can report the
         # expiring session id before reset_session() rotates it.
@@ -158,11 +153,11 @@ class GatewaySlashCommandsMixin:
         # and the bot goes silent until restart (#35994). Offload it to a worker
         # thread (via the contextvar-preserving executor helper) with a bounded
         # timeout so the loop is never blocked.
-        _cache_lock = getattr(self, "_agent_cache_lock", None)
+        _cache_lock = self.agent_cache.lock
         if _cache_lock is not None:
             with _cache_lock:
-                _cached = self._agent_cache.get(session_key)
-                _old_agent = _cached[0] if isinstance(_cached, tuple) else _cached if _cached else None
+                _cached = self.agent_cache.entries.get(session_key)
+                _old_agent = _cached.agent if _cached else None
             if _old_agent is not None:
                 try:
                     await asyncio.wait_for(
@@ -187,7 +182,7 @@ class GatewaySlashCommandsMixin:
                         "reset: %s (#35994)",
                         session_key, cleanup_exc,
                     )
-        self._evict_cached_agent(session_key)
+        self.agent_cache.evict(session_key)
 
         # Conversation boundary: clear ALL conversation-scoped per-session
         # state (model/reasoning overrides, one-turn restores, model notes,
@@ -367,7 +362,7 @@ class GatewaySlashCommandsMixin:
         if multiplexed:
             profile_name = (getattr(source, "profile", "") or "").strip()
             try:
-                from gateway.run import _profile_runtime_scope
+                from gateway.profile_routing import _profile_runtime_scope
 
                 profile_home = self._resolve_profile_home_for_source(source)
                 with _profile_runtime_scope(profile_home):
@@ -562,7 +557,8 @@ class GatewaySlashCommandsMixin:
 
     async def _handle_status_command(self, event: MessageEvent) -> str:
         """Handle /status command."""
-        from gateway.run import _AGENT_PENDING_SENTINEL, _load_gateway_config, _resolve_gateway_model
+        from gateway.session_state import AGENT_PENDING as _AGENT_PENDING_SENTINEL
+        from gateway.runtime_config import _load_gateway_config, _resolve_gateway_model
 
         source = event.source
         session_entry = await self.async_session_store.get_or_create_session(source)
@@ -573,12 +569,13 @@ class GatewaySlashCommandsMixin:
         # starting/pending run should not be treated as a fully usable agent for
         # model/context display, but it still occupies the session slot.
         session_key = session_entry.session_key
-        agent = self._running_agents.get(session_key)
+        state = self.sessions.peek(session_key)
+        agent = state.turn.agent if state is not None else None
         is_running = agent is not None and agent is not _AGENT_PENDING_SENTINEL
 
         # Count pending /queue follow-ups (slot + overflow).
         adapter = self.adapters.get(source.platform) if source else None
-        queue_depth = self._queue_depth(session_key, adapter=adapter)
+        queue_depth = self.sessions.queue_depth(session_key, adapter=adapter)
 
         def _clean_str(value: Any) -> str:
             return value.strip() if isinstance(value, str) and value.strip() else ""
@@ -633,14 +630,14 @@ class GatewaySlashCommandsMixin:
         # turns without making billing/account calls.
         status_agent = agent if is_running else None
         if status_agent is None:
-            cache_lock = getattr(self, "_agent_cache_lock", None)
-            cache = getattr(self, "_agent_cache", None)
+            cache_lock = self.agent_cache.lock
+            cache = self.agent_cache.entries
             if cache_lock is not None and cache is not None:
                 try:
                     with cache_lock:
                         cached = cache.get(session_key)
                     if cached:
-                        status_agent = cached[0]
+                        status_agent = cached.agent
                 except Exception:
                     status_agent = None
 
@@ -757,7 +754,7 @@ class GatewaySlashCommandsMixin:
         ``/context all`` appends the expanded per-skill / per-toolset cost
         listings (requires a resident agent).
         """
-        from gateway.run import _AGENT_PENDING_SENTINEL
+        from gateway.session_state import AGENT_PENDING as _AGENT_PENDING_SENTINEL
 
         source = event.source
         session_key = self._session_key_for_source(source)
@@ -765,16 +762,17 @@ class GatewaySlashCommandsMixin:
         expanded = event.get_command_args().strip().lower() in {"all", "full", "details"}
 
         # Try running agent first (mid-turn), then cached agent (between turns).
-        agent = self._running_agents.get(session_key)
+        state = self.sessions.peek(session_key)
+        agent = state.turn.agent if state is not None else None
         if not agent or agent is _AGENT_PENDING_SENTINEL:
-            cache_lock = getattr(self, "_agent_cache_lock", None)
-            cache = getattr(self, "_agent_cache", None)
+            cache_lock = self.agent_cache.lock
+            cache = self.agent_cache.entries
             if cache_lock is not None and cache is not None:
                 try:
                     with cache_lock:
                         cached = cache.get(session_key)
                     if cached:
-                        agent = cached[0]
+                        agent = cached.agent
                 except Exception:
                     agent = None
         has_agent = bool(agent) and agent is not _AGENT_PENDING_SENTINEL
@@ -1191,18 +1189,16 @@ class GatewaySlashCommandsMixin:
 
     async def _handle_agents_command(self, event: MessageEvent) -> str:
         """Handle /agents command - list active agents and running tasks."""
-        from gateway.run import _AGENT_PENDING_SENTINEL
+        from gateway.session_state import AGENT_PENDING as _AGENT_PENDING_SENTINEL
         from tools.process_registry import format_uptime_short, process_registry
 
         now = time.time()
         current_session_key = self._session_key_for_source(event.source)
 
-        running_agents: dict = getattr(self, "_running_agents", {}) or {}
-        running_started: dict = getattr(self, "_running_agents_ts", {}) or {}
-
         agent_rows: list[dict] = []
-        for session_key, agent in running_agents.items():
-            started = float(running_started.get(session_key, now))
+        for session_key, agent in self.sessions.running_items():
+            state = self.sessions.state(session_key)
+            started = float(state.turn.started_ts or now)
             elapsed = max(0, int(now - started))
             is_pending = agent is _AGENT_PENDING_SENTINEL
             agent_rows.append(
@@ -1351,12 +1347,14 @@ class GatewaySlashCommandsMixin:
 
         The session is preserved so the user can continue the conversation.
         """
-        from gateway.run import _AGENT_PENDING_SENTINEL, _INTERRUPT_REASON_STOP
+        from gateway.message_router import STOP_REQUEST_REASON as _INTERRUPT_REASON_STOP
+        from gateway.session_state import AGENT_PENDING as _AGENT_PENDING_SENTINEL
         source = event.source
         session_entry = await self.async_session_store.get_or_create_session(source)
         session_key = session_entry.session_key
 
-        agent = self._running_agents.get(session_key)
+        state = self.sessions.peek(session_key)
+        agent = state.turn.agent if state is not None else None
         if agent is _AGENT_PENDING_SENTINEL:
             # Force-clean the sentinel so the session is unlocked.
             await self._interrupt_and_clear_session(
@@ -1518,7 +1516,8 @@ class GatewaySlashCommandsMixin:
 
     async def _handle_restart_command(self, event: MessageEvent) -> Union[str, EphemeralReply]:
         """Handle /restart command - drain active work, then restart the gateway."""
-        from gateway.run import _hermes_home
+        from gateway.runtime_config import _gateway_config_home
+        _hermes_home = _gateway_config_home()
         # Defensive idempotency check: if the previous gateway process
         # recorded this same /restart (same platform + update_id) and the new
         # process is seeing it *again*, this is a re-delivery caused by PTB's
@@ -1540,7 +1539,7 @@ class GatewaySlashCommandsMixin:
             return ""
 
         if self._restart_requested or self._draining:
-            count = self._running_agent_count()
+            count = self.sessions.running_count()
             if count:
                 return t("gateway.draining", count=count)
             return EphemeralReply(t("gateway.restart.in_progress"))
@@ -1597,7 +1596,7 @@ class GatewaySlashCommandsMixin:
         except Exception as e:
             logger.debug("Failed to write restart dedup marker: %s", e)
 
-        active_agents = self._running_agent_count()
+        active_agents = self.sessions.running_count()
         # When running under a service manager (systemd/launchd) or inside a
         # Docker/Podman container, use the service restart path: exit with
         # code 75 so the service manager / container restart policy restarts
@@ -1630,7 +1629,7 @@ class GatewaySlashCommandsMixin:
 
     async def _handle_help_command(self, event: MessageEvent) -> str:
         """Handle /help command - list available commands."""
-        from gateway.run import _telegramize_command_mentions
+        from gateway.message_router import _telegramize_command_mentions
         from hermes_cli.slash_exec import CommandContext, execute_command
 
         reply = execute_command("help", CommandContext(surface="gateway"))
@@ -1640,7 +1639,7 @@ class GatewaySlashCommandsMixin:
         )
 
     async def _handle_commands_command(self, event: MessageEvent) -> str:
-        from gateway.run import _telegramize_command_mentions
+        from gateway.message_router import _telegramize_command_mentions
         from hermes_cli.slash_exec import CommandContext, execute_command
         from gateway.config import Platform
 
@@ -1671,7 +1670,8 @@ class GatewaySlashCommandsMixin:
           /model <name> --provider <provider> — switch provider + model
           /model --provider <provider>        — switch to provider, auto-detect model
         """
-        from gateway.run import _hermes_home, _load_gateway_config
+        from gateway.runtime_config import _gateway_config_home, _load_gateway_config
+        _hermes_home = _gateway_config_home()
         from hermes_cli.model_switch import (
             switch_model as _switch_model, parse_model_switch_args,
             resolve_persist_behavior,
@@ -1751,7 +1751,9 @@ class GatewaySlashCommandsMixin:
         # (#30479).
         source = await asyncio.to_thread(self._normalize_source_for_session_key, source)
         session_key = self._session_key_for_source(source)
-        override = self._session_model_overrides.get(session_key, {})
+        state = self.sessions.peek(session_key)
+        override = state.conversation.model_override if state is not None else None
+        override = override or {}
         restore_snapshot = (
             self._snapshot_session_model_override(session_key) if one_turn else None
         )
@@ -1848,14 +1850,14 @@ class GatewaySlashCommandsMixin:
 
                         # Update cached agent in-place
                         cached_entry = None
-                        _cache_lock = getattr(_self, "_agent_cache_lock", None)
-                        _cache = getattr(_self, "_agent_cache", None)
+                        _cache_lock = _self.agent_cache.lock
+                        _cache = _self.agent_cache.entries
                         if _cache_lock and _cache is not None:
                             with _cache_lock:
                                 cached_entry = _cache.get(_session_key)
-                        if cached_entry and cached_entry[0] is not None:
+                        if cached_entry and cached_entry.agent is not None:
                             try:
-                                cached_entry[0].switch_model(
+                                cached_entry.agent.switch_model(
                                     new_model=result.new_model,
                                     new_provider=result.target_provider,
                                     api_key=result.api_key,
@@ -1907,20 +1909,19 @@ class GatewaySlashCommandsMixin:
                         from hermes_cli.model_switch import format_model_for_display
                         _display_cur = format_model_for_display(_cur_model)
                         _display_new = format_model_for_display(result.new_model)
-                        if not hasattr(_self, "_pending_model_notes"):
-                            _self._pending_model_notes = {}
-                        _self._pending_model_notes[_session_key] = (
+                        _self.sessions.state(_session_key).conversation.model_switch_note = (
                             f"[Note: model was just switched from {_display_cur} to {_display_new} "
                             f"via {result.provider_label or result.target_provider}. "
                             f"Adjust your self-identification accordingly.]"
                         )
-                        _self._session_model_overrides[_session_key] = {
+                        _override = {
                             "model": result.new_model,
                             "provider": result.target_provider,
                             "api_key": result.api_key,
                             "base_url": result.base_url,
                             "api_mode": result.api_mode,
                         }
+                        _self.sessions.state(_session_key).conversation.model_override = _override
 
                         # Write-through the non-secret parts to the session
                         # store so the picked model survives a gateway restart
@@ -1928,7 +1929,7 @@ class GatewaySlashCommandsMixin:
                         try:
                             await _self.async_session_store.set_model_override(
                                 _session_key,
-                                _self._session_model_overrides[_session_key],
+                                _override,
                             )
                         except Exception:
                             logger.debug(
@@ -1939,7 +1940,7 @@ class GatewaySlashCommandsMixin:
                         # Evict cached agent so the next turn creates a fresh
                         # agent from the override rather than relying on the
                         # stale cache signature to trigger a rebuild.
-                        _self._evict_cached_agent(_session_key)
+                        _self.agent_cache.evict(_session_key)
 
                         # Persist to config (default) unless --session opted out,
                         # mirroring the text /model command path above so a picked
@@ -2057,7 +2058,7 @@ class GatewaySlashCommandsMixin:
                             return await _on_model_selected_scoped(
                                 _chat_id, model_id, provider_slug
                             )
-                        from gateway.run import _profile_runtime_scope
+                        from gateway.profile_routing import _profile_runtime_scope
 
                         with _profile_runtime_scope(_picker_profile_home):
                             return await _on_model_selected_scoped(
@@ -2160,15 +2161,15 @@ class GatewaySlashCommandsMixin:
             """Apply the resolved switch (agent, session, config) and build the reply."""
             # If there's a cached agent, update it in-place
             cached_entry = None
-            _cache_lock = getattr(self, "_agent_cache_lock", None)
-            _cache = getattr(self, "_agent_cache", None)
+            _cache_lock = self.agent_cache.lock
+            _cache = self.agent_cache.entries
             if _cache_lock and _cache is not None:
                 with _cache_lock:
                     cached_entry = _cache.get(session_key)
 
-            if cached_entry and cached_entry[0] is not None:
+            if cached_entry and cached_entry.agent is not None:
                 try:
-                    cached_entry[0].switch_model(
+                    cached_entry.agent.switch_model(
                         new_model=result.new_model,
                         new_provider=result.target_provider,
                         api_key=result.api_key,
@@ -2216,9 +2217,7 @@ class GatewaySlashCommandsMixin:
             # Display form strips opaque Palantir RID prefixes; the override
             # map below keeps the full ID for the wire.
             from hermes_cli.model_switch import format_model_for_display
-            if not hasattr(self, "_pending_model_notes"):
-                self._pending_model_notes = {}
-            self._pending_model_notes[session_key] = (
+            self.sessions.state(session_key).conversation.model_switch_note = (
                 f"[Note: model was just switched from {format_model_for_display(current_model)} to {format_model_for_display(result.new_model)} "
                 f"via {result.provider_label or result.target_provider}. "
                 f"{'This override applies to the next turn only. ' if one_turn else ''}"
@@ -2226,21 +2225,21 @@ class GatewaySlashCommandsMixin:
             )
 
             # Store session override so next agent creation uses the new model
-            self._session_model_overrides[session_key] = {
+            override = {
                 "model": result.new_model,
                 "provider": result.target_provider,
                 "api_key": result.api_key,
                 "base_url": result.base_url,
                 "api_mode": result.api_mode,
             }
+            state = self.sessions.state(session_key)
+            state.conversation.model_override = override
             if one_turn:
-                if not hasattr(self, "_pending_one_turn_model_restores"):
-                    self._pending_one_turn_model_restores = {}
-                self._pending_one_turn_model_restores[session_key] = (
+                state.conversation.one_turn_restore = (
                     restore_snapshot or {"had_override": False, "override": None}
                 )
-            elif hasattr(self, "_pending_one_turn_model_restores"):
-                self._pending_one_turn_model_restores.pop(session_key, None)
+            else:
+                state.conversation.one_turn_restore = None
 
             # Write-through the non-secret parts (model/provider/base_url) to
             # the session store so the override survives a gateway restart.
@@ -2258,7 +2257,7 @@ class GatewaySlashCommandsMixin:
                 try:
                     await self.async_session_store.set_model_override(
                         session_key,
-                        self._session_model_overrides[session_key],
+                        override,
                     )
                 except Exception:
                     logger.debug(
@@ -2267,7 +2266,7 @@ class GatewaySlashCommandsMixin:
 
             # Evict cached agent so the next turn creates a fresh agent from the
             # override rather than relying on cache signature mismatch detection.
-            self._evict_cached_agent(session_key)
+            self.agent_cache.evict(session_key)
 
             # Persist to config (default) unless --session opted out
             if persist_global:
@@ -2475,7 +2474,7 @@ class GatewaySlashCommandsMixin:
         if result.success and new_value is not None and result.requires_new_session:
             try:
                 session_key = self._session_key_for_source(event.source)
-                self._evict_cached_agent(session_key)
+                self.agent_cache.evict(session_key)
             except Exception:
                 logger.debug("could not evict cached agent after codex-runtime change",
                              exc_info=True)
@@ -2489,7 +2488,7 @@ class GatewaySlashCommandsMixin:
         All resolution/persistence goes through hermes_cli.personality —
         the single owner of personality state on every surface.
         """
-        from gateway.run import _load_gateway_config
+        from gateway.runtime_config import _load_gateway_config
         from hermes_cli.personality import (
             active_personality_name,
             available_personalities,
@@ -2758,7 +2757,7 @@ class GatewaySlashCommandsMixin:
                     message_id=event.message_id,
                     channel_prompt=event.channel_prompt,
                 )
-                self._enqueue_fifo(_quick_key, kickoff_event, adapter)
+                self.sessions.enqueue_fifo(_quick_key, kickoff_event, adapter)
             except Exception as exc:
                 logger.debug("goal kickoff enqueue failed: %s", exc)
 
@@ -2855,15 +2854,15 @@ class GatewaySlashCommandsMixin:
         quick_key = self._session_key_for_source(event.source) if event.source else None
         if not quick_key:
             return "Refine unavailable (no session)."
-        if quick_key in self._running_agents:
+        if self.sessions.is_running(quick_key):
             return "Agent is running — wait for the turn to finish, then /refine."
 
         agent = None
-        cache_lock = getattr(self, "_agent_cache_lock", None)
+        cache_lock = self.agent_cache.lock
         if cache_lock is not None:
             with cache_lock:
-                cached = self._agent_cache.get(quick_key)
-                agent = cached[0] if isinstance(cached, tuple) else cached if cached else None
+                cached = self.agent_cache.entries.get(quick_key)
+                agent = cached.agent if cached else None
         if agent is None:
             return "Nothing to refine yet — send a message first."
 
@@ -3044,7 +3043,7 @@ class GatewaySlashCommandsMixin:
         # transcript and memory providers refresh their per-session caches.
         try:
             session_key = build_session_key(source)
-            self._evict_cached_agent(session_key)
+            self.agent_cache.evict(session_key)
         except Exception as e:
             logger.debug("undo: cached-agent eviction skipped: %s", e)
 
@@ -3059,7 +3058,7 @@ class GatewaySlashCommandsMixin:
 
     async def _handle_set_home_command(self, event: MessageEvent) -> str:
         """Handle /sethome command -- set the current chat as the platform's home channel."""
-        from gateway.run import _home_target_env_var, _home_thread_env_var
+        from gateway.runtime_config import _home_target_env_var, _home_thread_env_var
         source = event.source
         platform_name = source.platform.value if source.platform else "unknown"
         chat_id = source.chat_id
@@ -3158,7 +3157,7 @@ class GatewaySlashCommandsMixin:
 
     async def _handle_rollback_command(self, event: MessageEvent) -> str:
         """Handle /rollback command — list or restore filesystem checkpoints."""
-        from gateway.run import _checkpoint_agent_kwargs, _load_gateway_config
+        from gateway.runtime_config import _checkpoint_agent_kwargs, _load_gateway_config
         from tools.checkpoint_manager import CheckpointManager, format_checkpoint_list
 
         cp_kwargs = _checkpoint_agent_kwargs(_load_gateway_config())
@@ -3282,7 +3281,7 @@ class GatewaySlashCommandsMixin:
 
     async def _gateway_session_diff(self, cwd: str, stat_only: bool) -> str:
         """Cumulative checkpoint-baseline diff for /diff session (gateway)."""
-        from gateway.run import _checkpoint_agent_kwargs, _load_gateway_config
+        from gateway.runtime_config import _checkpoint_agent_kwargs, _load_gateway_config
         from tools.checkpoint_manager import CheckpointManager
 
         cp_kwargs = _checkpoint_agent_kwargs(_load_gateway_config())
@@ -3373,7 +3372,8 @@ class GatewaySlashCommandsMixin:
     def _save_gateway_config_key(self, key_path: str, value) -> bool:
         """Save a dot-separated key to config.yaml (shared by /reasoning, /fast
         and their interactive pickers)."""
-        from gateway.run import _hermes_home
+        from gateway.runtime_config import _gateway_config_home
+        _hermes_home = _gateway_config_home()
         from hermes_cli.config import read_user_config_raw
         config_path = _hermes_home / "config.yaml"
         try:
@@ -3429,7 +3429,7 @@ class GatewaySlashCommandsMixin:
                 return t("gateway.reasoning.reset_global_unsupported")
             self._set_session_reasoning_override(session_key, None)
             self._reasoning_config = self._load_reasoning_config()
-            self._evict_cached_agent(session_key)
+            self.agent_cache.evict(session_key)
             return t("gateway.reasoning.reset_done")
 
         parsed = parse_reasoning_effort(value)
@@ -3440,14 +3440,14 @@ class GatewaySlashCommandsMixin:
         if persist_global:
             if self._save_gateway_config_key("agent.reasoning_effort", value):
                 self._set_session_reasoning_override(session_key, None)
-                self._evict_cached_agent(session_key)
+                self.agent_cache.evict(session_key)
                 return t("gateway.reasoning.set_global", effort=value)
             self._set_session_reasoning_override(session_key, parsed)
-            self._evict_cached_agent(session_key)
+            self.agent_cache.evict(session_key)
             return t("gateway.reasoning.set_global_save_failed", effort=value)
 
         self._set_session_reasoning_override(session_key, parsed)
-        self._evict_cached_agent(session_key)
+        self.agent_cache.evict(session_key)
         return t("gateway.reasoning.set_session", effort=value)
 
     def _reasoning_picker_choices(self, current_effort: str) -> list:
@@ -3527,7 +3527,7 @@ class GatewaySlashCommandsMixin:
             /reasoning show|on               Show model reasoning in responses
             /reasoning hide|off              Hide model reasoning from responses
         """
-        from gateway.run import _platform_config_key
+        from gateway.runtime_config import _platform_config_key
 
         raw_args = event.get_command_args().strip()
         args, persist_global = self._parse_reasoning_command_args(raw_args)
@@ -3539,8 +3539,9 @@ class GatewaySlashCommandsMixin:
         self._show_reasoning = self._load_show_reasoning()
         # Use the session's effective model (session /model override wins over
         # config default) so per-model reasoning_overrides display correctly.
+        _conversation = self.sessions.state(session_key).conversation
         _session_model = str(
-            ((getattr(self, "_session_model_overrides", {}) or {}).get(session_key) or {}).get("model") or ""
+            (_conversation.model_override or {}).get("model") or ""
         )
         self._reasoning_config = self._resolve_session_reasoning_config(
             source=event.source,
@@ -3565,7 +3566,7 @@ class GatewaySlashCommandsMixin:
                 if self._show_reasoning
                 else t("gateway.reasoning.display_off")
             )
-            has_session_override = session_key in (getattr(self, "_session_reasoning_overrides", {}) or {})
+            has_session_override = _conversation.reasoning_override is not None
             scope = (
                 t("gateway.reasoning.scope_session")
                 if has_session_override
@@ -3617,7 +3618,8 @@ class GatewaySlashCommandsMixin:
         Gate changes persist to config.yaml and evict the cached agent so the
         new setting takes effect on the next message.
         """
-        from gateway.run import _hermes_home
+        from gateway.runtime_config import _gateway_config_home
+        _hermes_home = _gateway_config_home()
         from hermes_cli.write_approval_commands import handle_pending_subcommand
         from tools import write_approval as wa
         from tools.memory_tool import load_on_disk_store
@@ -3635,7 +3637,7 @@ class GatewaySlashCommandsMixin:
             user_config.setdefault("memory", {})["write_approval"] = bool(enabled)
             atomic_config_write(config_path, user_config)
             # New setting must take effect next message → drop cached agent.
-            self._evict_cached_agent(session_key)
+            self.agent_cache.evict(session_key)
 
         # Apply approved writes against a fresh on-disk store (the gateway has
         # no long-lived agent; the store persists to the same MEMORY/USER.md).
@@ -3666,7 +3668,8 @@ class GatewaySlashCommandsMixin:
         the write-approval ``diff <id>``; the CLI also has an unrelated
         ``hermes skills diff <name>`` that diffs a bundled skill vs stock.)
         """
-        from gateway.run import _hermes_home
+        from gateway.runtime_config import _gateway_config_home
+        _hermes_home = _gateway_config_home()
         from hermes_cli.write_approval_commands import handle_pending_subcommand
         from tools import write_approval as wa
 
@@ -3690,7 +3693,7 @@ class GatewaySlashCommandsMixin:
             user_config.setdefault("skills", {})["write_approval"] = bool(enabled)
             atomic_config_write(config_path, user_config)
             # New setting must take effect next message → drop cached agent.
-            self._evict_cached_agent(session_key)
+            self.agent_cache.evict(session_key)
 
         out = handle_pending_subcommand(
             wa.SKILLS, args, set_mode_fn=_set_approval,
@@ -3717,7 +3720,7 @@ class GatewaySlashCommandsMixin:
         Session-scoped by default; ``--global`` persists agent.service_tier
         to config.yaml (parity with /model and /reasoning).
         """
-        from gateway.run import _load_gateway_config, _resolve_gateway_model
+        from gateway.runtime_config import _load_gateway_config, _resolve_gateway_model
         from hermes_cli.models import model_supports_fast_mode
 
         raw_args = event.get_command_args().strip().lower()
@@ -3753,15 +3756,15 @@ class GatewaySlashCommandsMixin:
                     self._set_session_service_tier_override(
                         session_key, None, clear=True
                     )
-                    self._evict_cached_agent(session_key)
+                    self.agent_cache.evict(session_key)
                     return t("gateway.fast.saved", label=label)
                 # Config write failed — fall back to a session override so the
                 # user's choice still applies (mirrors /reasoning --global).
                 self._set_session_service_tier_override(session_key, tier)
-                self._evict_cached_agent(session_key)
+                self.agent_cache.evict(session_key)
                 return t("gateway.fast.session_only", label=label)
             self._set_session_service_tier_override(session_key, tier)
-            self._evict_cached_agent(session_key)
+            self.agent_cache.evict(session_key)
             return t("gateway.fast.session_only", label=label)
 
         if not args or args == "status":
@@ -3839,7 +3842,8 @@ class GatewaySlashCommandsMixin:
         ``display.platforms.<platform>.tool_progress`` so each channel can
         have its own verbosity level independently.
         """
-        from gateway.run import _hermes_home, _load_gateway_config, _platform_config_key
+        from gateway.runtime_config import _gateway_config_home, _load_gateway_config, _platform_config_key
+        _hermes_home = _gateway_config_home()
 
         config_path = _hermes_home / "config.yaml"
         platform_key = _platform_config_key(event.source.platform)
@@ -3908,7 +3912,8 @@ class GatewaySlashCommandsMixin:
         are respected but not modified here — edit config.yaml directly for
         per-platform control.
         """
-        from gateway.run import _hermes_home, _load_gateway_config, _platform_config_key, _resolve_gateway_model
+        from gateway.runtime_config import _gateway_config_home, _load_gateway_config, _platform_config_key, _resolve_gateway_model
+        _hermes_home = _gateway_config_home()
         from gateway.runtime_footer import resolve_footer_config
 
         config_path = _hermes_home / "config.yaml"
@@ -3996,7 +4001,7 @@ class GatewaySlashCommandsMixin:
         if not getattr(getattr(self, "config", None), "multiplex_profiles", False):
             return await self._handle_compress_command_inner(event)
 
-        from gateway.run import _profile_runtime_scope
+        from gateway.profile_routing import _profile_runtime_scope
 
         profile_home = self._resolve_profile_home_for_source(event.source)
         with _profile_runtime_scope(profile_home):
@@ -4080,11 +4085,11 @@ class GatewaySlashCommandsMixin:
             # unbound/default "cli" host source — see #50422. _platform_config_key
             # maps LOCAL->"cli" exactly like the live turn, avoiding a new
             # "local" vs "cli" mismatch.
-            from gateway.run import (
+            from gateway.hygiene import (
                 _GATEWAY_HYGIENE_PLATFORM,
-                _platform_config_key,
                 _seed_hygiene_system_prompt,
             )
+            from gateway.runtime_config import _platform_config_key
             platform_key = (
                 _platform_config_key(source.platform) if source.platform else None
             )
@@ -4330,7 +4335,7 @@ class GatewaySlashCommandsMixin:
                 )
                 # Evict cached agent so next turn rebuilds system prompt
                 # from current files (SOUL.md, memory, etc.).
-                self._evict_cached_agent(session_key)
+                self.agent_cache.evict(session_key)
                 # Off-loop + bounded: temporary-agent teardown can block on
                 # subprocess/network/SQLite work. Running it inline freezes the
                 # gateway loop and stalls platform polling / heartbeat, the same
@@ -4714,7 +4719,7 @@ class GatewaySlashCommandsMixin:
             return t("gateway.resume.already_on", name=name)
 
         # Clear any running agent for this session key
-        self._release_running_agent_state(session_key)
+        self._release_turn_state(session_key)
 
         # Switch the session entry to point at the old session
         new_entry = await self.async_session_store.switch_session(session_key, target_id)
@@ -4733,7 +4738,7 @@ class GatewaySlashCommandsMixin:
         # /branch and /reset. Without this, the cached create_agent (and its
         # memory provider, which cached `_session_id` during initialize())
         # keeps writing into the wrong session's record. See #6672.
-        self._evict_cached_agent(session_key)
+        self.agent_cache.evict(session_key)
 
         # Get the title for confirmation
         title = await self._session_db.get_session_title(target_id) or name
@@ -4964,7 +4969,7 @@ class GatewaySlashCommandsMixin:
         self._clear_session_boundary_security_state(session_key)
 
         # Evict any cached agent for this session
-        self._evict_cached_agent(session_key)
+        self.agent_cache.evict(session_key)
 
         msg_count = len([m for m in history if m.get("role") == "user"])
         key = "gateway.branch.branched_one" if msg_count == 1 else "gateway.branch.branched_many"
@@ -5090,7 +5095,7 @@ class GatewaySlashCommandsMixin:
         available whenever the user asks, not only while the agent is running.
         """
         import agent.status_output as status_output
-        from gateway.run import _AGENT_PENDING_SENTINEL
+        from gateway.session_state import AGENT_PENDING as _AGENT_PENDING_SENTINEL
         source = event.source
         session_key = self._session_key_for_source(source)
 
@@ -5104,15 +5109,16 @@ class GatewaySlashCommandsMixin:
             return t("gateway.usage.unknown_subcommand", args=raw_args)
 
         # Try running agent first (mid-turn), then cached agent (between turns)
-        agent = self._running_agents.get(session_key)
+        state = self.sessions.peek(session_key)
+        agent = state.turn.agent if state is not None else None
         if not agent or agent is _AGENT_PENDING_SENTINEL:
-            _cache_lock = getattr(self, "_agent_cache_lock", None)
-            _cache = getattr(self, "_agent_cache", None)
+            _cache_lock = self.agent_cache.lock
+            _cache = self.agent_cache.entries
             if _cache_lock and _cache is not None:
                 with _cache_lock:
                     cached = _cache.get(session_key)
                     if cached:
-                        agent = cached[0]
+                        agent = cached.agent
 
         # Resolve provider/base_url/api_key for the account-usage fetch.
         # Prefer the live agent; fall back to persisted billing data on the
@@ -5389,7 +5395,7 @@ class GatewaySlashCommandsMixin:
         — prefix caching stays intact.
 
         If any skills were added or removed, a one-shot note is queued on
-        ``self._pending_skills_reload_notes[session_key]``. The gateway
+        ``SessionState.conversation.skills_reload_note``. The gateway
         prepends it to the NEXT user message in this session (see the
         consumer at ~L11025 in ``_run_agent_turn``), then clears it. Nothing
         is written to the session transcript out-of-band, so message
@@ -5469,10 +5475,8 @@ class GatewaySlashCommandsMixin:
             note = "\n".join(sections)
 
             session_key = self._session_key_for_source(event.source)
-            if not hasattr(self, "_pending_skills_reload_notes"):
-                self._pending_skills_reload_notes = {}
             if session_key:
-                self._pending_skills_reload_notes[session_key] = note
+                self.sessions.state(session_key).conversation.skills_reload_note = note
 
             return "\n".join(lines)
 
@@ -5544,8 +5548,9 @@ class GatewaySlashCommandsMixin:
         )
 
         if not has_blocking_approval(session_key):
-            if session_key in self._pending_approvals:
-                self._pending_approvals.pop(session_key)
+            state = self.sessions.peek(session_key)
+            if state is not None and state.persistent.approvals is not None:
+                state.persistent.approvals = None
                 return t("gateway.approval_expired")
             return t("gateway.approve.no_pending")
 
@@ -5593,8 +5598,9 @@ class GatewaySlashCommandsMixin:
         )
 
         if not has_blocking_approval(session_key):
-            if session_key in self._pending_approvals:
-                self._pending_approvals.pop(session_key)
+            state = self.sessions.peek(session_key)
+            if state is not None and state.persistent.approvals is not None:
+                state.persistent.approvals = None
                 return t("gateway.deny.stale")
             return t("gateway.deny.no_pending")
 
@@ -5688,7 +5694,8 @@ class GatewaySlashCommandsMixin:
         files are written so either the current gateway process or the next one
         can notify the user when the update finishes.
         """
-        from gateway.run import _hermes_home, _resolve_hermes_bin
+        from gateway.runtime_config import _gateway_config_home, _resolve_hermes_bin
+        _hermes_home = _gateway_config_home()
         import json
         import shutil
         import subprocess

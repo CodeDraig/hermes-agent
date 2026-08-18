@@ -171,7 +171,7 @@ def _segments_config() -> dict[str, Any]:
                 on_compaction = False
                 max_turns = 0
                 try:
-                    from gateway.run import _load_gateway_config  # late import
+                    from gateway.runtime_config import _load_gateway_config
 
                     telemetry = (
                         (_load_gateway_config().get("gateway") or {}).get(

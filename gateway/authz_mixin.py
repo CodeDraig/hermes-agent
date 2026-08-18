@@ -6,22 +6,21 @@ This mixin holds the inbound-message authorization cluster: whether a user/chat
 is allowed to talk to the agent, the per-adapter DM policy, and the
 unauthorized-DM behavior.
 
-Behavior-neutral: every method is lifted verbatim from ``GatewayRunner``.
-``self.*`` calls resolve unchanged via the MRO. Neutral dependencies import at
-module top; the module-level ``logger`` is imported lazily inside the one method
-that uses it (``from gateway.run import logger`` resolves at call time, when
-``gateway.run`` is fully loaded) so this module never imports ``gateway.run`` at
-import time -> no import cycle. The lazy import preserves the exact logger name
-(``"gateway.run"``) so log records are unchanged.
+The module owns its logger directly under the existing ``gateway.run`` name so
+authorization records keep their established routing without importing the
+entry point.
 """
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import Optional
 
 from gateway.config import Platform
 from gateway.session import SessionSource
+
+logger = logging.getLogger("gateway.run")
 
 
 def _auth_env(name: str, default: str = "") -> str:
@@ -359,7 +358,6 @@ class GatewayAuthorizationMixin:
         4. Global allow-all (GATEWAY_ALLOW_ALL_USERS=true)
         5. Default: deny
         """
-        from gateway.run import logger
         adapter_profile = self._adapter_profile_for_source(source)
 
         user_id = source.user_id

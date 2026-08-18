@@ -159,9 +159,9 @@ def _sync_allowlist_add(platform: str, user_id: str) -> None:
 def _iter_live_gateway_adapters():
     """Yield adapters from the in-process GatewayRunner, if one is running."""
     try:
-        from gateway.run import _gateway_runner_ref
+        from gateway.runtime_registry import get_runner
 
-        runner = _gateway_runner_ref()
+        runner = get_runner()
     except Exception:
         return
     if runner is None:

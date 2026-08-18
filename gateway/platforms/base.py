@@ -2986,13 +2986,10 @@ class BasePlatformAdapter(ABC):
         self._active_sessions: Dict[str, asyncio.Event] = {}
         self._pending_messages: Dict[str, MessageEvent] = {}
         self._session_tasks: Dict[str, asyncio.Task] = {}
-        # Legacy busy_text_mode env var; when unset the runner syncs the
-        # resolved value (driven by busy_input_mode) onto the adapter after
-        # construction (gateway/run.py). Default to "interrupt" so a stray
-        # pre-sync read matches the single-knob default rather than silently
-        # queueing.
-        self._busy_text_mode: str = (
-            os.environ.get("HERMES_GATEWAY_BUSY_TEXT_MODE", "interrupt").strip().lower()
+        # The runner synchronizes the resolved busy-input policy after adapter
+        # construction. Default to interrupt for the short pre-sync window.
+        self._busy_input_mode: str = (
+            os.environ.get("HERMES_GATEWAY_BUSY_INPUT_MODE", "interrupt").strip().lower()
             or "interrupt"
         )
         self._busy_text_debounce_seconds: float = _float_env(
@@ -3672,7 +3669,7 @@ class BasePlatformAdapter(ABC):
         if not history:
             return None
         # Avoid circular import: gateway.run already imports this module.
-        from gateway.run import _collect_history_media_paths
+        from gateway.history import _collect_history_media_paths
         return _collect_history_media_paths(history)
 
     async def _bounded_history_media_paths_for_session(
@@ -5457,7 +5454,7 @@ class BasePlatformAdapter(ABC):
     def _is_queue_text_debounce_candidate(self, event: MessageEvent) -> bool:
         """Return True for normal text eligible for queue-mode debounce."""
         result = (
-            getattr(self, "_busy_text_mode", "interrupt") == "queue"
+            getattr(self, "_busy_input_mode", "interrupt") == "queue"
             and event.message_type == MessageType.TEXT
             and not getattr(event, "internal", False)
             and not event.is_command()
@@ -6040,7 +6037,7 @@ class BasePlatformAdapter(ABC):
             if self._is_queue_text_debounce_candidate(event):
                 logger.debug(
                     "[%s] New text message while session %s is active — "
-                    "debouncing follow-up (busy_text_mode=queue, window=%.2fs)",
+                    "debouncing follow-up (busy_input_mode=queue, window=%.2fs)",
                     self.name,
                     session_key,
                     self._busy_text_debounce_seconds,
