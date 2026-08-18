@@ -68,8 +68,8 @@ def _make_agent(monkeypatch, tmp_path: Path, *, max_attempts) -> AIAgent:
     db = SessionDB(db_path=tmp_path / "state.db")
     with (
         contextlib.redirect_stdout(io.StringIO()),
-        patch("run_agent.get_tool_definitions", return_value=[]),
-        patch("run_agent.check_toolset_requirements", return_value={}),
+        patch("agent.init_tools.get_tool_definitions", return_value=[]),
+        patch("agent.init_tools.check_toolset_requirements", return_value={}),
         patch("run_agent.OpenAI"),
     ):
         agent = AIAgent(
@@ -88,7 +88,6 @@ def _make_agent(monkeypatch, tmp_path: Path, *, max_attempts) -> AIAgent:
     agent._cached_system_prompt = "You are helpful."
     agent._use_prompt_caching = False
     agent._disable_streaming = True
-    agent.tool_delay = 0
     agent.save_trajectories = False
     return agent
 

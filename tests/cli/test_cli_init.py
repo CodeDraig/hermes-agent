@@ -103,14 +103,14 @@ class TestVerboseAndToolProgress:
 
 
 class TestFallbackChainInit:
-    def test_merges_new_and_legacy_fallback_config(self):
+    def test_loads_fallback_provider_chain(self):
         cli = _make_cli(config_overrides={
             "fallback_providers": [
                 {"provider": "openrouter", "model": "anthropic/claude-sonnet-4.6"},
+                {"provider": "nous", "model": "Hermes-4"},
             ],
-            "fallback_model": {"provider": "nous", "model": "Hermes-4"},
         })
-        assert cli._fallback_model == [
+        assert cli._fallback_providers == [
             {"provider": "openrouter", "model": "anthropic/claude-sonnet-4.6"},
             {"provider": "nous", "model": "Hermes-4"},
         ]
@@ -670,6 +670,5 @@ class TestRootLevelProviderOverride:
         })
         assert result["model"]["default"] == "flat-default-model"
         assert result["model"]["provider"] == "auto"
-
 
 

@@ -105,10 +105,8 @@ def _session_source_for_agent(platform: Optional[str]) -> str:
 
 # OpenAI lazy proxy + safe stdio + proxy URL helpers — see agent/process_bootstrap.py.
 # `OpenAI` is re-exported here so `patch("run_agent.OpenAI", ...)` in tests works.
-# The other `# noqa: F401` re-exports below cover names accessed via
-# `mock.patch("run_agent.<X>")`, `from run_agent import <X>` in production
-# siblings, or the `_ra().<X>` indirection in agent/system_prompt.py — none
-# of which ruff's in-module usage scan can see.
+# The other unused-import suppressions below cover names imported by sibling
+# modules or patched at the run-agent boundary; ruff cannot see those uses.
 from agent.process_bootstrap import (
     OpenAI,  # noqa: F401  # re-exported for tests that mock.patch("run_agent.OpenAI")
     _SafeWriter,  # noqa: F401  # re-exported for tests that `from run_agent import _SafeWriter`
@@ -136,10 +134,8 @@ else:
 
 # Import our tool system
 from model_tools import (
-    get_tool_definitions,  # noqa: F401  # re-exported for tests that mock.patch("run_agent.get_tool_definitions")
     get_toolset_for_tool,
     handle_function_call,  # noqa: F401  # re-exported for tests that mock.patch("run_agent.handle_function_call")
-    check_toolset_requirements,  # noqa: F401  # re-exported for tests that mock.patch("run_agent.check_toolset_requirements")
 )
 from tools.terminal_tool import cleanup_vm, get_active_env
 from tools.interrupt import set_interrupt as _set_interrupt
@@ -164,7 +160,7 @@ from agent.context_compressor import (  # noqa: F401
     ContextCompressor,
 )
 from agent.retry_utils import jittered_backoff  # noqa: F401
-from agent.prompt_builder import (  # noqa: F401  # re-exported via _ra() / mock.patch("run_agent.<name>") / from run_agent import <name>
+from agent.prompt_builder import (  # noqa: F401  # re-exported for sibling imports and tests
     DEFAULT_AGENT_IDENTITY,
     build_skills_system_prompt,
     build_context_files_prompt,
@@ -283,7 +279,6 @@ _DB_PERSISTED_MARKER = "_db_persisted"
 # process, not once per AIAgent instantiation.  Without this, long-running
 # gateway processes leak one OS thread per incoming message and eventually
 # exhaust the system thread limit (RuntimeError: can't start new thread).
-_openrouter_prewarm_done = threading.Event()
 
 # =========================================================================
 # Large tool result handler — save oversized output to temp file
@@ -291,22 +286,6 @@ _openrouter_prewarm_done = threading.Event()
 
 
 # =========================================================================
-# Qwen Portal headers — mimics QwenCode CLI for portal.qwen.ai compatibility.
-# Extracted as a module-level helper so both __init__ and
-# _apply_client_headers_for_base_url can share it.
-# =========================================================================
-_QWEN_CODE_VERSION = "0.14.1"
-
-
-def _routermint_headers() -> dict:
-    """Return the User-Agent RouterMint needs to avoid Cloudflare 1010 blocks."""
-    from hermes_cli import __version__ as _HERMES_VERSION
-
-    return {
-        "User-Agent": f"HermesAgent/{_HERMES_VERSION}",
-    }
-
-
 def _pool_may_recover_from_rate_limit(pool) -> bool:
     """Decide whether to wait for credential-pool rotation instead of falling back.
 
@@ -320,7 +299,7 @@ def _pool_may_recover_from_rate_limit(pool) -> bool:
     retrying against the same exhausted quota — the daily-quota 429 will recur
     immediately, and the retry budget is burned.
 
-    In that case we must fall back to the configured ``fallback_model``
+    In that case we must fall back to the configured ``fallback_providers``
     instead.  Returns True only when rotation has somewhere to go.
 
     See issues #11314 and #13636.
@@ -330,21 +309,6 @@ def _pool_may_recover_from_rate_limit(pool) -> bool:
     if not pool.has_available():
         return False
     return len(pool.entries()) > 1
-
-
-def _qwen_portal_headers() -> dict:
-    """Return default HTTP headers required by Qwen Portal API."""
-    import platform as _plat
-
-    _ua = f"QwenCode/{_QWEN_CODE_VERSION} ({_plat.system().lower()}; {_plat.machine()})"
-    return {
-        "User-Agent": _ua,
-        "X-DashScope-CacheControl": "enable",
-        "X-DashScope-UserAgent": _ua,
-        "X-DashScope-AuthType": "qwen-oauth",
-    }
-
-
 def _safe_session_filename_component(session_id: str) -> str:
     """Return a stable, path-safe filename component for a session ID.
 
@@ -440,11 +404,8 @@ class AIAgent:
         api_mode: str = None,
         acp_command: str = None,
         acp_args: list[str] | None = None,
-        command: str = None,
-        args: list[str] | None = None,
         model: str = "",
         max_iterations: int = 90,  # Default tool-calling iterations (shared with subagents)
-        tool_delay: float = None,  # Deprecated: accepted for compatibility, ignored
         enabled_toolsets: List[str] = None,
         disabled_toolsets: List[str] = None,
         save_trajectories: bool = False,
@@ -498,7 +459,7 @@ class AIAgent:
         session_db=None,
         parent_session_id: str = None,
         iteration_budget: "IterationBudget" = None,
-        fallback_model: Dict[str, Any] = None,
+        fallback_providers: List[Dict[str, Any]] = None,
         credential_pool=None,
         checkpoints_enabled: bool = False,
         checkpoint_max_snapshots: int = 20,
@@ -508,13 +469,6 @@ class AIAgent:
         requested_provider: str = None,
     ):
         """Forwarder — see ``agent.agent_init.init_agent``."""
-        if tool_delay is not None:
-            warnings.warn(
-                "tool_delay is deprecated and ignored; sequential tool calls "
-                "no longer sleep between executions.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
         from agent.agent_init import init_agent
         init_agent(
             self,
@@ -525,8 +479,6 @@ class AIAgent:
             api_mode=api_mode,
             acp_command=acp_command,
             acp_args=acp_args,
-            command=command,
-            args=args,
             model=model,
             max_iterations=max_iterations,
             enabled_toolsets=enabled_toolsets,
@@ -582,7 +534,7 @@ class AIAgent:
             session_db=session_db,
             parent_session_id=parent_session_id,
             iteration_budget=iteration_budget,
-            fallback_model=fallback_model,
+            fallback_providers=fallback_providers,
             credential_pool=credential_pool,
             checkpoints_enabled=checkpoints_enabled,
             checkpoint_max_snapshots=checkpoint_max_snapshots,
@@ -6254,7 +6206,8 @@ class AIAgent:
         elif base_url_host_matches(base_url, "integrate.api.nvidia.com"):
             self._client_kwargs["default_headers"] = build_nvidia_nim_headers(base_url)
         elif base_url_host_matches(base_url, "api.routermint.com"):
-            self._client_kwargs["default_headers"] = _routermint_headers()
+            from agent.init_runtime import routermint_headers
+            self._client_kwargs["default_headers"] = routermint_headers()
         elif base_url_host_matches(base_url, "githubcopilot.com"):
             from hermes_cli.models import copilot_default_headers
 
@@ -6263,7 +6216,8 @@ class AIAgent:
             from agent.auxiliary_client import _AI_GATEWAY_HEADERS
             self._client_kwargs["default_headers"] = dict(_AI_GATEWAY_HEADERS)
         elif base_url_host_matches(base_url, "portal.qwen.ai"):
-            self._client_kwargs["default_headers"] = _qwen_portal_headers()
+            from agent.init_runtime import qwen_portal_headers
+            self._client_kwargs["default_headers"] = qwen_portal_headers()
         elif base_url_host_matches(base_url, "chatgpt.com"):
             from agent.auxiliary_client import _codex_cloudflare_headers
             self._client_kwargs["default_headers"] = _codex_cloudflare_headers(

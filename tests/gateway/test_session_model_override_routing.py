@@ -47,7 +47,7 @@ def _make_runner():
     runner._reasoning_config = None
     runner._show_reasoning = False
     runner._provider_routing = {}
-    runner._fallback_model = None
+    runner._fallback_providers = None
     runner._service_tier = None
     runner._running_agents = {}
     runner._running_agents_ts = {}
@@ -82,7 +82,7 @@ def _explode_runtime_resolution():
     )
 
 
-def test_gateway_auth_fallback_uses_fallback_model_from_config(tmp_path, monkeypatch):
+def test_gateway_auth_fallback_uses_fallback_providers_from_config(tmp_path, monkeypatch):
     """Regression: fallback provider must not inherit the primary model.
 
     If primary openai-codex auth fails and fallback_providers selects

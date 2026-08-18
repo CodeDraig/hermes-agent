@@ -50,18 +50,17 @@ def _make_agent_openrouter():
     agent._fallback_activated = False
     agent._fallback_index = 0
     agent._fallback_chain = []
-    agent._fallback_model = None
     agent._config_context_length = None
 
     return agent
 
 
-def _make_fallback_agent(fallback_model):
+def _make_fallback_agent(fallback_providers):
     """Full-constructor agent for the fallback path, mirroring
     tests/run_agent/test_24996_fallback_exhaustion_cooldown.py."""
     with (
-        patch("run_agent.get_tool_definitions", return_value=[]),
-        patch("run_agent.check_toolset_requirements", return_value={}),
+        patch("agent.init_tools.get_tool_definitions", return_value=[]),
+        patch("agent.init_tools.check_toolset_requirements", return_value={}),
         patch("run_agent.OpenAI"),
     ):
         agent = AIAgent(
@@ -70,7 +69,7 @@ def _make_fallback_agent(fallback_model):
             quiet_mode=True,
             skip_context_files=True,
             skip_memory=True,
-            fallback_model=fallback_model,
+            fallback_providers=fallback_providers,
         )
         agent.client = MagicMock()
         return agent
@@ -133,7 +132,7 @@ def test_fallback_activation_resets_stale_streak():
     """Automatic provider fallback swaps to a different backend; the streak
     measured the OLD provider and must not wedge the new one."""
     fbs = [{"provider": "openai", "model": "gpt-4o"}]
-    agent = _make_fallback_agent(fallback_model=fbs)
+    agent = _make_fallback_agent(fallback_providers=fbs)
     agent._consecutive_stale_streams = 7
 
     with patch(
@@ -148,7 +147,7 @@ def test_fallback_activation_resets_stale_streak():
 def test_fallback_exhaustion_keeps_stale_streak():
     """When the chain is exhausted (no swap happened), the streak stays
     latched — the session is still wedged on the same provider."""
-    agent = _make_fallback_agent(fallback_model=[])
+    agent = _make_fallback_agent(fallback_providers=[])
     agent._consecutive_stale_streams = 7
 
     assert agent._try_activate_fallback() is False
@@ -164,7 +163,7 @@ class TestNonStreamingSibling:
 
     def test_non_streaming_short_circuits_at_threshold(self, monkeypatch):
         monkeypatch.setenv("HERMES_STREAM_STALE_GIVEUP", "3")
-        agent = _make_fallback_agent(fallback_model=[])
+        agent = _make_fallback_agent(fallback_providers=[])
         agent._consecutive_stale_streams = 3
 
         with pytest.raises(RuntimeError, match="unresponsive"):
@@ -176,7 +175,7 @@ class TestNonStreamingSibling:
 
     def test_non_streaming_success_resets_streak(self, monkeypatch):
         monkeypatch.setenv("HERMES_STREAM_STALE_GIVEUP", "3")
-        agent = _make_fallback_agent(fallback_model=[])
+        agent = _make_fallback_agent(fallback_providers=[])
         agent._consecutive_stale_streams = 2  # below threshold
         agent.client.chat.completions.create.return_value = MagicMock(
             name="resp", choices=[MagicMock()]

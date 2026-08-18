@@ -1528,7 +1528,7 @@ def _model_flow_named_custom(config, provider_info):
     config_api_key = _custom_provider_api_key_config_value(provider_info, api_key)
 
     # Honor ``discover_models: false`` (default True) — when discovery is
-    # disabled, use the configured ``models:`` list verbatim and skip the
+    # disabled, use the configured mapping-shaped ``models:`` catalog and skip the
     # live /models probe. This lets operators restrict the picker to the
     # subset their plan actually serves instead of the endpoint's full
     # catalog (#18726: Baidu Qianfan returns 100+ models for a 2-3 model
@@ -1541,10 +1541,6 @@ def _model_flow_named_custom(config, provider_info):
     cfg_models = provider_info.get("models", {})
     if isinstance(cfg_models, dict):
         configured_models = [str(m) for m in cfg_models if str(m).strip()]
-    elif isinstance(cfg_models, list):
-        configured_models = [
-            str(m) for m in cfg_models if isinstance(m, str) and m.strip()
-        ]
 
     print(f"  Provider: {name}")
     print(f"  URL:      {base_url}")
@@ -1553,7 +1549,7 @@ def _model_flow_named_custom(config, provider_info):
     print()
 
     if not discover and configured_models:
-        # Discovery disabled with an explicit list — use it verbatim, no probe.
+        # Discovery disabled with an explicit catalog — use it verbatim, no probe.
         print(f"Using configured models (discover_models: false): {len(configured_models)}")
         models = configured_models
     else:

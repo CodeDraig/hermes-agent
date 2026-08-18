@@ -1104,30 +1104,6 @@ def _normalize_custom_provider_entry(
         # normalized entry escapes into long-lived runtime state
         # (agent._custom_providers) — don't share the cached models mapping.
         normalized["models"] = dict(models)
-    elif isinstance(models, list) and models:
-        # Hand-edited configs (and older Hermes versions) may write
-        # ``models`` as a plain list of ids or as ``[{id: ...}]`` rows.
-        # Preserve both by converting to the dict shape downstream code
-        # expects; otherwise normalize silently drops the list and /model
-        # shows the provider with (0) models.
-        normalized_models: Dict[str, Any] = {}
-        for item in models:
-            if isinstance(item, str) and item.strip():
-                normalized_models[item.strip()] = {}
-                continue
-            if not isinstance(item, dict):
-                continue
-            model_id = item.get("id")
-            if not isinstance(model_id, str) or not model_id.strip():
-                model_id = item.get("name")
-            if not isinstance(model_id, str) or not model_id.strip():
-                continue
-            model_meta = {
-                k: v for k, v in item.items() if k not in {"id", "name"}
-            }
-            normalized_models[model_id.strip()] = model_meta
-        if normalized_models:
-            normalized["models"] = normalized_models
 
     context_length = entry.get("context_length")
     if isinstance(context_length, int) and context_length > 0:
@@ -1595,7 +1571,6 @@ def check_config_version() -> Tuple[int, int]:
 # absent from DEFAULT_CONFIG (omitted when unused / alternate schema forms).
 _EXTRA_KNOWN_ROOT_KEYS = {
     "custom_providers",  # legacy list form; modern equivalent is providers: {}
-    "fallback_model",    # optional single dict or chain list; omitted when disabled
     "mcp_servers",       # MCP server definitions written by setup/tools flows
     # Roots read from the raw user YAML (or written by our own flows) that are
     # intentionally absent from DEFAULT_CONFIG:
@@ -1705,9 +1680,15 @@ def validate_config_structure(config: Optional[Dict[str, Any]] = None) -> List["
                         f"custom_providers[{i}] is missing 'base_url' field",
                         "Add the API endpoint URL, e.g.: base_url: https://api.example.com/v1",
                     ))
+                if "models" in entry and not isinstance(entry.get("models"), dict):
+                    issues.append(ConfigIssue(
+                        "error",
+                        f"custom_providers[{i}].models should be a mapping keyed by model id",
+                        "Change to: models: {model-id: {}}",
+                    ))
 
-    # ── fallback_model: single dict OR list of dicts (chain) ─────────────
-    fb = config.get("fallback_model")
+    # ── fallback_providers: ordered list of provider entries ────────────
+    fb = config.get("fallback_providers")
     if fb is not None:
         if isinstance(fb, list):
             # Chain fallback — validate each entry
@@ -1715,52 +1696,31 @@ def validate_config_structure(config: Optional[Dict[str, Any]] = None) -> List["
                 if not isinstance(entry, dict):
                     issues.append(ConfigIssue(
                         "error",
-                        f"fallback_model[{i}] should be a dict, got {type(entry).__name__}",
+                        f"fallback_providers[{i}] should be a dict, got {type(entry).__name__}",
                         "Each entry needs provider + model",
                     ))
                 else:
                     if not entry.get("provider"):
                         issues.append(ConfigIssue(
                             "warning",
-                            f"fallback_model[{i}] is missing 'provider' field",
+                            f"fallback_providers[{i}] is missing 'provider' field",
                             "Add: provider: openrouter (or another provider)",
                         ))
                     if not entry.get("model"):
                         issues.append(ConfigIssue(
                             "warning",
-                            f"fallback_model[{i}] is missing 'model' field",
+                            f"fallback_providers[{i}] is missing 'model' field",
                             "Add: model: <model-name>",
                         ))
-        elif not isinstance(fb, dict):
+        else:
             issues.append(ConfigIssue(
                 "error",
-                f"fallback_model should be a dict with 'provider' and 'model', got {type(fb).__name__}",
+                f"fallback_providers should be a list of provider entries, got {type(fb).__name__}",
                 "Change to:\n"
-                "  fallback_model:\n"
-                "    provider: openrouter\n"
-                "    model: anthropic/claude-sonnet-4",
+                "  fallback_providers:\n"
+                "    - provider: openrouter\n"
+                "      model: anthropic/claude-sonnet-4",
             ))
-        elif fb:
-            if not fb.get("provider"):
-                issues.append(ConfigIssue(
-                    "warning",
-                    "fallback_model is missing 'provider' field — fallback will be disabled",
-                    "Add: provider: openrouter (or another provider)",
-                ))
-            if not fb.get("model"):
-                issues.append(ConfigIssue(
-                    "warning",
-                    "fallback_model is missing 'model' field — fallback will be disabled",
-                    "Add: model: anthropic/claude-sonnet-4 (or another model)",
-                ))
-
-    # ── Check for fallback_model accidentally nested inside custom_providers ──
-    if isinstance(cp, dict) and "fallback_model" not in config and "fallback_model" in (cp or {}):
-        issues.append(ConfigIssue(
-            "error",
-            "fallback_model appears inside custom_providers instead of at root level",
-            "Move fallback_model to the top level of config.yaml (no indentation)",
-        ))
 
     # ── model section: should exist when custom_providers is configured ──
     model_cfg = config.get("model")
@@ -3308,7 +3268,7 @@ _SECURITY_COMMENT = """
 """
 
 _FALLBACK_COMMENT = """
-# ── Fallback Model ────────────────────────────────────────────────────
+# ── Fallback Providers ───────────────────────────────────────────────
 # Automatic provider failover when primary is unavailable.
 # Uncomment and configure to enable. Triggers on rate limits (429),
 # overload (529), service errors (503), or connection failures.
@@ -3326,9 +3286,9 @@ _FALLBACK_COMMENT = """
 #
 # For custom OpenAI-compatible endpoints, add base_url and key_env.
 #
-# fallback_model:
-#   provider: openrouter
-#   model: anthropic/claude-sonnet-4
+# fallback_providers:
+#   - provider: openrouter
+#     model: anthropic/claude-sonnet-4
 """
 
 
@@ -3340,7 +3300,7 @@ _COMMENTED_SECTIONS = """
 # security:
 #   redact_secrets: true
 
-# ── Fallback Model ────────────────────────────────────────────────────
+# ── Fallback Providers ───────────────────────────────────────────────
 # Automatic provider failover when primary is unavailable.
 # Uncomment and configure to enable. Triggers on rate limits (429),
 # overload (529), service errors (503), or connection failures.
@@ -3358,9 +3318,9 @@ _COMMENTED_SECTIONS = """
 #
 # For custom OpenAI-compatible endpoints, add base_url and key_env.
 #
-# fallback_model:
-#   provider: openrouter
-#   model: anthropic/claude-sonnet-4
+# fallback_providers:
+#   - provider: openrouter
+#     model: anthropic/claude-sonnet-4
 """
 
 
@@ -3458,12 +3418,10 @@ def save_config(
         sec = normalized.get("security", {})
         if not sec or sec.get("redact_secrets") is None:
             parts.append(_SECURITY_COMMENT)
-        fb = normalized.get("fallback_model", {})
+        fb = normalized.get("fallback_providers", [])
         fb_is_valid = False
         if isinstance(fb, list):
             fb_is_valid = any(isinstance(e, dict) and e.get("provider") and e.get("model") for e in fb)
-        elif isinstance(fb, dict):
-            fb_is_valid = bool(fb.get("provider") and fb.get("model"))
         if not fb_is_valid:
             parts.append(_FALLBACK_COMMENT)
 

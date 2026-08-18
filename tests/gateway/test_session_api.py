@@ -422,7 +422,7 @@ def _patch_api_server_runtime(monkeypatch):
         staticmethod(lambda model="": {}),
     )
     monkeypatch.setattr(
-        "gateway.run.GatewayRunner._load_fallback_model",
+        "gateway.run.GatewayRunner._load_fallback_providers",
         staticmethod(lambda: None),
     )
     monkeypatch.setattr("gateway.run._current_max_iterations", lambda: 90)
@@ -683,10 +683,10 @@ async def test_confirmed_runtime_lock_rejects_actual_runtime_mismatch(adapter, m
         )
 
 
-def test_confirmed_runtime_lock_disables_global_fallback_model(adapter, monkeypatch):
+def test_confirmed_runtime_lock_disables_global_fallback_providers(adapter, monkeypatch):
     _patch_api_server_runtime(monkeypatch)
     monkeypatch.setattr(
-        "gateway.run.GatewayRunner._load_fallback_model",
+        "gateway.run.GatewayRunner._load_fallback_providers",
         staticmethod(lambda: "openrouter/fallback-model"),
     )
     captured = {}
@@ -706,7 +706,7 @@ def test_confirmed_runtime_lock_disables_global_fallback_model(adapter, monkeypa
         confirmed_runtime_lock=True,
     )
 
-    assert captured["fallback_model"] is None
+    assert captured["fallback_providers"] is None
 
 
 @pytest.mark.asyncio

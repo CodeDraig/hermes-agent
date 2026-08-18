@@ -16,8 +16,9 @@ from gateway.session import SessionSource
 
 
 def _patch_agent_bootstrap(monkeypatch):
+    import agent.init_tools as init_tools
     monkeypatch.setattr(
-        run_agent,
+        init_tools,
         "get_tool_definitions",
         lambda **kwargs: [
             {
@@ -30,7 +31,7 @@ def _patch_agent_bootstrap(monkeypatch):
             }
         ],
     )
-    monkeypatch.setattr(run_agent, "check_toolset_requirements", lambda: {})
+    monkeypatch.setattr(init_tools, "check_toolset_requirements", lambda: {})
 
 
 def _codex_message_response(text: str):
@@ -149,7 +150,7 @@ def test_gateway_run_agent_codex_path_handles_internal_401_refresh(monkeypatch):
     runner._prefill_messages = []
     runner._reasoning_config = None
     runner._provider_routing = {}
-    runner._fallback_model = None
+    runner._fallback_providers = None
     runner._running_agents = {}
     from unittest.mock import MagicMock, AsyncMock
     runner.hooks = MagicMock()

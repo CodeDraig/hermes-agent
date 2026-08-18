@@ -236,22 +236,21 @@ class TestInlinedDisplayMasks:
     different display needs (banner vs diagnostic vs UI vs preview)."""
 
     def test_run_agent_banner_uses_is_token_provider_guard(self):
-        """The masked-banner sites live in ``agent/agent_init.py``
-        (the ``__init__`` body was extracted into ``init_agent`` after
-        this feature was first written). Both the OpenAI and Anthropic
+        """The masked-banner sites live in ``agent/init_runtime.py``
+        after initialization was decomposed. Both the OpenAI and Anthropic
         client init paths must guard their banner prints with
         ``is_token_provider`` so a callable Entra ID provider doesn't
         crash ``len(api_key)``."""
         from pathlib import Path
         src = (Path(__file__).resolve().parent.parent.parent
-               / "agent" / "agent_init.py").read_text()
+               / "agent" / "init_runtime.py").read_text()
         assert src.count("is_token_provider(") >= 2, (
-            "agent/agent_init.py must guard BOTH masked-banner paths "
+            "agent/init_runtime.py must guard BOTH masked-banner paths "
             "(chat_completions and anthropic_messages) with "
             "is_token_provider()."
         )
         assert src.count('"🔑 Using credentials: Microsoft Entra ID"') >= 2, (
-            "agent/agent_init.py banner blocks should print a static "
+            "agent/init_runtime.py banner blocks should print a static "
             "'Microsoft Entra ID' label for callable api_keys — no "
             "placeholder plumbing, no describe-mask fallback."
         )
@@ -275,4 +274,3 @@ class TestInlinedDisplayMasks:
             "'Microsoft Entra ID' label (matching run_agent banners) "
             "instead of attempting to slice the callable."
         )
-

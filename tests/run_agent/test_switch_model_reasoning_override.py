@@ -28,7 +28,6 @@ class TestSwitchModelReasoningOverride:
         agent._fallback_activated = False
         agent._fallback_index = 0
         agent._fallback_chain = []
-        agent._fallback_model = None
         agent._config_context_length = None
         agent._transport_cache = {}
         agent.context_compressor = None
@@ -106,7 +105,6 @@ class TestSwitchModelReasoningOverride:
         agent._fallback_activated = True
         agent._fallback_index = 0
         agent._fallback_chain = []
-        agent._fallback_model = None
         agent._transport_cache = {}
         agent._config_context_length = None
         agent._rate_limited_until = 0

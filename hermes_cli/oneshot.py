@@ -447,7 +447,7 @@ def _run_agent(
             platform="cli",
             session_db=session_db,
             credential_pool=runtime.get("credential_pool"),
-            fallback_model=_fb or None,
+            fallback_providers=_fb or None,
             # Interactive callbacks are intentionally NOT wired beyond this
             # one.  In oneshot mode there's no user sitting at a terminal:
             #   - clarify  → returns a synthetic "pick a default" instruction

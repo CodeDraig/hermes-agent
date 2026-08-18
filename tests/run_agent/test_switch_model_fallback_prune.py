@@ -32,7 +32,6 @@ def _make_agent(chain):
     agent._fallback_activated = False
     agent._fallback_index = 0
     agent._fallback_chain = list(chain)
-    agent._fallback_model = chain[0] if chain else None
 
     return agent
 
@@ -66,7 +65,6 @@ def test_switch_drops_old_primary_from_fallback_chain():
     assert "openrouter" not in providers, "old primary must be pruned"
     assert "anthropic" not in providers, "new primary is redundant in the chain"
     assert providers == ["nous"]
-    assert agent._fallback_model == {"provider": "nous", "model": "hermes-4"}
 
 
 def test_switch_with_empty_chain_stays_empty():
@@ -75,7 +73,6 @@ def test_switch_with_empty_chain_stays_empty():
     _switch_to_anthropic(agent)
 
     assert agent._fallback_chain == []
-    assert agent._fallback_model is None
 
 
 

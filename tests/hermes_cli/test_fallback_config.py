@@ -14,6 +14,10 @@ class TestResolveEntryApiKey:
     def test_no_key_fields_returns_none(self):
         assert resolve_entry_api_key({"provider": "openrouter", "model": "glm"}) is None
 
+    def test_api_key_env_alias_is_not_used(self, monkeypatch):
+        monkeypatch.setenv("FB_KEY", "env-key")
+        assert resolve_entry_api_key({"api_key_env": "FB_KEY"}) is None
+
 
     def test_whitespace_inline_key_falls_through_to_env(self, monkeypatch):
         monkeypatch.setenv("FB_KEY", "env-key")

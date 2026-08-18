@@ -2684,7 +2684,7 @@ def _credential_pool_for_provider(provider: Optional[str]):
 
 
 def _try_resolve_fallback_provider() -> dict | None:
-    """Attempt to resolve credentials from the fallback_model/fallback_providers config."""
+    """Attempt to resolve credentials from the fallback_providers config."""
     from hermes_cli.runtime_provider import resolve_runtime_provider
     try:
         # Canonical gateway loader: managed overlay + ${VAR} expansion +
@@ -5031,7 +5031,7 @@ class TurnRunner:
         # serialization (_running_agents) keeps this safe post-lock.
         if reused_cached_agent and agent is not None:
             self._runner._apply_fallback_chain_to_agent(
-                agent, self._runner._refresh_fallback_model(),
+                agent, self._runner._refresh_fallback_providers(),
             )
 
         # Lock released — now schedule cleanup of any cross-process-evicted
@@ -5088,7 +5088,7 @@ class TurnRunner:
                 gateway_session_key=ctx.session_key,
                 session_db=getattr(self._runner._session_db, "_db", self._runner._session_db),
                 # Reload from disk — do not reuse the startup snapshot (#60955).
-                fallback_model=self._runner._refresh_fallback_model(),
+                fallback_providers=self._runner._refresh_fallback_providers(),
                 skip_context_files=skip_context_files,
                 # Keep the persona even with minimal context: soul identity is
                 # a single small file, not part of the expensive walk.
@@ -6135,7 +6135,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
         self._restart_after_turn_timeout = self._load_restart_after_turn_timeout()
         self._cron_drain_timeout = self._load_cron_drain_timeout()
         self._provider_routing = self._load_provider_routing()
-        self._fallback_model = self._load_fallback_model()
+        self._fallback_providers = self._load_fallback_providers()
 
         # Wire process registry into session store for reset protection.
         # A background process older than the configured threshold (default 24h,
@@ -8483,12 +8483,10 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
         return {}
 
     @staticmethod
-    def _load_fallback_model() -> list | None:
+    def _load_fallback_providers() -> list | None:
         """Load fallback provider chain from config.yaml.
 
-        Returns the merged effective chain from ``fallback_providers`` plus any
-        legacy ``fallback_model`` entries. ``fallback_providers`` stays first
-        when both keys are present.
+        Returns the ordered ``fallback_providers`` chain.
         """
         try:
             # Canonical gateway loader (fail-open): managed overlay + ${VAR}
@@ -8501,11 +8499,11 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
             pass
         return None
 
-    def _refresh_fallback_model(self) -> list | None:
+    def _refresh_fallback_providers(self) -> list | None:
         """Re-read fallback_providers from disk for the next agent create/reuse.
 
         Cron already does this per job via ``get_fallback_chain``; the gateway
-        previously froze ``self._fallback_model`` at process start, so a chain
+        previously froze ``self._fallback_providers`` at process start, so a chain
         configured (or changed) after ``hermes gateway`` was running never
         reached messaging sessions even though the same process's cron jobs
         fell back correctly. Fixes #60955.
@@ -8519,8 +8517,8 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
             from hermes_cli.config import read_user_config_raw
             cfg_path = _hermes_home / "config.yaml"
             if not cfg_path.exists():
-                self._fallback_model = None
-                return self._fallback_model
+                self._fallback_providers = None
+                return self._fallback_providers
             # Raw primitive (raises on parse failure) is required here: the
             # canonical fail-open loader would return {} on a torn mid-edit
             # write and WIPE the last known-good chain. The overlay/expansion
@@ -8544,9 +8542,9 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                 "fallback_providers refresh: config.yaml read failed; "
                 "keeping last known-good chain", exc_info=True,
             )
-            return self._fallback_model
-        self._fallback_model = get_fallback_chain(cfg) or None
-        return self._fallback_model
+            return self._fallback_providers
+        self._fallback_providers = get_fallback_chain(cfg) or None
+        return self._fallback_providers
 
     @staticmethod
     def _apply_fallback_chain_to_agent(agent: Any, chain: list | None) -> None:
@@ -8569,7 +8567,6 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
             return
         old_chain = list(getattr(agent, "_fallback_chain", []) or [])
         agent._fallback_chain = new_chain
-        agent._fallback_model = new_chain[0] if new_chain else None
         if not getattr(agent, "_fallback_activated", False):
             agent._fallback_index = 0
         # A config edit signals the user changed something — drop the
@@ -20401,7 +20398,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                     thread_id=source.thread_id,
                     session_db=getattr(self._session_db, "_db", self._session_db),
                     # Reload from disk — do not reuse the startup snapshot (#60955).
-                    fallback_model=self._refresh_fallback_model(),
+                    fallback_providers=self._refresh_fallback_providers(),
                 )
                 try:
                     return agent.run_conversation(

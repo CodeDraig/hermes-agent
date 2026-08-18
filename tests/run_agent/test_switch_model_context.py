@@ -6,7 +6,7 @@ import pytest
 
 from hermes_cli.models import LMStudioLoadResult
 from run_agent import AIAgent
-from agent.agent_init import _normalize_route_base_url
+from agent.init_runtime import _normalize_route_base_url
 from agent.context_compressor import ContextCompressor
 
 
@@ -48,10 +48,10 @@ def _make_direct_start_agent(
 ) -> AIAgent:
     with (
         patch("hermes_cli.config.load_config", return_value=cfg), patch("hermes_cli.config.load_config_readonly", return_value=cfg),
-        patch("run_agent.get_tool_definitions", return_value=[]),
-        patch("run_agent.check_toolset_requirements", return_value={}),
+        patch("agent.init_tools.get_tool_definitions", return_value=[]),
+        patch("agent.init_tools.check_toolset_requirements", return_value={}),
         patch("run_agent.OpenAI"),
-        patch("agent.agent_init.ContextCompressor", new=_StubStartupCompressor),
+        patch("agent.init_context.ContextCompressor", new=_StubStartupCompressor),
     ):
         return AIAgent(
             model=model,

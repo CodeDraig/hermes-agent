@@ -34,8 +34,8 @@ _API_KEY_TOKEN = "sk-ant-api-abcdef1234567890"
 def agent():
     """Minimal AIAgent construction, skipping tool discovery."""
     with (
-        patch("run_agent.get_tool_definitions", return_value=[]),
-        patch("run_agent.check_toolset_requirements", return_value={}),
+        patch("agent.init_tools.get_tool_definitions", return_value=[]),
+        patch("agent.init_tools.check_toolset_requirements", return_value={}),
         patch("run_agent.OpenAI"),
     ):
         a = AIAgent(
@@ -105,8 +105,8 @@ class TestOAuthFlagOnConstruction:
 
     def test_minimax_init_does_not_flip_oauth(self):
         with (
-            patch("run_agent.get_tool_definitions", return_value=[]),
-            patch("run_agent.check_toolset_requirements", return_value={}),
+            patch("agent.init_tools.get_tool_definitions", return_value=[]),
+            patch("agent.init_tools.check_toolset_requirements", return_value={}),
             patch("agent.anthropic_adapter.build_anthropic_client",
                   return_value=MagicMock()),
             # Simulate a stale ANTHROPIC_TOKEN in the env — the init code

@@ -90,7 +90,7 @@ def test_create_streams_aggregator_when_requested(monkeypatch, tmp_path):
     assert agg["tools"] is not None
 
 
-def test_build_moa_facade_ignores_fallback_model_name_when_restoring(monkeypatch, tmp_path):
+def test_build_moa_facade_ignores_fallback_providers_name_when_restoring(monkeypatch, tmp_path):
     """A fallback restore must not turn the temporary fallback model name into
     a MoA preset. Sessions that drifted to e.g. deepseek-v4-flash previously
     crashed on restore with MoAPresetNotFoundError because build_moa_facade()

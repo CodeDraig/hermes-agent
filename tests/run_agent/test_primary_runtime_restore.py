@@ -30,11 +30,11 @@ def _make_tool_defs(*names: str) -> list:
     ]
 
 
-def _make_agent(fallback_model=None, provider="custom", base_url="https://my-llm.example.com/v1"):
+def _make_agent(fallback_providers=None, provider="custom", base_url="https://my-llm.example.com/v1"):
     """Create a minimal AIAgent with optional fallback config."""
     with (
-        patch("run_agent.get_tool_definitions", return_value=_make_tool_defs("web_search")),
-        patch("run_agent.check_toolset_requirements", return_value={}),
+        patch("agent.init_tools.get_tool_definitions", return_value=_make_tool_defs("web_search")),
+        patch("agent.init_tools.check_toolset_requirements", return_value={}),
         patch("run_agent.OpenAI"),
         # Unit tests must not probe live endpoints. The compressor resolves
         # context length lazily via a real network call against base_url; for
@@ -53,7 +53,7 @@ def _make_agent(fallback_model=None, provider="custom", base_url="https://my-llm
             quiet_mode=True,
             skip_context_files=True,
             skip_memory=True,
-            fallback_model=fallback_model,
+            fallback_providers=fallback_providers,
         )
         agent.client = MagicMock()
         return agent
@@ -95,8 +95,8 @@ class TestPrimaryRuntimeSnapshot:
     def test_snapshot_includes_anthropic_state_when_applicable(self):
         """Anthropic-mode agents should snapshot Anthropic-specific state."""
         with (
-            patch("run_agent.get_tool_definitions", return_value=_make_tool_defs("web_search")),
-            patch("run_agent.check_toolset_requirements", return_value={}),
+            patch("agent.init_tools.get_tool_definitions", return_value=_make_tool_defs("web_search")),
+            patch("agent.init_tools.check_toolset_requirements", return_value={}),
             patch("run_agent.OpenAI"),
             patch("agent.anthropic_adapter.build_anthropic_client", return_value=MagicMock()),
         ):
@@ -132,7 +132,7 @@ class TestRestorePrimaryRuntime:
 
     def test_restores_model_and_provider(self):
         agent = _make_agent(
-            fallback_model={"provider": "openrouter", "model": "anthropic/claude-sonnet-4"},
+            fallback_providers=[{"provider": "openrouter", "model": "anthropic/claude-sonnet-4"}],
         )
         original_model = agent.model
         original_provider = agent.provider
@@ -158,7 +158,7 @@ class TestRestorePrimaryRuntime:
     def test_resets_fallback_index(self):
         """After restore, the full fallback chain should be available again."""
         agent = _make_agent(
-            fallback_model=[
+            fallback_providers=[
                 {"provider": "openrouter", "model": "model-a"},
                 {"provider": "anthropic", "model": "model-b"},
             ],
@@ -177,7 +177,7 @@ class TestRestorePrimaryRuntime:
 
     def test_restores_compressor_state(self):
         agent = _make_agent(
-            fallback_model={"provider": "openrouter", "model": "anthropic/claude-sonnet-4"},
+            fallback_providers=[{"provider": "openrouter", "model": "anthropic/claude-sonnet-4"}],
         )
         original_ctx_len = agent.context_compressor.context_length
         original_threshold = agent.context_compressor.threshold_tokens
@@ -233,7 +233,7 @@ class TestRestorePrimaryRuntime:
         agent = _make_agent(
             provider="custom",
             base_url="https://primary.example.com/v1",
-            fallback_model={"provider": "openrouter", "model": "anthropic/claude-sonnet-4"},
+            fallback_providers=[{"provider": "openrouter", "model": "anthropic/claude-sonnet-4"}],
         )
         original_base_url = agent.base_url
         mock_client = _mock_resolve()
@@ -281,7 +281,7 @@ class TestRestorePrimaryRuntime:
         agent = _make_agent(
             provider="openai-api",
             base_url="https://api.openai.com/v1",
-            fallback_model={"provider": "deepseek", "model": "deepseek-v4-flash"},
+            fallback_providers=[{"provider": "deepseek", "model": "deepseek-v4-flash"}],
         )
         primary_base_url = agent.base_url
         primary_provider = agent.provider
@@ -513,7 +513,7 @@ class TestRestoreInRunConversation:
     def test_full_cycle_fallback_then_restore(self):
         """Simulate: turn 1 activates fallback, turn 2 restores primary."""
         agent = _make_agent(
-            fallback_model={"provider": "openrouter", "model": "anthropic/claude-sonnet-4"},
+            fallback_providers=[{"provider": "openrouter", "model": "anthropic/claude-sonnet-4"}],
             provider="custom",
         )
 
@@ -547,7 +547,7 @@ class TestRateLimitCooldown:
     def test_restore_blocked_during_cooldown(self):
         """While _rate_limited_until is in the future, restore returns False."""
         agent = _make_agent(
-            fallback_model={"provider": "openrouter", "model": "anthropic/claude-sonnet-4"},
+            fallback_providers=[{"provider": "openrouter", "model": "anthropic/claude-sonnet-4"}],
         )
         mock_client = _mock_resolve()
         with patch("agent.auxiliary_client.resolve_provider_client", return_value=(mock_client, None)):
@@ -567,7 +567,7 @@ class TestRateLimitCooldown:
         """_try_activate_fallback with rate_limit reason sets _rate_limited_until."""
         from run_agent import FailoverReason
         agent = _make_agent(
-            fallback_model={"provider": "openrouter", "model": "anthropic/claude-sonnet-4"},
+            fallback_providers=[{"provider": "openrouter", "model": "anthropic/claude-sonnet-4"}],
         )
         before = time.monotonic()
         mock_client = _mock_resolve()
@@ -581,7 +581,7 @@ class TestRateLimitCooldown:
         """Chain-switching while already on fallback must not reset cooldown."""
         from run_agent import FailoverReason
         agent = _make_agent(
-            fallback_model=[
+            fallback_providers=[
                 {"provider": "openrouter", "model": "model-a"},
                 {"provider": "anthropic", "model": "model-b"},
             ],

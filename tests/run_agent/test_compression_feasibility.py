@@ -231,10 +231,10 @@ def test_init_feasibility_check_uses_aux_context_override_from_config():
 
     with (
         patch("hermes_cli.config.load_config", return_value=cfg), patch("hermes_cli.config.load_config_readonly", return_value=cfg),
-        patch("run_agent.get_tool_definitions", return_value=[]),
-        patch("run_agent.check_toolset_requirements", return_value={}),
+        patch("agent.init_tools.get_tool_definitions", return_value=[]),
+        patch("agent.init_tools.check_toolset_requirements", return_value={}),
         patch("run_agent.OpenAI"),
-        patch("run_agent.ContextCompressor", new=_StubCompressor),
+        patch("agent.init_context.ContextCompressor", new=_StubCompressor),
         patch("agent.auxiliary_client.get_text_auxiliary_client", return_value=(mock_client, "custom/big-model")),
         patch("agent.model_metadata.get_model_context_length", return_value=1_000_000) as mock_ctx_len,
     ):
@@ -404,7 +404,6 @@ def test_threshold_suggestion_kept_for_large_context_main(mock_get_client, mock_
 
     assert len(messages) == 1
     assert "threshold: 0.30" in messages[0]
-
 
 
 

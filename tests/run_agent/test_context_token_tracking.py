@@ -18,11 +18,12 @@ import run_agent
 
 
 def _patch_bootstrap(monkeypatch):
-    monkeypatch.setattr(run_agent, "get_tool_definitions", lambda **kwargs: [{
+    import agent.init_tools as init_tools
+    monkeypatch.setattr(init_tools, "get_tool_definitions", lambda **kwargs: [{
         "type": "function",
         "function": {"name": "t", "description": "t", "parameters": {"type": "object", "properties": {}}},
     }])
-    monkeypatch.setattr(run_agent, "check_toolset_requirements", lambda: {})
+    monkeypatch.setattr(init_tools, "check_toolset_requirements", lambda: {})
 
 
 class _FakeAnthropicClient:

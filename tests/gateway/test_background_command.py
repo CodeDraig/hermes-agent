@@ -35,7 +35,7 @@ def _make_runner():
     runner._session_db = None
     runner._reasoning_config = None
     runner._provider_routing = {}
-    runner._fallback_model = None
+    runner._fallback_providers = None
     runner._running_agents = {}
     runner._background_tasks = set()
 

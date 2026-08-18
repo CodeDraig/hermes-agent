@@ -55,8 +55,8 @@ def _make_agent() -> AIAgent:
     # validation ``ValueError`` *before* any API call, so the test passed
     # without ever touching the 403 summarization path.
     with (
-        patch("run_agent.get_tool_definitions", return_value=[]),
-        patch("run_agent.check_toolset_requirements", return_value={}),
+        patch("agent.init_tools.get_tool_definitions", return_value=[]),
+        patch("agent.init_tools.check_toolset_requirements", return_value={}),
         patch("run_agent.OpenAI"),
     ):
         a = AIAgent(

@@ -52,7 +52,7 @@ class CLIAgentSetupMixin:
         if runtime is None and _primary_exc is not None:
             from hermes_cli.auth import AuthError
             if isinstance(_primary_exc, AuthError):
-                _fb_chain = self._fallback_model if isinstance(self._fallback_model, list) else []
+                _fb_chain = self._fallback_providers if isinstance(self._fallback_providers, list) else []
                 for _fb in _fb_chain:
                     _fb_provider = (_fb.get("provider") or "").strip().lower()
                     _fb_model = (_fb.get("model") or "").strip()
@@ -523,7 +523,7 @@ class CLIAgentSetupMixin:
                 clarify_callback=self._clarify_callback,
                 reasoning_callback=self._current_reasoning_callback(),
 
-                fallback_model=self._fallback_model,
+                fallback_providers=self._fallback_providers,
                 thinking_callback=self._on_thinking,
                 checkpoints_enabled=self.checkpoints_enabled,
                 checkpoint_max_snapshots=self.checkpoint_max_snapshots,

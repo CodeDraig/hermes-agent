@@ -18,8 +18,8 @@ def _mock_response(*, usage: dict, content: str = "done"):
 
 def _make_agent(session_db, *, platform: str):
     with (
-        patch("run_agent.get_tool_definitions", return_value=[]),
-        patch("run_agent.check_toolset_requirements", return_value={}),
+        patch("agent.init_tools.get_tool_definitions", return_value=[]),
+        patch("agent.init_tools.check_toolset_requirements", return_value={}),
         patch("run_agent.OpenAI"),
     ):
         agent = AIAgent(

@@ -1,20 +1,22 @@
 """Tests for ordered provider fallback chain (salvage of PR #1761).
 
-Extends the single-fallback tests in test_fallback_model.py to cover
+Extends the single-fallback tests in test_fallback_providers.py to cover
 the new list-based ``fallback_providers`` config format and chain
 advancement through multiple providers.
 """
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from run_agent import AIAgent, _pool_may_recover_from_rate_limit
 
 
-def _make_agent(fallback_model=None):
+def _make_agent(fallback_providers=None):
     """Create a minimal AIAgent with optional fallback config."""
     with (
-        patch("run_agent.get_tool_definitions", return_value=[]),
-        patch("run_agent.check_toolset_requirements", return_value={}),
+        patch("agent.init_tools.get_tool_definitions", return_value=[]),
+        patch("agent.init_tools.check_toolset_requirements", return_value={}),
         patch("run_agent.OpenAI"),
     ):
         agent = AIAgent(
@@ -23,7 +25,7 @@ def _make_agent(fallback_model=None):
             quiet_mode=True,
             skip_context_files=True,
             skip_memory=True,
-            fallback_model=fallback_model,
+            fallback_providers=fallback_providers,
         )
         agent.client = MagicMock()
         return agent
@@ -41,10 +43,9 @@ def _mock_client(base_url="https://openrouter.ai/api/v1", api_key="fb-key"):
 
 class TestFallbackChainInit:
     def test_no_fallback(self):
-        agent = _make_agent(fallback_model=None)
+        agent = _make_agent(fallback_providers=None)
         assert agent._fallback_chain == []
         assert agent._fallback_index == 0
-        assert agent._fallback_model is None
 
 
 
@@ -55,14 +56,14 @@ class TestFallbackChainInit:
             {"provider": "zai"},
             "not-a-dict",
         ]
-        agent = _make_agent(fallback_model=fbs)
+        agent = _make_agent(fallback_providers=fbs)
         assert len(agent._fallback_chain) == 1
         assert agent._fallback_chain[0]["provider"] == "openai"
 
 
     def test_invalid_dict_no_provider(self):
-        agent = _make_agent(fallback_model={"model": "gpt-4o"})
-        assert agent._fallback_chain == []
+        with pytest.raises(TypeError):
+            _make_agent(fallback_providers={"model": "gpt-4o"})
 
 
 # ── Chain advancement ─────────────────────────────────────────────────────
@@ -70,7 +71,7 @@ class TestFallbackChainInit:
 
 class TestFallbackChainAdvancement:
     def test_exhausted_returns_false(self):
-        agent = _make_agent(fallback_model=None)
+        agent = _make_agent(fallback_providers=None)
         assert agent._try_activate_fallback() is False
 
     def test_advances_index(self):
@@ -78,7 +79,7 @@ class TestFallbackChainAdvancement:
             {"provider": "openai", "model": "gpt-4o"},
             {"provider": "zai", "model": "glm-4.7"},
         ]
-        agent = _make_agent(fallback_model=fbs)
+        agent = _make_agent(fallback_providers=fbs)
         with patch("agent.auxiliary_client.resolve_provider_client",
                     return_value=(_mock_client(), "gpt-4o")):
             assert agent._try_activate_fallback() is True
@@ -94,7 +95,7 @@ class TestFallbackChainAdvancement:
             {"provider": "broken", "model": "nope"},
             {"provider": "openai", "model": "gpt-4o"},
         ]
-        agent = _make_agent(fallback_model=fbs)
+        agent = _make_agent(fallback_providers=fbs)
         with patch("agent.auxiliary_client.resolve_provider_client") as mock_rpc:
             mock_rpc.side_effect = [
                 (None, None),                    # broken provider
@@ -110,7 +111,7 @@ class TestFallbackChainAdvancement:
             {"provider": "broken", "model": "nope"},
             {"provider": "openai", "model": "gpt-4o"},
         ]
-        agent = _make_agent(fallback_model=fbs)
+        agent = _make_agent(fallback_providers=fbs)
         with patch("agent.auxiliary_client.resolve_provider_client") as mock_rpc:
             mock_rpc.side_effect = [
                 RuntimeError("auth failed"),
@@ -128,7 +129,7 @@ class TestFallbackChainAdvancement:
                 "key_env": "MY_FALLBACK_KEY",
             }
         ]
-        agent = _make_agent(fallback_model=fbs)
+        agent = _make_agent(fallback_providers=fbs)
         with (
             patch.dict("os.environ", {"MY_FALLBACK_KEY": "env-secret"}, clear=False),
             patch(
@@ -160,7 +161,7 @@ class TestFallbackChainAdvancement:
                 "model": "anthropic/claude-opus-4.8",
             }
         ]
-        agent = _make_agent(fallback_model=fbs)
+        agent = _make_agent(fallback_providers=fbs)
         rebuilt = {"count": 0}
 
         def _fake_build(api_key, base_url, timeout=None, **kwargs):
@@ -204,7 +205,7 @@ class TestFallbackChainAdvancement:
     def test_nous_non_anthropic_fallback_stays_on_chat_completions(self):
         portal = "https://inference-api.nousresearch.com/v1"
         fbs = [{"provider": "nous", "model": "hermes-4-405b"}]
-        agent = _make_agent(fallback_model=fbs)
+        agent = _make_agent(fallback_providers=fbs)
         with (
             patch(
                 "agent.chat_completion_helpers._fallback_entry_unavailable_without_network",
@@ -271,7 +272,7 @@ class TestFallbackChainDedup:
             # Second entry: real fallback.
             {"provider": "zai", "model": "glm-4.7"},
         ]
-        agent = _make_agent(fallback_model=fbs)
+        agent = _make_agent(fallback_providers=fbs)
         agent.provider = "openrouter"
         agent.model = "z-ai/glm-4.7"
         agent.base_url = "https://openrouter.ai/api/v1"
@@ -298,7 +299,7 @@ class TestFallbackChainDedup:
         fbs = [
             {"provider": "openrouter", "model": "z-ai/glm-4.7"},
         ]
-        agent = _make_agent(fallback_model=fbs)
+        agent = _make_agent(fallback_providers=fbs)
         agent.provider = "openrouter"
         agent.model = "z-ai/glm-4.7"
         agent.base_url = "https://openrouter.ai/api/v1"
@@ -323,7 +324,7 @@ class TestFallbackChainDedup:
                 "base_url": "https://api.x.ai/v1",
             },
         ]
-        agent = _make_agent(fallback_model=fbs)
+        agent = _make_agent(fallback_providers=fbs)
         agent.provider = "xai-oauth"
         agent.model = "grok-4.5"
         agent.base_url = "https://api.x.ai/v1"

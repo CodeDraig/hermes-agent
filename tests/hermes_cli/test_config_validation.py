@@ -22,10 +22,6 @@ class TestCustomProvidersValidation:
                 "api_key": "xxx",
                 "model": "models/gemini-2.5-flash",
                 "rate_limit_delay": 2.0,
-                "fallback_model": {
-                    "provider": "openrouter",
-                    "model": "qwen/qwen3.6-plus:free",
-                },
             },
             "fallback_providers": [],
         })
@@ -33,6 +29,21 @@ class TestCustomProvidersValidation:
         assert any("dict" in i.message and "list" in i.message for i in errors), (
             "Should detect custom_providers as dict instead of list"
         )
+
+    def test_legacy_fallback_model_is_not_a_supported_root(self):
+        from hermes_cli.fallback_config import get_fallback_chain
+
+        issues = validate_config_structure({
+            "fallback_model": {"provider": "openrouter", "model": "gpt-4o"},
+        })
+        assert "fallback_model" not in _EXTRA_KNOWN_ROOT_KEYS
+        assert get_fallback_chain({"fallback_model": {"provider": "openrouter", "model": "gpt-4o"}}) == []
+
+    def test_fallback_providers_must_be_a_list(self):
+        issues = validate_config_structure({
+            "fallback_providers": {"provider": "openrouter", "model": "gpt-4o"},
+        })
+        assert any("fallback_providers should be a list" in i.message for i in issues)
 
     def test_dict_detects_misplaced_fields(self):
         """When custom_providers is a dict, detect fields that look misplaced."""
@@ -56,6 +67,16 @@ class TestCustomProvidersValidation:
             "model": {"provider": "custom"},
         })
         assert any("not a dict" in i.message for i in issues)
+
+    def test_model_catalog_must_be_mapping(self):
+        issues = validate_config_structure({
+            "custom_providers": [{
+                "name": "test",
+                "base_url": "https://example.com/v1",
+                "models": ["legacy-model"],
+            }],
+        })
+        assert any("models should be a mapping" in i.message for i in issues)
 
 
 

@@ -1,6 +1,6 @@
-"""Tests for agent_init._context_route_mismatch context-pin scoping."""
+"""Tests for the runtime-owned context-route mismatch helper."""
 
-from agent.agent_init import _context_route_mismatch
+from agent.init_runtime import _context_route_mismatch
 
 
 class TestContextRouteMismatchNamedCustomProvider:

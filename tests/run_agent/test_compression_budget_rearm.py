@@ -85,8 +85,8 @@ def test_pre_api_compression_budget_rearms_only_after_pressure_clears(
 ):
     """Only provider-confirmed headroom starts a new pressure episode."""
     with (
-        patch("run_agent.get_tool_definitions", return_value=[_tool_definition()]),
-        patch("run_agent.check_toolset_requirements", return_value={}),
+        patch("agent.init_tools.get_tool_definitions", return_value=[_tool_definition()]),
+        patch("agent.init_tools.check_toolset_requirements", return_value={}),
         patch("run_agent.OpenAI"),
         patch("agent.model_metadata.get_model_context_length", return_value=256_000),
         patch("agent.context_compressor.get_model_context_length", return_value=256_000),
@@ -111,7 +111,6 @@ def test_pre_api_compression_budget_rearms_only_after_pressure_clears(
     agent._cached_system_prompt = "You are helpful."
     agent._use_prompt_caching = False
     agent._disable_streaming = True
-    agent.tool_delay = 0
     agent.save_trajectories = False
     agent.max_compression_attempts = 1
 

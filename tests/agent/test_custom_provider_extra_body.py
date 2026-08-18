@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from agent.agent_init import _merge_custom_provider_extra_body
+from agent.init_runtime import _merge_custom_provider_extra_body
 
 
 

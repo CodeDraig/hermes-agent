@@ -3005,7 +3005,6 @@ def switch_model(agent, new_model, new_provider, api_key='', base_url='', api_mo
             if (entry.get("provider") or "").strip().lower() not in {old_norm, new_norm}
         ]
     agent._fallback_chain = fallback_chain
-    agent._fallback_model = fallback_chain[0] if fallback_chain else None
 
     logger.info(
         "Model switched in-place: %s (%s) -> %s (%s)",

@@ -22,8 +22,9 @@ def _no_codex_backoff(monkeypatch):
 
 
 def _patch_agent_bootstrap(monkeypatch):
+    import agent.init_tools as init_tools
     monkeypatch.setattr(
-        run_agent,
+        init_tools,
         "get_tool_definitions",
         lambda **kwargs: [
             {
@@ -36,7 +37,7 @@ def _patch_agent_bootstrap(monkeypatch):
             }
         ],
     )
-    monkeypatch.setattr(run_agent, "check_toolset_requirements", lambda: {})
+    monkeypatch.setattr(init_tools, "check_toolset_requirements", lambda: {})
 
 
 def _build_agent(monkeypatch):
@@ -511,8 +512,9 @@ def _build_xai_agent_with_slash_enum_tool(monkeypatch):
             }
         ]
 
-    monkeypatch.setattr(run_agent, "get_tool_definitions", _fake_get_tool_definitions)
-    monkeypatch.setattr(run_agent, "check_toolset_requirements", lambda: {})
+    import agent.init_tools as init_tools
+    monkeypatch.setattr(init_tools, "get_tool_definitions", _fake_get_tool_definitions)
+    monkeypatch.setattr(init_tools, "check_toolset_requirements", lambda: {})
 
     agent = run_agent.AIAgent(
         model="grok-4.3",

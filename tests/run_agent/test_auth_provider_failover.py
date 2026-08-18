@@ -22,10 +22,10 @@ from agent.error_classifier import classify_api_error, FailoverReason
 from agent.turn_retry_state import TurnRetryState
 
 
-def _make_agent(fallback_model=None):
+def _make_agent(fallback_providers=None):
     with (
-        patch("run_agent.get_tool_definitions", return_value=[]),
-        patch("run_agent.check_toolset_requirements", return_value={}),
+        patch("agent.init_tools.get_tool_definitions", return_value=[]),
+        patch("agent.init_tools.check_toolset_requirements", return_value={}),
         patch("run_agent.OpenAI"),
     ):
         agent = AIAgent(
@@ -34,7 +34,7 @@ def _make_agent(fallback_model=None):
             quiet_mode=True,
             skip_context_files=True,
             skip_memory=True,
-            fallback_model=fallback_model,
+            fallback_providers=fallback_providers,
         )
         agent.client = MagicMock()
         return agent
@@ -85,7 +85,7 @@ class TestAuthFailoverActivation:
         )
 
     def test_auth_failover_fires_when_chain_present(self):
-        agent = _make_agent(fallback_model=[{"provider": "openai", "model": "gpt-4o"}])
+        agent = _make_agent(fallback_providers=[{"provider": "openai", "model": "gpt-4o"}])
         retry = TurnRetryState()
         classified = classify_api_error(_auth_error(401))
         assert self._should_failover(agent, classified, retry) is True
@@ -102,20 +102,20 @@ class TestAuthFailoverActivation:
         """A user with no fallback configured (the common case for the
         original incident) does NOT failover — falls through to the
         existing terminal handling + troubleshooting advice."""
-        agent = _make_agent(fallback_model=None)
+        agent = _make_agent(fallback_providers=None)
         retry = TurnRetryState()
         classified = classify_api_error(_auth_error(401))
         assert self._should_failover(agent, classified, retry) is False
 
     def test_guard_blocks_repeat_failover(self):
-        agent = _make_agent(fallback_model=[{"provider": "openai", "model": "gpt-4o"}])
+        agent = _make_agent(fallback_providers=[{"provider": "openai", "model": "gpt-4o"}])
         retry = TurnRetryState()
         retry.auth_failover_attempted = True  # already escalated this attempt
         classified = classify_api_error(_auth_error(401))
         assert self._should_failover(agent, classified, retry) is False
 
     def test_non_auth_error_does_not_trigger_auth_failover(self):
-        agent = _make_agent(fallback_model=[{"provider": "openai", "model": "gpt-4o"}])
+        agent = _make_agent(fallback_providers=[{"provider": "openai", "model": "gpt-4o"}])
         retry = TurnRetryState()
         err = Exception("Error code: 500 - internal server error")
         err.status_code = 500

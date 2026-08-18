@@ -1,7 +1,7 @@
 """Regression tests for #60955: gateway must not freeze fallback_providers.
 
 Cron reloads ``fallback_providers`` from disk on every job. The gateway used to
-freeze ``self._fallback_model`` at process start, so a chain configured (or
+freeze ``self._fallback_providers`` at process start, so a chain configured (or
 edited) after ``hermes gateway`` was already running never reached messaging
 sessions — even though cron in the same process fell back correctly.
 
@@ -15,7 +15,7 @@ import time
 from types import SimpleNamespace
 
 
-def test_refresh_fallback_model_rereads_config(tmp_path, monkeypatch):
+def test_refresh_fallback_providers_rereads_config(tmp_path, monkeypatch):
     from gateway.run import GatewayRunner
 
     monkeypatch.setattr("gateway.run._hermes_home", tmp_path)
@@ -27,14 +27,14 @@ def test_refresh_fallback_model_rereads_config(tmp_path, monkeypatch):
     )
 
     runner = SimpleNamespace(
-        _fallback_model=None,
+        _fallback_providers=None,
     )
-    runner._load_fallback_model = GatewayRunner._load_fallback_model
-    bound = GatewayRunner._refresh_fallback_model.__get__(runner)
+    runner._load_fallback_providers = GatewayRunner._load_fallback_providers
+    bound = GatewayRunner._refresh_fallback_providers.__get__(runner)
     chain = bound()
 
     assert chain == [{"provider": "deepseek", "model": "deepseek-v4-flash"}]
-    assert runner._fallback_model == chain
+    assert runner._fallback_providers == chain
 
     cfg.write_text(
         "fallback_providers:\n"
@@ -45,7 +45,7 @@ def test_refresh_fallback_model_rereads_config(tmp_path, monkeypatch):
     assert updated == [
         {"provider": "openrouter", "model": "anthropic/claude-sonnet-4.6"}
     ]
-    assert runner._fallback_model == updated
+    assert runner._fallback_providers == updated
 
 
 def test_apply_fallback_chain_skips_while_cooldown_holds_fallback():
@@ -55,7 +55,6 @@ def test_apply_fallback_chain_skips_while_cooldown_holds_fallback():
     live = [{"provider": "deepseek", "model": "deepseek-v4-flash"}]
     agent = SimpleNamespace(
         _fallback_chain=live,
-        _fallback_model=live[0],
         _fallback_index=1,
         _fallback_activated=True,
         _rate_limited_until=time.monotonic() + 30,
@@ -84,8 +83,8 @@ def test_background_and_main_agent_paths_call_refresh():
     # the old _run_agent_inner closure) references the runner as
     # ``self._runner``; the background-agent site still uses bare ``self``.
     _refresh_calls = (
-        source.count("fallback_model=self._refresh_fallback_model()")
-        + source.count("fallback_model=self._runner._refresh_fallback_model()")
+        source.count("fallback_providers=self._refresh_fallback_providers()")
+        + source.count("fallback_providers=self._runner._refresh_fallback_providers()")
     )
     assert _refresh_calls >= 2
     # The cached-agent reuse path (the load-bearing fix for a long-lived
@@ -95,26 +94,20 @@ def test_background_and_main_agent_paths_call_refresh():
         or "self._runner._apply_fallback_chain_to_agent(" in source
     )
     # The stale startup-snapshot form must not remain at create sites.
-    assert "fallback_model=self._fallback_model," not in source
-    assert "fallback_model=self._runner._fallback_model," not in source
+    assert "fallback_providers=self._fallback_providers," not in source
+    assert "fallback_providers=self._runner._fallback_providers," not in source
 
 
-def test_load_fallback_model_static_unchanged_contract(tmp_path, monkeypatch):
-    """_load_fallback_model remains a pure static reader used by refresh."""
+def test_load_fallback_providers_static_unchanged_contract(tmp_path, monkeypatch):
+    """_load_fallback_providers remains a pure static reader used by refresh."""
     from gateway.run import GatewayRunner
 
     monkeypatch.setattr("gateway.run._hermes_home", tmp_path)
     (tmp_path / "config.yaml").write_text(
         "fallback_providers:\n"
-        "  - provider: deepseek\n"
-        "    model: deepseek-v4-flash\n"
-        "fallback_model:\n"
-        "  provider: nous\n"
-        "  model: Hermes-4\n"
+        "  - provider: nous\n"
+        "    model: Hermes-4\n"
     )
 
-    chain = GatewayRunner._load_fallback_model()
-    assert chain == [
-        {"provider": "deepseek", "model": "deepseek-v4-flash"},
-        {"provider": "nous", "model": "Hermes-4"},
-    ]
+    chain = GatewayRunner._load_fallback_providers()
+    assert chain == [{"provider": "nous", "model": "Hermes-4"}]

@@ -31,8 +31,8 @@ def loop_agent():
     ``test_dropped_tool_call_recovery.py``."""
     from run_agent import AIAgent
     with (
-        patch("run_agent.get_tool_definitions", return_value=[]),
-        patch("run_agent.check_toolset_requirements", return_value={}),
+        patch("agent.init_tools.get_tool_definitions", return_value=[]),
+        patch("agent.init_tools.check_toolset_requirements", return_value={}),
         patch("run_agent.OpenAI"),
     ):
         agent = AIAgent(
@@ -45,7 +45,6 @@ def loop_agent():
         agent.client = MagicMock()
         agent._cached_system_prompt = "You are helpful."
         agent._use_prompt_caching = False
-        agent.tool_delay = 0
         agent.compression_enabled = False
         agent.save_trajectories = False
         return agent

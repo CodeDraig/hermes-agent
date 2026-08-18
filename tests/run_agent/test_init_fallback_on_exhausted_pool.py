@@ -1,4 +1,4 @@
-"""Regression test for #17929: AIAgent.__init__ should try fallback_model
+"""Regression test for #17929: AIAgent.__init__ should try fallback providers
 when primary provider credentials are exhausted."""
 import pytest
 from unittest.mock import patch, MagicMock
@@ -30,8 +30,8 @@ def test_init_tries_fallback_when_primary_returns_none():
         return None, None  # primary exhausted
 
     with patch("agent.auxiliary_client.resolve_provider_client", side_effect=fake_resolve), \
-         patch("run_agent.get_tool_definitions", return_value=_make_tool_defs()), \
-         patch("run_agent.check_toolset_requirements", return_value={}), \
+         patch("agent.init_tools.get_tool_definitions", return_value=_make_tool_defs()), \
+         patch("agent.init_tools.check_toolset_requirements", return_value={}), \
          patch("run_agent.OpenAI", return_value=MagicMock()):
 
         agent = AIAgent(
@@ -42,7 +42,7 @@ def test_init_tries_fallback_when_primary_returns_none():
             quiet_mode=True,
             skip_context_files=True,
             skip_memory=True,
-            fallback_model=[{"provider": "tencent-token-plan", "model": "kimi2.5"}],
+            fallback_providers=[{"provider": "tencent-token-plan", "model": "kimi2.5"}],
         )
         assert agent.provider == "tencent-token-plan"
         assert agent.model == "kimi2.5"
@@ -52,8 +52,8 @@ def test_init_tries_fallback_when_primary_returns_none():
 def test_init_raises_when_no_fallback_configured():
     """When primary returns None and no fallback is set, should raise."""
     with patch("agent.auxiliary_client.resolve_provider_client", return_value=(None, None)), \
-         patch("run_agent.get_tool_definitions", return_value=_make_tool_defs()), \
-         patch("run_agent.check_toolset_requirements", return_value={}), \
+         patch("agent.init_tools.get_tool_definitions", return_value=_make_tool_defs()), \
+         patch("agent.init_tools.check_toolset_requirements", return_value={}), \
          patch("run_agent.OpenAI", return_value=MagicMock()):
 
         with pytest.raises(RuntimeError, match="no API key was found"):
@@ -65,5 +65,5 @@ def test_init_raises_when_no_fallback_configured():
                 quiet_mode=True,
                 skip_context_files=True,
                 skip_memory=True,
-                fallback_model=None,
+                fallback_providers=None,
             )

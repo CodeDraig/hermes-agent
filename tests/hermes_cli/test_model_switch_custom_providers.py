@@ -292,9 +292,7 @@ def test_picker_selection_resolves_named_custom_provider_model_id(monkeypatch):
             {
                 "name": "sensenova",
                 "base_url": "https://token.sensenova.cn/v1",
-                "models": [
-                    {"id": "deepseek-v4-flash", "name": "deepseek-v4-flash"}
-                ],
+                "models": {"deepseek-v4-flash": {}},
             }
         ],
     )
@@ -1272,9 +1270,9 @@ def test_keyless_endpoint_with_saved_catalog_still_reads_cache(monkeypatch):
                 "name": "Local (127.0.0.1:8000)",
                 "base_url": _LOCAL_ENDPOINT,
                 "model": "omlx-model-1",
-                # No api_key, and a models: list of the shape our own
+                # No api_key, and a mapping catalog of the shape our own
                 # auto-save writes after a successful probe.
-                "models": ["omlx-model-1"],
+                "models": {"omlx-model-1": {}},
             }
         ],
     )
@@ -1284,14 +1282,8 @@ def test_keyless_endpoint_with_saved_catalog_still_reads_cache(monkeypatch):
     assert fetched == []
 
 
-def test_keyless_endpoint_with_saved_catalog_is_still_not_probed(monkeypatch):
-    """...but the network-cost gate it rides on must survive intact.
-
-    The no-key + declared-catalog combination exists to keep Hermes from
-    probing an endpoint it cannot authenticate to. Serving that endpoint from
-    a warm cache is free; hitting the network is not. With a cold cache and
-    live probing fully enabled, this row must still make zero fetches.
-    """
+def test_keyless_endpoint_with_mapping_catalog_can_be_discovered(monkeypatch):
+    """Mapping catalogs are the supported custom-provider shape."""
     _seed_custom_model_cache(monkeypatch, [])  # cold: only a probe could answer
     monkeypatch.setattr("agent.models_dev.fetch_models_dev", lambda: {})
     monkeypatch.setattr(providers_mod, "HERMES_OVERLAYS", {})
@@ -1312,7 +1304,7 @@ def test_keyless_endpoint_with_saved_catalog_is_still_not_probed(monkeypatch):
                 "name": "Local (127.0.0.1:8000)",
                 "base_url": _LOCAL_ENDPOINT,
                 "model": "omlx-model-1",
-                "models": ["omlx-model-1"],
+                "models": {"omlx-model-1": {}},
             }
         ],
         for_picker=True,
@@ -1324,8 +1316,8 @@ def test_keyless_endpoint_with_saved_catalog_is_still_not_probed(monkeypatch):
     )
 
     assert row is not None
-    assert row["models"] == ["omlx-model-1"]
-    assert fetched == []
+    assert row["models"] == ["should-not-be-reached"]
+    assert fetched == [_LOCAL_ENDPOINT]
 
 
 def test_api_mode_rows_do_not_share_a_cached_catalog(monkeypatch):
@@ -1428,7 +1420,7 @@ def test_auto_saved_catalog_round_trips_without_pinning(tmp_path, monkeypatch):
     _save_discovered_models_to_config(_LOCAL_ENDPOINT, list(_LOCAL_CATALOG))
 
     saved = yaml.safe_load(cfg_path.read_text())["custom_providers"][0]
-    assert saved["models"] == _LOCAL_CATALOG, "probe result should be persisted"
+    assert saved["models"] == {model_id: {} for model_id in _LOCAL_CATALOG}, "probe result should be persisted"
 
     # The persisted shape is what the picker will read on the next open. It
     # must not, on a keyless entry, suppress discovery of a wider catalog.

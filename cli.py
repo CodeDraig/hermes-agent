@@ -5120,9 +5120,8 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
                 pass
         
         # Fallback provider chain — tried in order when primary fails after retries.
-        # Merge new ``fallback_providers`` entries with any legacy
-        # ``fallback_model`` entries so old configs still participate.
-        self._fallback_model = get_fallback_chain(CLI_CONFIG)
+        # Load the ordered fallback provider chain.
+        self._fallback_providers = get_fallback_chain(CLI_CONFIG)
 
         # Signature of the currently-initialised agent's runtime.  Used to
         # rebuild the agent when provider / model / base_url changes across
@@ -7177,7 +7176,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
 
         # 2. Replace untouched default with a Codex model
         if self._model_is_default:
-            fallback_model = "gpt-5.3-codex"
+            fallback_model_name = "gpt-5.3-codex"
             try:
                 from hermes_cli.codex_models import get_codex_model_ids
 
@@ -7185,12 +7184,12 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
                     access_token=self.api_key if self.api_key else None,
                 )
                 if available:
-                    fallback_model = available[0]
+                    fallback_model_name = available[0]
             except Exception:
                 pass
 
-            if current_model != fallback_model:
-                self.model = fallback_model
+            if current_model != fallback_model_name:
+                self.model = fallback_model_name
                 changed = True
 
         return changed

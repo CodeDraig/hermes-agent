@@ -93,8 +93,8 @@ def _quiet_compressor() -> MagicMock:
 @pytest.fixture()
 def agent():
     with (
-        patch("run_agent.get_tool_definitions", return_value=_make_tool_defs("web_search")),
-        patch("run_agent.check_toolset_requirements", return_value={}),
+        patch("agent.init_tools.get_tool_definitions", return_value=_make_tool_defs("web_search")),
+        patch("agent.init_tools.check_toolset_requirements", return_value={}),
         patch("run_agent.OpenAI"),
     ):
         a = AIAgent(
@@ -109,7 +109,6 @@ def agent():
     a._cached_system_prompt = "You are helpful."
     a._use_prompt_caching = False
     a._disable_streaming = True
-    a.tool_delay = 0
     a.save_trajectories = False
     a.compression_enabled = True
     a.context_compressor = _quiet_compressor()

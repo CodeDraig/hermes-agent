@@ -1831,7 +1831,7 @@ class TestFallbackModelInheritance(unittest.TestCase):
     """Subagents must inherit the parent's fallback provider chain."""
 
     def test_child_inherits_fallback_chain(self):
-        """_build_child_agent passes parent._fallback_chain as fallback_model."""
+        """_build_child_agent passes parent._fallback_chain as fallback_providers."""
         parent = _make_mock_parent(depth=0)
         fallback_entry = {"provider": "openrouter", "model": "gpt-4o-mini", "api_key": "sk-or-x"}
         parent._fallback_chain = [fallback_entry]
@@ -1850,10 +1850,10 @@ class TestFallbackModelInheritance(unittest.TestCase):
             )
 
         _, kwargs = MockAgent.call_args
-        self.assertEqual(kwargs["fallback_model"], [fallback_entry])
+        self.assertEqual(kwargs["fallback_providers"], [fallback_entry])
 
     def test_child_gets_no_fallback_when_parent_chain_empty(self):
-        """When parent._fallback_chain is empty, fallback_model is None."""
+        """When parent._fallback_chain is empty, fallback_providers is None."""
         parent = _make_mock_parent(depth=0)
         parent._fallback_chain = []
 
@@ -1871,7 +1871,7 @@ class TestFallbackModelInheritance(unittest.TestCase):
             )
 
         _, kwargs = MockAgent.call_args
-        self.assertIsNone(kwargs["fallback_model"])
+        self.assertIsNone(kwargs["fallback_providers"])
 
     def test_pinned_provider_disables_parent_fallback_chain(self):
         """An explicit delegation.provider pin must NOT inherit the parent
@@ -1899,7 +1899,7 @@ class TestFallbackModelInheritance(unittest.TestCase):
             )
 
         _, kwargs = MockAgent.call_args
-        self.assertIsNone(kwargs["fallback_model"])
+        self.assertIsNone(kwargs["fallback_providers"])
 
     def test_pinned_acp_command_missing_raises(self):
         """A pinned delegation command absent from PATH must refuse the spawn

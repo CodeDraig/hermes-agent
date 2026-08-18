@@ -2523,7 +2523,7 @@ class APIServerAdapter(BasePlatformAdapter):
 
         ``confirmed_runtime_lock`` marks a backend-acknowledged Browser model
         lock (POST /api/sessions/{id}/model).  A confirmed lock beats the
-        session ``/model`` override, disables the global fallback model
+        session ``/model`` override, disables the global fallback provider
         chain, and fails closed if the locked provider's credentials cannot
         be resolved.
         """
@@ -2763,10 +2763,10 @@ class APIServerAdapter(BasePlatformAdapter):
 
         # Load fallback provider chain so the API server platform has the
         # same fallback behaviour as Telegram/Discord/Slack (fixes #4954).
-        fallback_model = (
+        fallback_providers = (
             None
             if confirmed_runtime_lock
-            else GatewayRunner._load_fallback_model()
+            else GatewayRunner._load_fallback_providers()
         )
 
         # Resolve reasoning against the model this request will actually
@@ -2799,7 +2799,7 @@ class APIServerAdapter(BasePlatformAdapter):
             "tool_start_callback": tool_start_callback,
             "tool_complete_callback": tool_complete_callback,
             "session_db": self._ensure_session_db(),
-            "fallback_model": fallback_model,
+            "fallback_providers": fallback_providers,
             "reasoning_config": reasoning_config,
             "gateway_session_key": gateway_session_key,
         }

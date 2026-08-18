@@ -80,7 +80,7 @@ def _make_runner():
     runner._session_db = None
     runner._reasoning_config = None
     runner._provider_routing = {}
-    runner._fallback_model = None
+    runner._fallback_providers = None
     runner._show_reasoning = False
     runner._service_tier = None
     runner._is_user_authorized = lambda _source: True

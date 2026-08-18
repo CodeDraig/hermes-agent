@@ -60,11 +60,8 @@ logger = logging.getLogger(__name__)
 def _declared_model_ids(value: Any) -> list[str]:
     """Return configured model IDs from supported config shapes.
 
-    Accepts:
-    - ``{"model-id": {...}}``
-    - ``["model-a", "model-b"]``
-    - ``[{"id": "model-a"}, {"name": "model-b"}]``
-    - ``"model-a"``
+    Accepts a current mapping (``{"model-id": {...}}``) or a singular
+    ``model``/``default_model`` string.
     """
     ids: list[str] = []
     seen: set[str] = set()
@@ -90,43 +87,7 @@ def _declared_model_ids(value: Any) -> list[str]:
             _add(model_id)
         return ids
 
-    if isinstance(value, (list, tuple)):
-        for item in value:
-            if isinstance(item, str):
-                _add(item)
-                continue
-            if isinstance(item, dict):
-                model_id = item.get("id")
-                if not isinstance(model_id, str) or not model_id.strip():
-                    model_id = item.get("name")
-                _add(model_id)
-        return ids
-
     return ids
-
-
-def _models_config_is_allowlist(value: Any) -> bool:
-    """Return True when ``models:`` is an intentional ID allowlist.
-
-    A mapping like ``{model_id: {context_length: N}}`` is per-model *metadata*
-    written by ``_save_custom_provider`` / the ``hermes model`` wizard — not a
-    catalog narrow. Treating that shape as an allowlist made model pickers
-    pickers show only the saved default for local Ollama (no ``api_key``),
-    while ``hermes model`` still live-probed the full ``/v1/models`` list.
-    Refresh could not help because the same gate skipped probing.
-
-    List/string shapes remain allowlists for no-key endpoints. To pin a
-    dict-shaped catalog, set ``discover_models: false``.
-    """
-    if value is None:
-        return False
-    if isinstance(value, str):
-        return bool(value.strip())
-    if isinstance(value, dict):
-        return False
-    if isinstance(value, (list, tuple)):
-        return bool(_declared_model_ids(value))
-    return False
 
 
 def _save_discovered_models_to_config(
@@ -161,21 +122,13 @@ def _save_discovered_models_to_config(
             if entry_url.rstrip("/").lower() != norm_url:
                 continue
             existing = entry.get("models")
-            # Preserve per-model metadata: when ``models`` is a mapping
-            # (e.g. ``{"model-a": {"context_length": 8192}}``) or a list of
-            # dicts (e.g. ``[{"id": "model-a", "context_length": 8192}]``),
-            # the user has curated metadata per model — do not replace it.
+            # Preserve per-model metadata when ``models`` is a mapping.
             if isinstance(existing, dict):
                 continue
-            if isinstance(existing, list) and any(
-                isinstance(m, dict) for m in existing
-            ):
+            discovered = {model_id: {} for model_id in model_ids}
+            if existing == discovered:
                 continue
-            # Only update when models are stale — avoids unnecessary
-            # config writes on every picker open.
-            if isinstance(existing, list) and existing == model_ids:
-                continue
-            entry["models"] = model_ids
+            entry["models"] = discovered
             changed = True
 
         if changed:
@@ -1950,7 +1903,7 @@ def switch_model(
 # ---------------------------------------------------------------------------
 
 # Process-level guard so the picker prewarm thread is spawned at most once per
-# process — mirrors run_agent's _openrouter_prewarm_done. Without a guard a
+# process — mirrors agent.init_runtime's openrouter_prewarm_done. Without a guard a
 # long-lived process (or repeated triggers) would leak one OS thread per call.
 import threading as _threading  # noqa: E402
 
@@ -2998,14 +2951,12 @@ def list_authenticated_providers(
             # ``default_model`` is the legacy key; ``model`` matches what
             # custom_providers entries use, so accept either.
             default_model = ep_cfg.get("default_model", "") or ep_cfg.get("model", "")
-            # Build models list from both default_model and full models array.
-            # Hermes writes ``models:`` as a dict keyed by model id, but older
-            # or hand-edited configs may use strings or ``[{id: ...}]`` rows —
-            # _declared_model_ids() owns that contract.
+            # Build the model list from the active model and the mapping-shaped
+            # catalog.
             entry_models: list = []
             if default_model:
                 entry_models.append(default_model)
-            entry_declared_models = _declared_model_ids(ep_cfg.get("models", []))
+            entry_declared_models = _declared_model_ids(ep_cfg.get("models", {}))
             for model_id in entry_declared_models:
                 if model_id not in entry_models:
                     entry_models.append(model_id)
@@ -3040,7 +2991,6 @@ def list_authenticated_providers(
                     "name": grp_display or display_name,
                     "api_url": api_url,
                     "models": [],
-                    "has_explicit_models": False,
                     "ep_cfg": ep_cfg,  # used below for discover_models / api_key
                     # Part of group_key, so it is constant across the group.
                     # The render loop below needs it to key the model cache:
@@ -3055,14 +3005,6 @@ def list_authenticated_providers(
             for _m in entry_models:
                 if _m and _m not in ep_groups[group_key]["models"]:
                     ep_groups[group_key]["models"].append(_m)
-            # Track allowlist-shaped ``models:`` separately from the merged
-            # list: a singular ``default_model``/``model`` is only the active
-            # selection and must not suppress discovery (see #40542 / PR
-            # #61928). Dict-shaped ``models:`` is context_length metadata from
-            # ``hermes model``, not an allowlist — see
-            # ``_models_config_is_allowlist``.
-            if _models_config_is_allowlist(ep_cfg.get("models")):
-                ep_groups[group_key]["has_explicit_models"] = True
             ep_groups[group_key]["raw_names"].append(display_name)
             ep_groups[group_key]["aliases"].update(
                 custom_provider_aliases(display_name, str(ep_name))
@@ -3086,18 +3028,8 @@ def list_authenticated_providers(
 
             # Prefer the endpoint's live /models list when discoverable,
             # unless the provider explicitly opts out via discover_models: false.
-            # Policy mirrors Section 4's should_probe logic:
-            # - With an api_key: always probe (user opted into the endpoint).
-            # - Without an api_key but with an allowlist-shaped ``models:``
-            #   (list/string): skip — the user narrowed a public endpoint.
-            #   A singular ``default_model``/``model`` does NOT count as
-            #   narrowing (mirrors section 4 / #40542).
-            # - A dict-shaped ``models:`` is per-model metadata
-            #   (context_length), not an allowlist — still probe so local
-            #   Ollama/llama.cpp match ``hermes model``. Pin with
-            #   ``discover_models: false`` instead.
-            # - Without an api_key AND no allowlist: probe anyway so bare
-            #   local endpoints still show their full model catalog.
+            # Mapping-shaped ``models:`` is cached metadata, not an allowlist;
+            # discovery is controlled only by ``discover_models``.
             api_key = str(ep_cfg.get("api_key", "") or "").strip()
             if not api_key:
                 key_env = str(ep_cfg.get("key_env", "") or "").strip()
@@ -3105,7 +3037,6 @@ def list_authenticated_providers(
             discover = ep_cfg.get("discover_models", True)
             if isinstance(discover, str):
                 discover = discover.lower() not in {"false", "no", "0"}
-            has_explicit_models = bool(grp.get("has_explicit_models"))
             _ep_url_norm = str(api_url).strip().rstrip("/").lower()
             _ep_slug_norm = str(ep_name).strip().lower()
             _ep_aliases = {
@@ -3124,16 +3055,9 @@ def list_authenticated_providers(
             # warm same-fingerprint cache entry still serves the full catalog
             # with no network round-trip.
             #
-            # ``has_explicit_models`` gates the *probe*, not the cache read:
-            # it exists so a keyless endpoint with a declared catalog is not
-            # hammered over the network (5f00f36ba, 1039e90b5). Reading a
-            # catalog an earlier probe already paid for costs nothing, and
-            # applying the probe gate to it re-pins the endpoint — see
-            # ``_discovery_allowed`` in section 4 for the full rationale.
             _discovery_allowed = bool(api_url) and discover
             _probe_live = (
                 _discovery_allowed
-                and (bool(api_key) or not has_explicit_models)
                 and _can_probe_custom_provider(row_is_current=_ep_is_current)
             )
             if _discovery_allowed:
@@ -3289,7 +3213,7 @@ def list_authenticated_providers(
 
             # Read discover_models from the entry (same semantics as
             # section 3: true by default, set false to keep the explicit
-            # ``models:`` list instead of replacing it with live /models).
+            # ``models:`` catalog instead of replacing it with live /models).
             discover = entry.get("discover_models", True)
             if isinstance(discover, str):
                 discover = discover.lower() not in {"false", "no", "0"}
@@ -3324,7 +3248,6 @@ def list_authenticated_providers(
                     "api_url": api_url,
                     "api_key": api_key,
                     "models": [],
-                    "has_explicit_models": False,
                     "discover_models": discover,
                     "extra_headers": entry_extra_headers,
                     # Part of group_key, so constant across the group. Needed
@@ -3361,11 +3284,6 @@ def list_authenticated_providers(
 
             models_field = entry.get("models", {})
             declared_models = _declared_model_ids(models_field)
-            # Dict-shaped models: is context_length metadata from
-            # ``_save_custom_provider``, not an allowlist — see
-            # ``_models_config_is_allowlist``.
-            if _models_config_is_allowlist(models_field):
-                groups[group_key]["has_explicit_models"] = True
             for model_id in declared_models:
                 if model_id not in groups[group_key]["models"]:
                     groups[group_key]["models"].append(model_id)
@@ -3423,23 +3341,8 @@ def list_authenticated_providers(
             # Ollama servers) — the /models endpoint often works without
             # auth.  The CLI's _model_flow_named_custom always probes, so
             # the Telegram/Mattermost picker should do the same for parity.
-            # Live-discovery policy:
-            # - With an api_key, the user has explicitly opted into the
-            #   endpoint and live /models is the source of truth — replace
-            #   the (possibly partial) ``models:`` subset with the full
-            #   live catalog (Bifrost / aggregator-gateway case).
-            # - Without an api_key but with an allowlist-shaped ``models:``
-            #   (list/string), the user narrowed a public endpoint (e.g.
-            #   ollama.com). Preserve that list and skip live discovery.
-            # - A dict-shaped ``models:`` is per-model metadata written by
-            #   ``_save_custom_provider`` for context_length — not an
-            #   allowlist. Still probe so external pickers match
-            #   ``hermes model``. Pin a dict catalog with
-            #   ``discover_models: false``.
-            # - The singular ``model:`` field is only the current active
-            #   selection and must not suppress discovery.
-            # - When discover_models: false is set, skip live discovery and
-            #   keep the configured ``models:`` list regardless of api_key.
+            # The mapping-shaped catalog is cached metadata. Set
+            # ``discover_models: false`` to pin it and skip live discovery.
             _grp_is_current = (
                 slug.lower() == _current_provider_norm
                 or _current_provider_norm in {
@@ -3458,24 +3361,9 @@ def list_authenticated_providers(
             # without a round-trip — skipping it too is what collapsed a
             # multi-model endpoint to its config-declared subset.
             #
-            # ``has_explicit_models`` belongs on the probe side of that line.
-            # It is a network-cost gate: don't hammer a keyless endpoint that
-            # already declares its catalog (5f00f36ba, 1039e90b5). It is not a
-            # user pin — ``discover_models: false`` is the documented way to
-            # pin, and it is honored above.
-            #
-            # Keeping it on the discovery side re-pins the endpoint it was
-            # meant to spare, because a successful probe calls
-            # ``_save_discovered_models_to_config()``, which writes a plain
-            # list — the exact shape ``_models_config_is_allowlist()`` reads
-            # back as an explicit allowlist. A keyless local server therefore
-            # self-pins on its first probe and can never widen again. f66319097
-            # already carved the dict shape out of that trap for the same
-            # reason; the list shape is the other door into it.
             _discovery_allowed = bool(api_url) and grp.get("discover_models", True)
             _probe_live = (
                 _discovery_allowed
-                and (bool(api_key) or not grp.get("has_explicit_models"))
                 and _can_probe_custom_provider(row_is_current=_grp_is_current)
             )
             if _discovery_allowed:

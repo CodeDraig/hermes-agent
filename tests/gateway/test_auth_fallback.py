@@ -16,8 +16,9 @@ class TestResolveRuntimeAgentKwargsAuthFallback:
         config_path = tmp_path / "config.yaml"
         config_path.write_text(
             "model:\n  provider: openai-codex\n"
-            "fallback_model:\n  provider: openrouter\n"
-            "  model: meta-llama/llama-4-maverick\n"
+            "fallback_providers:\n"
+            "  - provider: openrouter\n"
+            "    model: meta-llama/llama-4-maverick\n"
         )
 
         monkeypatch.setattr("gateway.run._hermes_home", tmp_path)
@@ -29,7 +30,7 @@ class TestResolveRuntimeAgentKwargsAuthFallback:
             # First call = primary path (gateway reads model.provider from
             # config.yaml internally; we simulate the auth failure here).
             # Second call = fallback path with explicit_api_key + explicit_base_url
-            # supplied by gateway from fallback_model config.
+            # supplied by gateway from fallback_providers config.
             if call_count["n"] == 1:
                 raise AuthError("Codex token refresh failed with status 401")
             return {
@@ -53,5 +54,4 @@ class TestResolveRuntimeAgentKwargsAuthFallback:
         assert result["api_key"] == "fallback-key"
         # Should have been called at least twice (primary + fallback)
         assert call_count["n"] >= 2
-
 

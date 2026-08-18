@@ -302,8 +302,8 @@ def loop_agent():
     so we can stage a stub + continuation pair on .chat.completions.create."""
     from run_agent import AIAgent
     with (
-        patch("run_agent.get_tool_definitions", return_value=[]),
-        patch("run_agent.check_toolset_requirements", return_value={}),
+        patch("agent.init_tools.get_tool_definitions", return_value=[]),
+        patch("agent.init_tools.check_toolset_requirements", return_value={}),
         patch("run_agent.OpenAI"),
     ):
         a = AIAgent(
@@ -585,8 +585,8 @@ class TestBuildAssistantMessageEmptyContentPad:
     def _agent_for_builder(self):
         from run_agent import AIAgent
         with (
-            patch("run_agent.get_tool_definitions", return_value=[]),
-            patch("run_agent.check_toolset_requirements", return_value={}),
+            patch("agent.init_tools.get_tool_definitions", return_value=[]),
+            patch("agent.init_tools.check_toolset_requirements", return_value={}),
             patch("run_agent.OpenAI"),
         ):
             a = AIAgent(

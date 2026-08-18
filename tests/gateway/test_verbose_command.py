@@ -31,7 +31,7 @@ def _make_runner():
     runner._reasoning_config = None
     runner._show_reasoning = False
     runner._provider_routing = {}
-    runner._fallback_model = None
+    runner._fallback_providers = None
     runner._running_agents = {}
     runner.hooks = MagicMock()
     runner.hooks.emit = AsyncMock()

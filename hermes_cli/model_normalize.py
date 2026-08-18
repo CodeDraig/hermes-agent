@@ -501,7 +501,7 @@ def normalize_model_for_provider(model_input: str, target_provider: str) -> str:
     #     the inference endpoint rejects vendor-prefixed names with HTTP 401
     #     "Model not supported".  Strip ANY leading ``vendor/`` so config
     #     entries like ``minimax/minimax-m2.7`` or ``deepseek/deepseek-v4-flash``
-    #     — commonly copied from aggregator slugs into fallback_model lists —
+    #     — commonly copied from aggregator slugs into fallback_providers lists —
     #     resolve to bare ``minimax-m2.7`` / ``deepseek-v4-flash`` the API
     #     actually serves.  See PR reviewing opencode-go fallback 401s. ---
     if provider in {"opencode-zen", "opencode-go"}:
@@ -579,4 +579,3 @@ def normalize_model_for_provider(model_input: str, target_provider: str) -> str:
 # ---------------------------------------------------------------------------
 # Batch / convenience helpers
 # ---------------------------------------------------------------------------
-

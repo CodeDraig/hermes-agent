@@ -109,7 +109,7 @@ def _runner(session_store):
     runner._ephemeral_system_prompt = ""
     runner._reasoning_config = None
     runner._provider_routing = {}
-    runner._fallback_model = None
+    runner._fallback_providers = None
     runner._draining = False
     runner._resolve_session_agent_runtime = lambda **_kwargs: (
         "gpt-5.4",

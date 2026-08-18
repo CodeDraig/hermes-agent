@@ -62,9 +62,9 @@ def agent():
     """Minimal AIAgent with mocked OpenAI client and tool loading."""
     with (
         patch(
-            "run_agent.get_tool_definitions", return_value=_make_tool_defs("web_search")
+            "agent.init_tools.get_tool_definitions", return_value=_make_tool_defs("web_search")
         ),
-        patch("run_agent.check_toolset_requirements", return_value={}),
+        patch("agent.init_tools.check_toolset_requirements", return_value={}),
         patch("run_agent.OpenAI"),
     ):
         a = AIAgent(
@@ -184,10 +184,10 @@ def agent_with_memory_tool():
     """Agent whose valid_tool_names includes 'memory'."""
     with (
         patch(
-            "run_agent.get_tool_definitions",
+            "agent.init_tools.get_tool_definitions",
             return_value=_make_tool_defs("web_search", "memory"),
         ),
-        patch("run_agent.check_toolset_requirements", return_value={}),
+        patch("agent.init_tools.check_toolset_requirements", return_value={}),
         patch("run_agent.OpenAI"),
     ):
         a = AIAgent(
@@ -221,10 +221,10 @@ def test_aiagent_reuses_existing_errors_log_handler():
 
         with (
             patch(
-                "run_agent.get_tool_definitions",
+                "agent.init_tools.get_tool_definitions",
                 return_value=_make_tool_defs("web_search"),
             ),
-            patch("run_agent.check_toolset_requirements", return_value={}),
+            patch("agent.init_tools.check_toolset_requirements", return_value={}),
             patch("run_agent.OpenAI"),
         ):
             AIAgent(
@@ -261,9 +261,9 @@ class TestProviderModelNormalization:
     def test_aiagent_strips_matching_native_provider_prefix(self):
         with (
             patch(
-                "run_agent.get_tool_definitions", return_value=_make_tool_defs("web_search")
+                "agent.init_tools.get_tool_definitions", return_value=_make_tool_defs("web_search")
             ),
-            patch("run_agent.check_toolset_requirements", return_value={}),
+            patch("agent.init_tools.check_toolset_requirements", return_value={}),
             patch("run_agent.OpenAI"),
         ):
             agent = AIAgent(
@@ -643,8 +643,8 @@ class TestInit:
     def test_anthropic_base_url_accepted(self):
         """Anthropic base URLs should route to native Anthropic client."""
         with (
-            patch("run_agent.get_tool_definitions", return_value=[]),
-            patch("run_agent.check_toolset_requirements", return_value={}),
+            patch("agent.init_tools.get_tool_definitions", return_value=[]),
+            patch("agent.init_tools.check_toolset_requirements", return_value={}),
             patch("agent.anthropic_adapter._anthropic_sdk") as mock_anthropic,
         ):
             agent = AIAgent(
@@ -657,14 +657,14 @@ class TestInit:
             assert agent.api_mode == "anthropic_messages"
             mock_anthropic.Anthropic.assert_called_once()
 
-    def test_tool_delay_kwarg_is_deprecated_noop(self):
-        """tool_delay stays accepted for compatibility but warns and is ignored."""
+    def test_tool_delay_kwarg_is_rejected(self):
+        """The removed compatibility keyword is no longer accepted."""
         with (
-            patch("run_agent.get_tool_definitions", return_value=[]),
-            patch("run_agent.check_toolset_requirements", return_value={}),
+            patch("agent.init_tools.get_tool_definitions", return_value=[]),
+            patch("agent.init_tools.check_toolset_requirements", return_value={}),
             patch("run_agent.OpenAI"),
         ):
-            with pytest.warns(DeprecationWarning, match="tool_delay"):
+            with pytest.raises(TypeError, match="tool_delay"):
                 a = AIAgent(
                     api_key="test-key-1234567890",
                     base_url="https://openrouter.ai/api/v1",
@@ -673,14 +673,24 @@ class TestInit:
                     skip_context_files=True,
                     skip_memory=True,
                 )
-            # The value is discarded — nothing downstream reads it anymore.
-            assert not hasattr(a, "tool_delay")
+
+    @pytest.mark.parametrize("keyword", ["fallback_model", "command", "args"])
+    def test_removed_constructor_keywords_are_rejected(self, keyword):
+        with pytest.raises(TypeError, match=keyword):
+            AIAgent(
+                api_key="test-key-1234567890",
+                base_url="https://openrouter.ai/api/v1",
+                quiet_mode=True,
+                skip_context_files=True,
+                skip_memory=True,
+                **{keyword: [] if keyword == "args" else "legacy"},
+            )
 
     def test_prompt_caching_claude_openrouter(self):
         """Claude model via OpenRouter should enable prompt caching."""
         with (
-            patch("run_agent.get_tool_definitions", return_value=[]),
-            patch("run_agent.check_toolset_requirements", return_value={}),
+            patch("agent.init_tools.get_tool_definitions", return_value=[]),
+            patch("agent.init_tools.check_toolset_requirements", return_value={}),
             patch("run_agent.OpenAI"),
         ):
             a = AIAgent(
@@ -696,8 +706,8 @@ class TestInit:
     def test_prompt_caching_non_claude(self):
         """Non-Claude model should disable prompt caching."""
         with (
-            patch("run_agent.get_tool_definitions", return_value=[]),
-            patch("run_agent.check_toolset_requirements", return_value={}),
+            patch("agent.init_tools.get_tool_definitions", return_value=[]),
+            patch("agent.init_tools.check_toolset_requirements", return_value={}),
             patch("run_agent.OpenAI"),
         ):
             a = AIAgent(
@@ -714,8 +724,8 @@ class TestInit:
     def test_prompt_caching_native_anthropic(self):
         """Native Anthropic provider should enable prompt caching."""
         with (
-            patch("run_agent.get_tool_definitions", return_value=[]),
-            patch("run_agent.check_toolset_requirements", return_value={}),
+            patch("agent.init_tools.get_tool_definitions", return_value=[]),
+            patch("agent.init_tools.check_toolset_requirements", return_value={}),
             patch("agent.anthropic_adapter._anthropic_sdk"),
         ):
             a = AIAgent(
@@ -731,8 +741,8 @@ class TestInit:
     def test_prompt_caching_cache_ttl_defaults_without_config(self):
         """cache_ttl stays 5m when prompt_caching is absent from config."""
         with (
-            patch("run_agent.get_tool_definitions", return_value=[]),
-            patch("run_agent.check_toolset_requirements", return_value={}),
+            patch("agent.init_tools.get_tool_definitions", return_value=[]),
+            patch("agent.init_tools.check_toolset_requirements", return_value={}),
             patch("run_agent.OpenAI"),
             patch("hermes_cli.config.load_config", return_value={}), patch("hermes_cli.config.load_config_readonly", return_value={}),
         ):
@@ -752,8 +762,8 @@ class TestInit:
     def test_prompt_caching_disabled_by_falsy_cache_ttl(self, falsy_value):
         """Falsy cache_ttl values should fully disable prompt caching."""
         with (
-            patch("run_agent.get_tool_definitions", return_value=[]),
-            patch("run_agent.check_toolset_requirements", return_value={}),
+            patch("agent.init_tools.get_tool_definitions", return_value=[]),
+            patch("agent.init_tools.check_toolset_requirements", return_value={}),
             patch("run_agent.OpenAI"),
             patch(
                 "hermes_cli.config.load_config",
@@ -780,8 +790,8 @@ class TestInit:
         """The disable must survive anthropic_prompt_cache_policy() re-derivation
         (called during /model switch and fallback activation)."""
         with (
-            patch("run_agent.get_tool_definitions", return_value=[]),
-            patch("run_agent.check_toolset_requirements", return_value={}),
+            patch("agent.init_tools.get_tool_definitions", return_value=[]),
+            patch("agent.init_tools.check_toolset_requirements", return_value={}),
             patch("run_agent.OpenAI"),
             patch(
                 "hermes_cli.config.load_config",
@@ -811,8 +821,8 @@ class TestInit:
     def test_constructor_max_tokens_wins_over_config(self):
         """Explicit constructor max_tokens keeps programmatic callers stable."""
         with (
-            patch("run_agent.get_tool_definitions", return_value=[]),
-            patch("run_agent.check_toolset_requirements", return_value={}),
+            patch("agent.init_tools.get_tool_definitions", return_value=[]),
+            patch("agent.init_tools.check_toolset_requirements", return_value={}),
             patch("run_agent.OpenAI"),
             patch(
                 "hermes_cli.config.load_config",
@@ -888,8 +898,8 @@ class TestBuildSystemPrompt:
 
     def test_can_use_soul_identity_even_when_context_files_are_skipped(self):
         with (
-            patch("run_agent.get_tool_definitions", return_value=_make_tool_defs("terminal")),
-            patch("run_agent.check_toolset_requirements", return_value={}),
+            patch("agent.init_tools.get_tool_definitions", return_value=_make_tool_defs("terminal")),
+            patch("agent.init_tools.check_toolset_requirements", return_value={}),
             patch("run_agent.OpenAI"),
             patch("run_agent.load_soul_md", return_value="SOUL IDENTITY"),
         ):
@@ -987,9 +997,9 @@ class TestBuildSystemPrompt:
         }
 
         with (
-            patch("run_agent.get_tool_definitions", return_value=tools),
+            patch("agent.init_tools.get_tool_definitions", return_value=tools),
             patch(
-                "run_agent.check_toolset_requirements",
+                "agent.init_tools.check_toolset_requirements",
                 side_effect=AssertionError("should not re-check toolset requirements"),
             ),
             patch("run_agent.get_toolset_for_tool", create=True, side_effect=toolset_map.get),
@@ -1018,10 +1028,10 @@ class TestToolUseEnforcementConfig:
         """Create an agent with tools and a specific enforcement config."""
         with (
             patch(
-                "run_agent.get_tool_definitions",
+                "agent.init_tools.get_tool_definitions",
                 return_value=_make_tool_defs("terminal", "web_search"),
             ),
-            patch("run_agent.check_toolset_requirements", return_value={}),
+            patch("agent.init_tools.check_toolset_requirements", return_value={}),
             patch("run_agent.OpenAI"),
             patch(
                 "hermes_cli.config.load_config",
@@ -1068,8 +1078,8 @@ class TestToolUseEnforcementConfig:
         """Even with enforcement=true, no injection when agent has no tools."""
         from agent.prompt_builder import TOOL_USE_ENFORCEMENT_GUIDANCE
         with (
-            patch("run_agent.get_tool_definitions", return_value=[]),
-            patch("run_agent.check_toolset_requirements", return_value={}),
+            patch("agent.init_tools.get_tool_definitions", return_value=[]),
+            patch("agent.init_tools.check_toolset_requirements", return_value={}),
             patch("run_agent.OpenAI"),
             patch(
                 "hermes_cli.config.load_config",
@@ -1106,10 +1116,10 @@ class TestTaskCompletionGuidance:
         agent_cfg.update(extra_cfg)
         with (
             patch(
-                "run_agent.get_tool_definitions",
+                "agent.init_tools.get_tool_definitions",
                 return_value=_make_tool_defs("terminal", "web_search"),
             ),
-            patch("run_agent.check_toolset_requirements", return_value={}),
+            patch("agent.init_tools.check_toolset_requirements", return_value={}),
             patch("run_agent.OpenAI"),
             patch(
                 "hermes_cli.config.load_config",
@@ -1147,8 +1157,8 @@ class TestTaskCompletionGuidance:
         tools it would be advice for a capability the agent doesn't have."""
         from agent.prompt_builder import TASK_COMPLETION_GUIDANCE
         with (
-            patch("run_agent.get_tool_definitions", return_value=[]),
-            patch("run_agent.check_toolset_requirements", return_value={}),
+            patch("agent.init_tools.get_tool_definitions", return_value=[]),
+            patch("agent.init_tools.check_toolset_requirements", return_value={}),
             patch("run_agent.OpenAI"),
             patch(
                 "hermes_cli.config.load_config",
@@ -1180,10 +1190,10 @@ class TestEnvironmentProbeIntegration:
                     environment_probe=True):
         with (
             patch(
-                "run_agent.get_tool_definitions",
+                "agent.init_tools.get_tool_definitions",
                 return_value=_make_tool_defs("terminal"),
             ),
-            patch("run_agent.check_toolset_requirements", return_value={}),
+            patch("agent.init_tools.check_toolset_requirements", return_value={}),
             patch("run_agent.OpenAI"),
             patch(
                 "hermes_cli.config.load_config",
@@ -5384,8 +5394,7 @@ class TestFallbackAnthropicProvider:
 
     def test_fallback_to_anthropic_sets_api_mode(self, agent):
         agent._fallback_activated = False
-        agent._fallback_model = {"provider": "anthropic", "model": "claude-sonnet-4-20250514"}
-        agent._fallback_chain = [agent._fallback_model]
+        agent._fallback_chain = [{"provider": "anthropic", "model": "claude-sonnet-4-20250514"}]
         agent._fallback_index = 0
 
         mock_client = MagicMock()
@@ -5407,8 +5416,7 @@ class TestFallbackAnthropicProvider:
 
     def test_fallback_to_anthropic_enables_prompt_caching(self, agent):
         agent._fallback_activated = False
-        agent._fallback_model = {"provider": "anthropic", "model": "claude-sonnet-4-20250514"}
-        agent._fallback_chain = [agent._fallback_model]
+        agent._fallback_chain = [{"provider": "anthropic", "model": "claude-sonnet-4-20250514"}]
         agent._fallback_index = 0
 
         mock_client = MagicMock()
@@ -5428,8 +5436,8 @@ class TestFallbackAnthropicProvider:
 
 def test_aiagent_uses_copilot_acp_client():
     with (
-        patch("run_agent.get_tool_definitions", return_value=_make_tool_defs("web_search")),
-        patch("run_agent.check_toolset_requirements", return_value={}),
+        patch("agent.init_tools.get_tool_definitions", return_value=_make_tool_defs("web_search")),
+        patch("agent.init_tools.check_toolset_requirements", return_value={}),
         patch("run_agent.OpenAI") as mock_openai,
         patch("agent.copilot_acp_client.CopilotACPClient") as mock_acp_client,
     ):
@@ -5505,8 +5513,8 @@ class TestAnthropicBaseUrlPassthrough:
 
     def test_custom_proxy_base_url_passed_through(self):
         with (
-            patch("run_agent.get_tool_definitions", return_value=_make_tool_defs("web_search")),
-            patch("run_agent.check_toolset_requirements", return_value={}),
+            patch("agent.init_tools.get_tool_definitions", return_value=_make_tool_defs("web_search")),
+            patch("agent.init_tools.check_toolset_requirements", return_value={}),
             patch("agent.anthropic_adapter.build_anthropic_client") as mock_build,
         ):
             mock_build.return_value = MagicMock()
@@ -5527,8 +5535,8 @@ class TestAnthropicBaseUrlPassthrough:
 class TestAnthropicCredentialRefresh:
     def test_try_refresh_anthropic_client_credentials_rebuilds_client(self):
         with (
-            patch("run_agent.get_tool_definitions", return_value=_make_tool_defs("web_search")),
-            patch("run_agent.check_toolset_requirements", return_value={}),
+            patch("agent.init_tools.get_tool_definitions", return_value=_make_tool_defs("web_search")),
+            patch("agent.init_tools.check_toolset_requirements", return_value={}),
             patch("agent.anthropic_adapter.build_anthropic_client") as mock_build,
         ):
             old_client = MagicMock()
@@ -5564,8 +5572,8 @@ class TestAnthropicCredentialRefresh:
 
     def test_anthropic_messages_create_preflights_refresh(self):
         with (
-            patch("run_agent.get_tool_definitions", return_value=_make_tool_defs("web_search")),
-            patch("run_agent.check_toolset_requirements", return_value={}),
+            patch("agent.init_tools.get_tool_definitions", return_value=_make_tool_defs("web_search")),
+            patch("agent.init_tools.check_toolset_requirements", return_value={}),
             patch("agent.anthropic_adapter.build_anthropic_client", return_value=MagicMock()),
         ):
             agent = AIAgent(
@@ -5593,8 +5601,8 @@ class TestAnthropicCredentialRefresh:
 
     def test_anthropic_messages_create_falls_back_when_stream_unavailable(self):
         with (
-            patch("run_agent.get_tool_definitions", return_value=_make_tool_defs("web_search")),
-            patch("run_agent.check_toolset_requirements", return_value={}),
+            patch("agent.init_tools.get_tool_definitions", return_value=_make_tool_defs("web_search")),
+            patch("agent.init_tools.check_toolset_requirements", return_value={}),
             patch("agent.anthropic_adapter.build_anthropic_client", return_value=MagicMock()),
         ):
             agent = AIAgent(
@@ -6556,8 +6564,7 @@ class TestFallbackSetsOAuthFlag:
 
     def test_fallback_to_anthropic_oauth_sets_flag(self, agent):
         agent._fallback_activated = False
-        agent._fallback_model = {"provider": "anthropic", "model": "claude-sonnet-4-6"}
-        agent._fallback_chain = [agent._fallback_model]
+        agent._fallback_chain = [{"provider": "anthropic", "model": "claude-sonnet-4-6"}]
         agent._fallback_index = 0
 
         mock_client = MagicMock()
@@ -6579,8 +6586,7 @@ class TestFallbackSetsOAuthFlag:
 
     def test_fallback_to_anthropic_api_key_clears_flag(self, agent):
         agent._fallback_activated = False
-        agent._fallback_model = {"provider": "anthropic", "model": "claude-sonnet-4-6"}
-        agent._fallback_chain = [agent._fallback_model]
+        agent._fallback_chain = [{"provider": "anthropic", "model": "claude-sonnet-4-6"}]
         agent._fallback_index = 0
 
         mock_client = MagicMock()
@@ -6606,7 +6612,7 @@ class TestMemoryNudgeCounterPersistence:
 
     def test_counters_initialized_in_init(self):
         """Counters must exist on the agent after __init__."""
-        with patch("run_agent.get_tool_definitions", return_value=[]):
+        with patch("agent.init_tools.get_tool_definitions", return_value=[]):
             a = AIAgent(
                 model="test", api_key="test-key", base_url="http://localhost:1234/v1",
                 provider="openrouter", skip_context_files=True, skip_memory=True,

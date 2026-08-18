@@ -17,10 +17,10 @@ from unittest.mock import MagicMock, patch
 from run_agent import AIAgent
 
 
-def _make_agent(fallback_model=None):
+def _make_agent(fallback_providers=None):
     with (
-        patch("run_agent.get_tool_definitions", return_value=[]),
-        patch("run_agent.check_toolset_requirements", return_value={}),
+        patch("agent.init_tools.get_tool_definitions", return_value=[]),
+        patch("agent.init_tools.check_toolset_requirements", return_value={}),
         patch("run_agent.OpenAI"),
     ):
         agent = AIAgent(
@@ -29,7 +29,7 @@ def _make_agent(fallback_model=None):
             quiet_mode=True,
             skip_context_files=True,
             skip_memory=True,
-            fallback_model=fallback_model,
+            fallback_providers=fallback_providers,
         )
         agent.client = MagicMock()
         return agent
@@ -84,7 +84,7 @@ class TestExplicitApiModeHonored:
             "api_key": "k",
             "api_mode": "anthropic_messages",
         }]
-        agent = _make_agent(fallback_model=fbs)
+        agent = _make_agent(fallback_providers=fbs)
         mock_rpc = _activate(agent, "https://gateway.example.com/v1", "claude-opus-4-6")
         assert agent.api_mode == "anthropic_messages"
         # Behavior (3): api_mode forwarded to the resolver.
@@ -103,7 +103,7 @@ class TestExplicitApiModeHonored:
             "api_key": "k",
             "api_mode": "chat_completions",
         }]
-        agent = _make_agent(fallback_model=fbs)
+        agent = _make_agent(fallback_providers=fbs)
         _activate(agent, "https://api.openai.com/v1", "gpt-5.2")
         assert agent.api_mode == "chat_completions"
 
@@ -114,7 +114,7 @@ class TestExplicitApiModeHonored:
             "api_key": "k",
             "api_mode": "chat_completions",
         }]
-        agent = _make_agent(fallback_model=fbs)
+        agent = _make_agent(fallback_providers=fbs)
         _activate(
             agent,
             "https://bedrock-runtime.us-east-1.amazonaws.com",
@@ -134,7 +134,7 @@ class TestOriginalUrlDetection:
             "base_url": "https://api.minimax.io/anthropic",
             "api_key": "k",
         }]
-        agent = _make_agent(fallback_model=fbs)
+        agent = _make_agent(fallback_providers=fbs)
         mock_rpc = _activate(agent, "https://api.minimax.io/v1", "MiniMax-M2.5")
         assert agent.api_mode == "anthropic_messages"
         assert mock_rpc.call_args.kwargs["api_mode"] == "anthropic_messages"
@@ -146,7 +146,7 @@ class TestOriginalUrlDetection:
             "base_url": "https://api.anthropic.com",
             "api_key": "k",
         }]
-        agent = _make_agent(fallback_model=fbs)
+        agent = _make_agent(fallback_providers=fbs)
         _activate(agent, "https://api.anthropic.com", "claude-opus-4-6")
         assert agent.api_mode == "anthropic_messages"
 
@@ -154,7 +154,7 @@ class TestOriginalUrlDetection:
         """provider: anthropic with no explicit base_url must still resolve
         to anthropic_messages (follow-up commit 38303343 in PR #79787)."""
         fbs = [{"provider": "anthropic", "model": "claude-opus-4-6", "api_key": "k"}]
-        agent = _make_agent(fallback_model=fbs)
+        agent = _make_agent(fallback_providers=fbs)
         mock_rpc = _activate(agent, "https://api.anthropic.com", "claude-opus-4-6")
         assert agent.api_mode == "anthropic_messages"
         assert mock_rpc.call_args.kwargs["api_mode"] == "anthropic_messages"
@@ -167,7 +167,7 @@ class TestPlainFallbackUnchanged:
             "model": "z-ai/glm-5",
             "api_key": "k",
         }]
-        agent = _make_agent(fallback_model=fbs)
+        agent = _make_agent(fallback_providers=fbs)
         mock_rpc = _activate(agent, "https://openrouter.ai/api/v1", "z-ai/glm-5")
         assert agent.api_mode == "chat_completions"
         assert mock_rpc.call_args.kwargs["api_mode"] == "chat_completions"
@@ -177,6 +177,6 @@ class TestPlainFallbackUnchanged:
         the fallback entry — post-resolve detection must still catch it
         (#32243, #49247)."""
         fbs = [{"provider": "cron-anthropic", "model": "claude-opus-4-6", "api_key": "k"}]
-        agent = _make_agent(fallback_model=fbs)
+        agent = _make_agent(fallback_providers=fbs)
         _activate(agent, "https://api.anthropic.com/v1", "claude-opus-4-6")
         assert agent.api_mode == "anthropic_messages"

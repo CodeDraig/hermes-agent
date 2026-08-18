@@ -1654,7 +1654,7 @@ def _build_child_agent(
     # Inherit the parent's fallback provider chain so subagents can recover
     # from rate-limits and credential exhaustion exactly like the top-level
     # agent does.  _fallback_chain is a list accepted by AIAgent's
-    # fallback_model parameter (which handles both list and dict forms).
+    # fallback_providers parameter carries the ordered list from the parent.
     #
     # EXCEPT when the user pinned delegation.provider: an explicit pin means
     # "children run on THIS provider".  Inheriting the parent chain would let
@@ -1663,10 +1663,11 @@ def _build_child_agent(
     # same class of silent-drag the override_provider filter-clearing below
     # already prevents for OpenRouter routing preferences.  Predictability >
     # liveness for explicit pins: the pinned child fails loudly instead.
+    _parent_chain = getattr(parent_agent, "_fallback_chain", None)
     parent_fallback = (
         None
-        if override_provider
-        else (getattr(parent_agent, "_fallback_chain", None) or None)
+        if override_provider or not isinstance(_parent_chain, list)
+        else (_parent_chain or None)
     )
 
     # Inherit the parent's OpenRouter provider-preference filters by default
@@ -1756,7 +1757,7 @@ def _build_child_agent(
 
                 reasoning_config=child_reasoning,
                 prefill_messages=getattr(parent_agent, "prefill_messages", None),
-                fallback_model=parent_fallback,
+                fallback_providers=parent_fallback,
                 enabled_toolsets=child_toolsets,
                 disabled_toolsets=child_disabled_toolsets,
                 quiet_mode=True,

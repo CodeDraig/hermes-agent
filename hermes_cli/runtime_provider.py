@@ -918,7 +918,7 @@ def find_custom_provider_identity_by_model(model: str) -> Optional[str]:
 
     Returns the ``custom:<normalized-name>`` slug of the first ``providers:``
     / ``custom_providers:`` entry whose ``model`` / ``default_model`` matches,
-    or whose ``models`` catalog (dict or list shape) contains the id.
+    or whose ``models`` mapping contains the id.
     ``None`` when no entry serves the model.
 
     Companion to :func:`find_custom_provider_identity` (URL reverse-lookup)
@@ -946,14 +946,6 @@ def find_custom_provider_identity_by_model(model: str) -> Optional[str]:
             return any(
                 str(mid).strip().lower() == target for mid in models.keys()
             )
-        if isinstance(models, list):
-            for item in models:
-                if isinstance(item, str) and item.strip().lower() == target:
-                    return True
-                if isinstance(item, dict):
-                    mid = item.get("id") or item.get("name")
-                    if isinstance(mid, str) and mid.strip().lower() == target:
-                        return True
         return False
 
     providers = config.get("providers")

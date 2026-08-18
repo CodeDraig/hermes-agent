@@ -4,7 +4,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 import unittest
 
-from agent.agent_init import _relay_moa_reference_event
+from agent.init_runtime import _relay_moa_reference_event
 
 
 class MoAQuietReferenceOutputTests(unittest.TestCase):

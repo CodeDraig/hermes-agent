@@ -27,7 +27,7 @@ class _RuntimeCLI(CLIAgentSetupMixin):
         self.acp_command = None
         self.acp_args = []
         self.agent = None
-        self._fallback_model = []
+        self._fallback_providers = []
         self._explicit_api_key = None
         self._explicit_base_url = None
         self._credential_pool = None

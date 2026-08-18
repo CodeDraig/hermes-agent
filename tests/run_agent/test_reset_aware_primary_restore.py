@@ -94,10 +94,10 @@ def _make_tool_defs(*names):
     ]
 
 
-def _make_agent(fallback_model=None):
+def _make_agent(fallback_providers=None):
     with (
-        patch("run_agent.get_tool_definitions", return_value=_make_tool_defs("web_search")),
-        patch("run_agent.check_toolset_requirements", return_value={}),
+        patch("agent.init_tools.get_tool_definitions", return_value=_make_tool_defs("web_search")),
+        patch("agent.init_tools.check_toolset_requirements", return_value={}),
         patch("run_agent.OpenAI"),
     ):
         agent = AIAgent(
@@ -107,7 +107,7 @@ def _make_agent(fallback_model=None):
             quiet_mode=True,
             skip_context_files=True,
             skip_memory=True,
-            fallback_model=fallback_model,
+            fallback_providers=fallback_providers,
         )
         agent.client = MagicMock()
         return agent
@@ -235,7 +235,7 @@ class TestResetAwareRestoreGate:
     FB = {"provider": "openrouter", "model": "anthropic/claude-sonnet-4"}
 
     def test_stays_on_fallback_until_reset(self):
-        agent = _make_agent(fallback_model=self.FB)
+        agent = _make_agent(fallback_providers=self.FB)
         _activate_fallback(agent)
         agent._rate_limited_until = 0  # 60s transient cooldown already cleared
 
@@ -249,7 +249,7 @@ class TestResetAwareRestoreGate:
         assert agent.model == "anthropic/claude-sonnet-4"
 
     def test_restores_once_reset_elapsed(self):
-        agent = _make_agent(fallback_model=self.FB)
+        agent = _make_agent(fallback_providers=self.FB)
         original_model = agent.model
         _activate_fallback(agent)
         agent._rate_limited_until = 0
@@ -263,7 +263,7 @@ class TestResetAwareRestoreGate:
         assert agent.provider == "custom"
 
     def test_past_reset_time_does_not_block(self):
-        agent = _make_agent(fallback_model=self.FB)
+        agent = _make_agent(fallback_providers=self.FB)
         _activate_fallback(agent)
         agent._rate_limited_until = 0
 
@@ -275,7 +275,7 @@ class TestResetAwareRestoreGate:
 
     def test_fails_open_on_pool_error(self):
         """Any exception inside the gate must not break restore."""
-        agent = _make_agent(fallback_model=self.FB)
+        agent = _make_agent(fallback_providers=self.FB)
         _activate_fallback(agent)
         agent._rate_limited_until = 0
 
@@ -288,7 +288,7 @@ class TestResetAwareRestoreGate:
     def test_cross_provider_fallback_loads_primary_pool(self):
         """After a cross-provider fallback the attached pool belongs to the
         fallback provider; the gate must consult the PRIMARY's pool."""
-        agent = _make_agent(fallback_model=self.FB)
+        agent = _make_agent(fallback_providers=self.FB)
         _activate_fallback(agent)
         agent._rate_limited_until = 0
 
@@ -304,7 +304,7 @@ class TestResetAwareRestoreGate:
 
     def test_no_pool_info_falls_through(self):
         """Pool present but no reset info -> existing per-turn retry."""
-        agent = _make_agent(fallback_model=self.FB)
+        agent = _make_agent(fallback_providers=self.FB)
         _activate_fallback(agent)
         agent._rate_limited_until = 0
 
@@ -316,7 +316,7 @@ class TestResetAwareRestoreGate:
     def test_logs_wait_only_once(self, caplog):
         import logging
 
-        agent = _make_agent(fallback_model=self.FB)
+        agent = _make_agent(fallback_providers=self.FB)
         _activate_fallback(agent)
         agent._rate_limited_until = 0
         agent._credential_pool = _FakePool("custom", next_at=time.time() + 3600)
@@ -329,7 +329,7 @@ class TestResetAwareRestoreGate:
 
     def test_transient_cooldown_still_respected(self):
         """The existing 60s monotonic gate fires before the reset-aware one."""
-        agent = _make_agent(fallback_model=self.FB)
+        agent = _make_agent(fallback_providers=self.FB)
         _activate_fallback(agent)
         agent._rate_limited_until = time.monotonic() + 60
         pool = _FakePool("custom", next_at=None)

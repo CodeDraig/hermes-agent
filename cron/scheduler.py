@@ -5206,7 +5206,7 @@ def run_job(
                     f"config is pinned or restored. See #44585."
                 )
 
-        fallback_model = get_fallback_chain(_cfg) or None
+        fallback_providers = get_fallback_chain(_cfg) or None
         credential_pool = None
         runtime_provider = str(runtime.get("provider") or "").strip().lower()
         if runtime_provider:
@@ -5257,7 +5257,7 @@ def run_job(
             max_iterations=max_iterations,
             reasoning_config=reasoning_config,
             prefill_messages=prefill_messages,
-            fallback_model=fallback_model,
+            fallback_providers=fallback_providers,
             credential_pool=credential_pool,
             providers_allowed=pr.get("only"),
             providers_ignored=pr.get("ignore"),

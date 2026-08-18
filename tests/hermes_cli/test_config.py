@@ -876,10 +876,7 @@ class TestCustomProviderCompatibility:
         assert provider["extra_body"] == {
             "chat_template_kwargs": {"enable_thinking": False}
         }
-        assert raw["providers"]["list-models"]["models"] == {
-            "alpha": {},
-            "beta": {},
-        }
+        assert "models" not in raw["providers"]["list-models"]
 
         compatible_provider = next(
             entry for entry in compatible if entry["provider_key"] == "kimi-coding-plan"

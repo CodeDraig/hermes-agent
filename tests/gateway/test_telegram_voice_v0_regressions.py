@@ -110,7 +110,7 @@ def _run_agent_runner(adapter):
     runner._ephemeral_system_prompt = ""
     runner._reasoning_config = None
     runner._provider_routing = {}
-    runner._fallback_model = None
+    runner._fallback_providers = None
     runner._session_db = None
     runner._running_agents = {}
     runner._session_run_generation = {}

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import pytest
 
-from agent.agent_init import _resolve_compression_threshold
+from agent.init_context import _resolve_compression_threshold
 from agent.auxiliary_client import (
     _compression_threshold_for_model,
     _fixed_temperature_for_model,
@@ -155,5 +155,4 @@ def test_resolve_no_override_keeps_global() -> None:
     )
     assert effective == 0.50
     assert notice is None
-
 

@@ -39,12 +39,12 @@ def test_list_authenticated_providers_includes_full_models_list_from_user_provid
             "name": "Local Ollama",
             "api": "http://localhost:11434/v1",
             "default_model": "minimax-m2.7:cloud",
-            "models": [
-                "minimax-m2.7:cloud",
-                "kimi-k2.5:cloud",
-                "glm-5.1:cloud",
-                "qwen3.5:cloud",
-            ],
+            "models": {
+                "minimax-m2.7:cloud": {},
+                "kimi-k2.5:cloud": {},
+                "glm-5.1:cloud": {},
+                "qwen3.5:cloud": {},
+            },
         }
     }
     

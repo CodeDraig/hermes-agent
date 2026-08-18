@@ -3280,14 +3280,14 @@ def _relay_sync_completion(
     # transaction on hard cancel without touching the process-shared client.
     if route is None:
         return _run_protected_sync_provider_call(callback, kwargs)
-    provider_name, fallback_model, metadata = route
+    provider_name, fallback_model_name, metadata = route
     from agent import relay_llm
 
     return relay_llm.execute_current(
         kwargs,
         lambda request: _run_protected_sync_provider_call(callback, request),
         name=provider_name,
-        model_name=str(kwargs.get("model") or fallback_model),
+        model_name=str(kwargs.get("model") or fallback_model_name),
         metadata=metadata,
         defer_logical_completion=True,
     )
@@ -3305,14 +3305,14 @@ async def _relay_async_completion(
     route = _relay_auxiliary_metadata(provider=provider, api_mode=api_mode)
     if route is None:
         return await callback(kwargs)
-    provider_name, fallback_model, metadata = route
+    provider_name, fallback_model_name, metadata = route
     from agent import relay_llm
 
     return await relay_llm.execute_current_async(
         kwargs,
         callback,
         name=provider_name,
-        model_name=str(kwargs.get("model") or fallback_model),
+        model_name=str(kwargs.get("model") or fallback_model_name),
         metadata=metadata,
         defer_logical_completion=True,
     )
@@ -3328,14 +3328,14 @@ def _relay_sync_stream(
     route = _relay_auxiliary_metadata(provider=provider, api_mode=api_mode)
     if route is None:
         return client.chat.completions.create(**kwargs)
-    provider_name, fallback_model, metadata = route
+    provider_name, fallback_model_name, metadata = route
     from agent import relay_llm
 
     return relay_llm.stream_current(
         kwargs,
         lambda request: client.chat.completions.create(**request),
         name=provider_name,
-        model_name=str(kwargs.get("model") or fallback_model),
+        model_name=str(kwargs.get("model") or fallback_model_name),
         finalizer=dict,
         metadata=metadata,
         completed_response_predicate=lambda value: hasattr(value, "choices"),
@@ -5652,8 +5652,8 @@ def _try_main_fallback_chain(
     ``provider: auto`` auxiliary tasks should respect the user's declared
     main fallback policy before dropping into Hermes' built-in discovery
     chain. The top-level chain is read through ``get_fallback_chain`` so
-    both modern ``fallback_providers`` and legacy ``fallback_model`` entries
-    participate in the same order as the main agent.
+    the configured ``fallback_providers`` entries in the same order as the
+    main agent.
     """
     try:
         from hermes_cli.config import load_config_readonly
@@ -5903,7 +5903,7 @@ def _resolve_auto_route(
 
     # ── Step 2: user-configured fallback policy ─────────────────────────
     # In auto mode, respect the task-specific fallback chain first, then the
-    # main agent's top-level fallback_providers/fallback_model chain. The
+    # main agent's top-level fallback_providers chain. The
     # hardcoded provider discovery chain below is only the convenience default
     # for users who have not declared a fallback policy.
     if task:
@@ -6648,7 +6648,7 @@ def resolve_provider_client(
 
         creds = resolve_api_key_provider_credentials(provider)
         api_key = str(creds.get("api_key", "")).strip()
-        # Honour an explicit api_key override (e.g. from a fallback_model entry
+        # Honour an explicit api_key override (e.g. from a fallback_providers entry
         # or a custom_providers entry) so callers that pass an explicit
         # credential can authenticate against endpoints where no built-in
         # credential is registered for this provider alias.
@@ -6681,7 +6681,7 @@ def resolve_provider_client(
 
         base_url = _to_openai_base_url(raw_base_url)
         # Honour an explicit base_url override from the caller — used when a
-        # fallback_model entry (or custom_providers lookup) routes through a
+        # fallback_providers entry (or custom_providers lookup) routes through a
         # built-in provider name but targets a user-specified endpoint.
         if explicit_base_url:
             base_url = _to_openai_base_url(explicit_base_url.strip().rstrip("/"))
@@ -9806,7 +9806,7 @@ def _call_llm_impl(
             )
             # Fallback order (#26882, #26803):
             #   1. User-configured fallback_chain (per-task) if set
-            #   2. For auto: top-level main fallback_providers/fallback_model
+            #   2. For auto: top-level main fallback_providers
             #   3. For auto: built-in auxiliary discovery chain
             #   4. For explicit aux providers: main agent model safety net
             fb_client, fb_model, fb_label = (None, None, "")
@@ -10470,7 +10470,7 @@ async def _async_call_llm_impl(
             )
             # Fallback order (#26882, #26803):
             #   1. User-configured fallback_chain (per-task) if set
-            #   2. For auto: top-level main fallback_providers/fallback_model
+            #   2. For auto: top-level main fallback_providers
             #   3. For auto: built-in auxiliary discovery chain
             #   4. For explicit aux providers: main agent model safety net
             fb_client, fb_model, fb_label = (None, None, "")

@@ -21,10 +21,10 @@ from agent.error_classifier import FailoverReason
 from agent.chat_completion_helpers import _FALLBACK_EXHAUSTED_COOLDOWN_S
 
 
-def _make_agent(fallback_model=None):
+def _make_agent(fallback_providers=None):
     with (
-        patch("run_agent.get_tool_definitions", return_value=[]),
-        patch("run_agent.check_toolset_requirements", return_value={}),
+        patch("agent.init_tools.get_tool_definitions", return_value=[]),
+        patch("agent.init_tools.check_toolset_requirements", return_value={}),
         patch("run_agent.OpenAI"),
     ):
         agent = AIAgent(
@@ -33,7 +33,7 @@ def _make_agent(fallback_model=None):
             quiet_mode=True,
             skip_context_files=True,
             skip_memory=True,
-            fallback_model=fallback_model,
+            fallback_providers=fallback_providers,
         )
         agent.client = MagicMock()
         return agent
@@ -60,7 +60,7 @@ class TestExhaustionArmsCooldown:
             {"provider": "openai", "model": "gpt-4o"},
             {"provider": "zai", "model": "glm-4.7"},
         ]
-        agent = _make_agent(fallback_model=fbs)
+        agent = _make_agent(fallback_providers=fbs)
         agent._rate_limited_until = 0
         frozen = 1_000.0
         with (
@@ -83,7 +83,7 @@ class TestExhaustionArmsCooldown:
         """An empty chain (no fallback configured) must not arm a cooldown —
         there is no chain to storm, and gating primary restoration would be
         pointless punishment."""
-        agent = _make_agent(fallback_model=None)
+        agent = _make_agent(fallback_providers=None)
         agent._rate_limited_until = 0
         assert agent._try_activate_fallback() is False
         assert getattr(agent, "_rate_limited_until", 0) == 0
@@ -92,7 +92,7 @@ class TestExhaustionArmsCooldown:
         """A rate-limit failure already arms its own 60s cooldown; the short
         exhaustion window must not shrink it."""
         fbs = [{"provider": "openai", "model": "gpt-4o"}]
-        agent = _make_agent(fallback_model=fbs)
+        agent = _make_agent(fallback_providers=fbs)
         agent._rate_limited_until = 0
         frozen = 1_000.0
         with (
@@ -115,7 +115,7 @@ class TestExhaustionArmsCooldown:
         """If a longer cooldown is already armed, exhaustion must not reduce
         it (we take the max)."""
         fbs = [{"provider": "openai", "model": "gpt-4o"}]
-        agent = _make_agent(fallback_model=fbs)
+        agent = _make_agent(fallback_providers=fbs)
         frozen = 1_000.0
         far_future = frozen + 999
         agent._rate_limited_until = far_future
@@ -154,7 +154,7 @@ class TestRateLimitBackoffEscalation:
         """Each consecutive primary rate-limit doubles the cooldown:
         60s, then 120s, then 240s."""
         fbs = [{"provider": "openai", "model": "gpt-4o"}]
-        agent = _make_agent(fallback_model=fbs)
+        agent = _make_agent(fallback_providers=fbs)
         agent._rate_limited_until = 0
         snapshot = (agent.provider, agent.model, agent.base_url)
         frozen = 1_000.0
@@ -178,7 +178,7 @@ class TestRateLimitBackoffEscalation:
         """Escalation is capped at 14400s (4h) no matter how many
         consecutive rate-limits occurred."""
         fbs = [{"provider": "openai", "model": "gpt-4o"}]
-        agent = _make_agent(fallback_model=fbs)
+        agent = _make_agent(fallback_providers=fbs)
         agent._rate_limited_until = 0
         # 60 * 2**10 = 61440s, far past the cap.
         agent._rate_limit_backoff_count = 10
@@ -197,7 +197,7 @@ class TestRateLimitBackoffEscalation:
         """A successful restore_primary_runtime resets the backoff counter,
         so the next rate-limit starts back at the 60s base."""
         fbs = [{"provider": "openai", "model": "gpt-4o"}]
-        agent = _make_agent(fallback_model=fbs)
+        agent = _make_agent(fallback_providers=fbs)
         snapshot = (agent.provider, agent.model, agent.base_url)
         frozen = 1_000.0
         with (

@@ -36,7 +36,7 @@ class TestCredentialPoolPreservedOnAutoDetect:
         pool = SimpleNamespace(provider="anthropic")
 
         with patch("agent.auxiliary_client.resolve_provider_client", return_value=(None, None)), \
-             patch("run_agent.get_tool_definitions", return_value=[]), \
+             patch("agent.init_tools.get_tool_definitions", return_value=[]), \
              patch('agent.anthropic_adapter.build_anthropic_client', return_value=MagicMock()), \
              patch('agent.anthropic_adapter.resolve_anthropic_token', return_value=''), \
              patch('agent.anthropic_adapter._is_oauth_token', return_value=False), \

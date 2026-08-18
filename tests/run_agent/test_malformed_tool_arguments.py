@@ -21,8 +21,8 @@ def _make_agent() -> AIAgent:
         }
     ]
     with (
-        patch("run_agent.get_tool_definitions", return_value=tool_defs),
-        patch("run_agent.check_toolset_requirements", return_value={}),
+        patch("agent.init_tools.get_tool_definitions", return_value=tool_defs),
+        patch("agent.init_tools.check_toolset_requirements", return_value={}),
         patch("hermes_cli.config.load_config", return_value={}),
         patch("run_agent.OpenAI"),
     ):

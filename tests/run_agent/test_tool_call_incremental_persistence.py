@@ -56,10 +56,10 @@ def _make_agent():
     (hermes_home / "logs").mkdir(parents=True, exist_ok=True)
     with (
         patch(
-            "run_agent.get_tool_definitions",
+            "agent.init_tools.get_tool_definitions",
             return_value=_make_tool_defs("web_search"),
         ),
-        patch("run_agent.check_toolset_requirements", return_value={}),
+        patch("agent.init_tools.check_toolset_requirements", return_value={}),
         patch("run_agent.OpenAI"),
         patch("run_agent._hermes_home", hermes_home),
         patch("agent.model_metadata.fetch_model_metadata", return_value={}),

@@ -319,14 +319,14 @@ class TestInitAgentDoesNotMutatePluginSingleton:
         assert engine.context_length == 1_000_000
 
     def test_agent_init_source_deepcopies_singleton_not_aliases(self):
-        """Source-pin guarding the production fix in agent/agent_init.py:
+        """Source-pin guarding the production fix in agent/init_context.py:
         the plugin-singleton fallback MUST deepcopy the candidate, not alias
         it (`_selected_engine = _candidate`). Full init_agent is too heavy to
         drive here, so this pins the exact line so a future revert to direct
         assignment fails CI. Regression for #42449."""
         import inspect
         import re
-        import agent.agent_init as _ai
+        import agent.init_context as _ai
 
         src = inspect.getsource(_ai)
         # The candidate fetched from the plugin singleton must be deep-copied

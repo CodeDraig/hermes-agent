@@ -21,11 +21,10 @@ def _make_agent_with_compressor() -> AIAgent:
 
     # Fallback config
     agent._fallback_activated = False
-    agent._fallback_model = {
+    agent._fallback_chain = [{
         "provider": "openai",
         "model": "gpt-4o",
-    }
-    agent._fallback_chain = [agent._fallback_model]
+    }]
     agent._fallback_index = 0
 
     # Context compressor with primary model values
@@ -70,5 +69,4 @@ def test_compressor_updated_on_fallback(mock_ctx_len, mock_resolve):
     assert c.provider == "openai"
     assert c.context_length == 128_000
     assert c.threshold_tokens == int(128_000 * c.threshold_percent)
-
 
