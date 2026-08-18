@@ -11,8 +11,7 @@ import subprocess
 import sys
 import threading
 import time
-
-from concurrent.futures.thread import _threads_queues
+from concurrent.futures import Executor, ThreadPoolExecutor
 
 from tools.daemon_pool import DaemonThreadPoolExecutor
 
@@ -25,8 +24,10 @@ def test_workers_are_daemon_threads():
         ).result(timeout=10)
         is_daemon, worker = info
         assert is_daemon is True
-        # Not registered with concurrent.futures' atexit join hook.
-        assert worker not in _threads_queues
+        # The implementation must not inherit the stdlib executor whose
+        # private worker protocol changed in Python 3.15.
+        assert isinstance(pool, Executor)
+        assert not isinstance(pool, ThreadPoolExecutor)
     finally:
         pool.shutdown(wait=True)
 
@@ -40,6 +41,22 @@ def test_idle_worker_reuse():
         assert tid1 == tid2
     finally:
         pool.shutdown(wait=True)
+
+
+def test_initializer_and_cancel_pending_futures():
+    initialized = threading.local()
+    blocker = threading.Event()
+    pool = DaemonThreadPoolExecutor(
+        max_workers=1,
+        initializer=lambda value: setattr(initialized, "value", value),
+        initargs=(42,),
+    )
+    running = pool.submit(lambda: (blocker.wait(), initialized.value)[1])
+    pending = pool.submit(lambda: "must not run")
+    pool.shutdown(wait=False, cancel_futures=True)
+    blocker.set()
+    assert running.result(timeout=10) == 42
+    assert pending.cancelled()
 
 
 def test_wedged_worker_does_not_block_interpreter_exit():
