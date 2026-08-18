@@ -14,6 +14,11 @@ Import discipline (mirrors gateway/slash_commands.py, PR #41886):
 
 from __future__ import annotations
 
+import agent.lifecycle as lifecycle
+import agent.message_protocol as message_protocol
+import agent.session_runtime as session_runtime
+
+
 import json
 import os
 import sys
@@ -961,6 +966,8 @@ class CLICommandsMixin:
 
     def _handle_resume_command(self, cmd_original: str) -> None:
         """Handle /resume <session_id_or_title> — switch to a previous session mid-conversation."""
+        import agent.message_protocol as message_protocol
+        import agent.session_runtime as session_runtime
         from cli import _cprint, _sync_process_session_id
         parts = cmd_original.split(None, 1)
         target = parts[1].strip() if len(parts) > 1 else ""
@@ -1046,7 +1053,7 @@ class CLICommandsMixin:
         # Flush un-persisted messages before ending the old session (#47202).
         if self.agent:
             try:
-                self.agent._flush_messages_to_session_db(
+                session_runtime._flush_messages_to_session_db(self.agent,
                     self.conversation_history,
                     conversation_history=self.conversation_history,
                 )
@@ -1093,7 +1100,7 @@ class CLICommandsMixin:
         # Sync the agent if already initialised
         if self.agent:
             self.agent.session_id = target_id
-            self.agent.reset_session_state()
+            session_runtime.reset_session_state(self.agent)
             if hasattr(self.agent, "_last_flushed_db_idx"):
                 self.agent._last_flushed_db_idx = len(self.conversation_history)
             if hasattr(self.agent, "_todo_store"):
@@ -1103,7 +1110,7 @@ class CLICommandsMixin:
                 except Exception:
                     pass
             if hasattr(self.agent, "_invalidate_system_prompt"):
-                self.agent._invalidate_system_prompt()
+                message_protocol._invalidate_system_prompt(self.agent)
 
             # Notify memory providers that session_id rotated to a resumed
             # session. reset=False — the provider's accumulated state is
@@ -1288,6 +1295,8 @@ class CLICommandsMixin:
         explore a different approach without losing the original session state.
         Inspired by Claude Code's /branch command.
         """
+        import agent.message_protocol as message_protocol
+        import agent.session_runtime as session_runtime
         from cli import _cprint, _sync_process_session_id
         if not self.conversation_history:
             _cprint("  No conversation to branch — send a message first.")
@@ -1324,7 +1333,7 @@ class CLICommandsMixin:
         # Flush un-persisted messages before ending the old session (#47202).
         if self.agent:
             try:
-                self.agent._flush_messages_to_session_db(
+                session_runtime._flush_messages_to_session_db(self.agent,
                     self.conversation_history,
                     conversation_history=self.conversation_history,
                 )
@@ -1406,7 +1415,7 @@ class CLICommandsMixin:
         if self.agent:
             self.agent.session_id = new_session_id
             self.agent.session_start = now
-            self.agent.reset_session_state()
+            session_runtime.reset_session_state(self.agent)
             if hasattr(self.agent, "_last_flushed_db_idx"):
                 self.agent._last_flushed_db_idx = len(self.conversation_history)
             if hasattr(self.agent, "_todo_store"):
@@ -1416,7 +1425,7 @@ class CLICommandsMixin:
                 except Exception:
                     pass
             if hasattr(self.agent, "_invalidate_system_prompt"):
-                self.agent._invalidate_system_prompt()
+                message_protocol._invalidate_system_prompt(self.agent)
 
             # Notify memory providers that session_id forked to a new branch.
             # reset=False — the branched session carries the transcript
@@ -2094,11 +2103,12 @@ class CLICommandsMixin:
     def _handle_background_command(self, cmd: str):
         """Handle /background <prompt> — run a prompt in a separate background session.
 
-        Spawns a new AIAgent in a background thread with its own session.
+        Spawns a new create_agent in a background thread with its own session.
         When it completes, prints the result to the CLI without modifying
         the active session's conversation history.
         """
-        from cli import AIAgent, ChatConsole, _accent_hex, _cprint, _maybe_remap_for_light_mode, _render_final_assistant_content, set_approval_callback, set_secret_capture_callback, set_sudo_password_callback
+        import agent.lifecycle as lifecycle
+        from cli import create_agent, ChatConsole, _accent_hex, _cprint, _maybe_remap_for_light_mode, _render_final_assistant_content, set_approval_callback, set_secret_capture_callback, set_sudo_password_callback
         parts = cmd.strip().split(maxsplit=1)
         if len(parts) < 2 or not parts[1].strip():
             _cprint("  Usage: /background <prompt>")
@@ -2130,7 +2140,7 @@ class CLICommandsMixin:
             except Exception:
                 pass
             try:
-                bg_agent = AIAgent(
+                bg_agent = create_agent(
                     model=turn_route["model"],
                     api_key=turn_route["runtime"].get("api_key"),
                     base_url=turn_route["runtime"].get("base_url"),
@@ -2170,7 +2180,7 @@ class CLICommandsMixin:
 
                 bg_agent.thinking_callback = _bg_thinking
 
-                result = bg_agent.run_conversation(
+                result = lifecycle.run_conversation(bg_agent,
                     user_message=prompt,
                     task_id=task_id,
                 )
@@ -2655,11 +2665,12 @@ class CLICommandsMixin:
         """Dispatch /refine — run the memory/skill review fork on demand.
 
         Same machinery as the automatic post-turn self-improvement loop
-        (``AIAgent._spawn_background_review``), but user-triggered and with
+        (``create_agent._spawn_background_review``), but user-triggered and with
         optional focus instructions. Writes go to the memory + skill stores
         in a background fork; the live conversation and prompt cache are
         never touched.
         """
+        import agent.lifecycle as lifecycle
         from cli import _DIM, _RST, _cprint
 
         parts = (cmd or "").strip().split(None, 1)
@@ -2677,7 +2688,7 @@ class CLICommandsMixin:
 
         review_skills = "skill_manage" in getattr(agent, "valid_tool_names", set())
         try:
-            agent._spawn_background_review(
+            lifecycle._spawn_background_review(agent,
                 messages_snapshot=snapshot,
                 review_memory=True,
                 review_skills=review_skills,

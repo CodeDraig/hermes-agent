@@ -271,7 +271,7 @@ class MemoryProvider(ABC):
 
         Fires on ``/resume``, ``/branch``, ``/reset``, ``/new`` (CLI), the
         gateway equivalents, and context compression — any path that
-        reassigns ``AIAgent.session_id`` without tearing the provider down.
+        reassigns ``create_agent.session_id`` without tearing the provider down.
 
         Providers that cache per-session state in ``initialize()``
         (``_session_id``, ``_document_id``, accumulated turn buffers,

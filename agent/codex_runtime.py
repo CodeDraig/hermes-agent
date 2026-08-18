@@ -1,8 +1,8 @@
 """Codex API runtime — App Server and Responses-API streaming paths.
 
-Extracted from :class:`AIAgent` to keep the agent loop file focused.
-Each function takes the parent ``AIAgent`` as its first argument
-(``agent``).  AIAgent keeps thin forwarder methods for backward
+Extracted from :class:`create_agent` to keep the agent loop file focused.
+Each function takes the parent ``create_agent`` as its first argument
+(``agent``).  create_agent keeps thin forwarder methods for backward
 compatibility.
 
 * ``run_codex_app_server_turn`` — drives one turn through the
@@ -16,15 +16,43 @@ compatibility.
 
 from __future__ import annotations
 
+
+
 import json
 import logging
 import time
 from types import SimpleNamespace
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, List, Optional
 
 from agent.stream_single_writer import claim_stream_writer, stream_writer_is_current
 
 logger = logging.getLogger(__name__)
+
+
+class StreamErrorEvent(Exception):
+    """Provider error surfaced from a Responses ``error`` SSE frame."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: Optional[str] = None,
+        param: Optional[str] = None,
+        status_code: Optional[int] = None,
+    ) -> None:
+        super().__init__(message)
+        self.message = message
+        self.code = code
+        self.param = param
+        self.status_code = status_code
+        self.body: Dict[str, Any] = {
+            "error": {
+                "message": message,
+                "code": code,
+                "param": param,
+                "type": "error",
+            }
+        }
 
 
 def _codex_request_failure_details(error: BaseException) -> tuple[int | None, str]:
@@ -115,6 +143,7 @@ def _record_codex_app_server_usage(agent, turn) -> dict[str, Any]:
     Even when Codex omits usage for a turn, Hermes should still count that turn
     as one API call for session/status accounting.
     """
+    import agent.session_runtime as session_runtime
     agent.session_api_calls += 1
 
     usage = getattr(turn, "token_usage_last", None)
@@ -131,7 +160,7 @@ def _record_codex_app_server_usage(agent, turn) -> dict[str, Any]:
         if agent._session_db and agent.session_id:
             try:
                 if not agent._session_db_created:
-                    agent._ensure_db_session()
+                    session_runtime._ensure_db_session(agent)
                 # Enqueued for the SessionDB background writer — keeps the
                 # per-call accounting write off the turn thread (see
                 # conversation_loop's queue_token_counts call).
@@ -214,7 +243,7 @@ def _record_codex_app_server_usage(agent, turn) -> dict[str, Any]:
     if agent._session_db and agent.session_id:
         try:
             if not agent._session_db_created:
-                agent._ensure_db_session()
+                session_runtime._ensure_db_session(agent)
             # Enqueued for the SessionDB background writer (see above).
             agent._session_db.queue_token_counts(
                 agent.session_id,
@@ -263,6 +292,7 @@ def _record_codex_app_server_compaction(
     rewrite local transcript rows here; state.db records the boundary via the
     session event/usage counters while preserving the visible transcript.
     """
+    import agent.status_output as status_output
     if not force and not getattr(turn, "compacted", False):
         return False
 
@@ -279,7 +309,7 @@ def _record_codex_app_server_compaction(
         try:
             from agent.conversation_compression import COMPACTION_STATUS
 
-            agent._emit_status(COMPACTION_STATUS)
+            status_output._emit_status(agent, COMPACTION_STATUS)
         except Exception:
             pass
 
@@ -690,13 +720,16 @@ def run_codex_app_server_turn(
     Called from run_conversation() when agent.api_mode == "codex_app_server".
     Returns the same dict shape as the chat_completions path.
     """
+    import agent.interruption as interruption
+    import agent.lifecycle as lifecycle
+    import agent.session_runtime as session_runtime
     from agent.transports.codex_app_server_session import (
         CodexAppServerSession,
         _ServerRequestRouting,
     )
 
-    # Lazy session: one CodexAppServerSession per AIAgent instance.
-    # Spawned on first turn, reused across turns, closed at AIAgent
+    # Lazy session: one CodexAppServerSession per create_agent instance.
+    # Spawned on first turn, reused across turns, closed at create_agent
     # shutdown (see _cleanup hook).
     if not hasattr(agent, "_codex_session") or agent._codex_session is None:
         from agent.runtime_cwd import resolve_agent_cwd
@@ -773,7 +806,7 @@ def run_codex_app_server_turn(
             else None
         )
         if _user_interrupted:
-            agent.clear_interrupt()
+            interruption.clear_interrupt(agent)
         return {
             "final_response": (
                 f"Codex app-server turn failed: {exc}. "
@@ -802,7 +835,7 @@ def run_codex_app_server_turn(
         getattr(agent, "_interrupt_message", None) if _user_interrupted else None
     )
     if _user_interrupted:
-        agent.clear_interrupt()
+        interruption.clear_interrupt(agent)
 
     # If the turn signalled the underlying client is wedged (deadline
     # blown, post-tool watchdog tripped, OAuth refresh died, subprocess
@@ -843,7 +876,7 @@ def run_codex_app_server_turn(
         # the already-flushed user turn). See gateway/run.py agent_persisted.
         if getattr(agent, "_session_db", None) is not None:
             try:
-                _codex_flush_ok = agent._flush_messages_to_session_db(messages)
+                _codex_flush_ok = session_runtime._flush_messages_to_session_db(agent, messages)
             except Exception:
                 _codex_flush_ok = False
                 logger.warning(
@@ -895,7 +928,7 @@ def run_codex_app_server_turn(
     # interrupt/error to avoid feeding partial transcripts to memory.
     if not turn.interrupted and turn.error is None:
         try:
-            agent._sync_external_memory_for_turn(
+            lifecycle._sync_external_memory_for_turn(agent,
                 original_user_message=original_user_message,
                 final_response=turn.final_text,
                 interrupted=False,
@@ -913,7 +946,7 @@ def run_codex_app_server_turn(
         and (should_review_memory or should_review_skills)
     ):
         try:
-            agent._spawn_background_review(
+            lifecycle._spawn_background_review(agent,
                 messages_snapshot=list(messages),
                 review_memory=should_review_memory,
                 review_skills=should_review_skills,
@@ -1011,11 +1044,8 @@ def _raise_stream_error(event: Any) -> None:
     context-overflow vs entitlement) rather than the generic placeholder.
     Port of anomalyco/opencode#36130.
 
-    Imported lazily so this module stays importable from places that don't
-    pull in ``run_agent`` (e.g. plugin code, doc tools).
+    The error type is owned beside the Responses stream parser.
     """
-    from run_agent import _StreamErrorEvent
-
     nested = _event_field(event, "error")
 
     def _error_field(name: str) -> Any:
@@ -1028,7 +1058,7 @@ def _raise_stream_error(event: Any) -> None:
     if raw_message is not None and not isinstance(raw_message, str):
         raw_message = str(raw_message)
     message = (raw_message or "stream emitted error event").strip() or "stream emitted error event"
-    raise _StreamErrorEvent(
+    raise StreamErrorEvent(
         message,
         code=_error_field("code"),
         param=_error_field("param"),
@@ -1314,30 +1344,33 @@ def run_codex_stream(agent, api_kwargs: dict, client: Any = None, on_first_delta
     payload shape — we never let the SDK reconstruct a typed object from
     the terminal event's ``output`` field.
     """
+    import agent.provider_runtime as provider_runtime
+    import agent.session_runtime as session_runtime
+    import agent.stream_runtime as stream_runtime
     import httpx as _httpx
     from openai import APIConnectionError as _APIConnectionError
 
     from agent import relay_llm
 
-    active_client = client or agent._ensure_primary_openai_client(reason="codex_stream_direct")
+    active_client = client or provider_runtime._ensure_primary_openai_client(agent, reason="codex_stream_direct")
     max_stream_retries = 1
     # Accumulate streamed text so callers / compat shims can read it.
     agent._codex_streamed_text_parts: list = []
 
     def _on_text_delta(text: str) -> None:
         agent._codex_streamed_text_parts.append(text)
-        agent._fire_stream_delta(text)
+        stream_runtime._fire_stream_delta(agent, text)
 
     def _on_reasoning_delta(text: str) -> None:
-        agent._fire_reasoning_delta(text)
+        stream_runtime._fire_reasoning_delta(agent, text)
 
     def _on_commentary_message(text: str) -> None:
-        agent._fire_streamed_codex_commentary(text)
+        stream_runtime._fire_streamed_codex_commentary(agent, text)
 
     def _on_event(event: Any) -> None:
         # TTFB watchdog and activity touch — runs once per SSE event.
         agent._codex_stream_last_event_ts = time.time()
-        agent._touch_activity("receiving stream response")
+        session_runtime._touch_activity(agent, "receiving stream response")
 
     for attempt in range(max_stream_retries + 1):
         if agent._interrupt_requested:
@@ -1415,7 +1448,7 @@ def run_codex_stream(agent, api_kwargs: dict, client: Any = None, on_first_delta
                     "retrying. %s error=%s",
                     attempt + 1,
                     max_stream_retries + 1,
-                    agent._client_log_context(),
+                    provider_runtime._client_log_context(agent),
                     exc,
                 )
                 continue
@@ -1461,7 +1494,7 @@ def run_codex_stream(agent, api_kwargs: dict, client: Any = None, on_first_delta
                         "Codex Responses stream transport failed mid-iteration "
                         "(attempt %s/%s); retrying. %s error=%s",
                         attempt + 1, max_stream_retries + 1,
-                        agent._client_log_context(), exc,
+                        provider_runtime._client_log_context(agent), exc,
                     )
                     continue
                 _log_codex_request_failure(
@@ -1503,7 +1536,7 @@ def run_codex_stream(agent, api_kwargs: dict, client: Any = None, on_first_delta
                         "after a terminal response was already received; "
                         "returning the completed response instead of "
                         "retrying. %s error=%s",
-                        agent._client_log_context(), exc,
+                        provider_runtime._client_log_context(agent), exc,
                     )
                 except _APIConnectionError as exc:
                     _log_codex_request_failure(
@@ -1516,7 +1549,7 @@ def run_codex_stream(agent, api_kwargs: dict, client: Any = None, on_first_delta
                         "after a terminal response was already received; "
                         "returning the completed response instead of "
                         "retrying. %s error=%s",
-                        agent._client_log_context(), exc,
+                        provider_runtime._client_log_context(agent), exc,
                     )
 
             if final.status in {"incomplete", "failed"}:
@@ -1525,7 +1558,7 @@ def run_codex_stream(agent, api_kwargs: dict, client: Any = None, on_first_delta
                     "(incomplete_details=%s, error=%s, streamed_chars=%d). %s",
                     final.status, final.incomplete_details, final.error,
                     sum(len(p) for p in agent._codex_streamed_text_parts),
-                    agent._client_log_context(),
+                    provider_runtime._client_log_context(agent),
                 )
 
             return final
@@ -1546,7 +1579,7 @@ def run_codex_stream(agent, api_kwargs: dict, client: Any = None, on_first_delta
                     # which is never reuse-cached and must not have its
                     # sockets force-shut here.
                     if client is not None:
-                        agent._abort_request_openai_client(
+                        provider_runtime._abort_request_openai_client(agent,
                             active_client, reason="codex_stream_close_failed"
                         )
 

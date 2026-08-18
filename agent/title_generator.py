@@ -30,7 +30,7 @@ from agent.message_content import flatten_message_text
 logger = logging.getLogger(__name__)
 
 # Callback signature: (task_name, exception) -> None. Used to surface
-# auxiliary failures to the user through AIAgent._emit_auxiliary_failure
+# auxiliary failures to the user through create_agent._emit_auxiliary_failure
 # so silent-drops (e.g. OpenRouter 402 exhausting the fallback chain)
 # become visible instead of piling up as NULL session titles.
 FailureCallback = Callable[[str, BaseException], None]
@@ -303,7 +303,7 @@ def _extract_title_text(content: str) -> str:
     # Prose fallback. Reuse the canonical scrubber so reasoning-model output
     # (<think>…) can't leak into a title, then keep the first real line.
     try:
-        from agent.agent_runtime_helpers import strip_think_blocks
+        from agent.message_protocol import strip_think_blocks
 
         raw = strip_think_blocks(None, raw).strip()
     except Exception:
@@ -349,7 +349,7 @@ def generate_title(
 
     ``failure_callback`` is invoked with ``(task, exception)`` when the
     auxiliary call raises — the caller typically wires this to
-    ``AIAgent._emit_auxiliary_failure`` so the user sees a warning instead
+    ``create_agent._emit_auxiliary_failure`` so the user sees a warning instead
     of silently accumulating untitled sessions.
 
     ``runtime_validator`` is called right before the LLM request. If it

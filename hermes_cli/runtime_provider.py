@@ -675,7 +675,7 @@ def _lift_max_output_tokens(entry: Dict[str, Any], result: Dict[str, Any]) -> No
 
     Accepts ``max_output_tokens`` or ``max_tokens`` on a ``custom_providers``
     entry so a provider block can pin its own output limit. Gateway and CLI
-    map this onto ``AIAgent.max_tokens`` only when the top-level
+    map this onto ``create_agent.max_tokens`` only when the top-level
     ``model.max_tokens`` isn't set, so the documented global key still wins.
     """
     for _k in ("max_output_tokens", "max_tokens"):
@@ -2101,24 +2101,16 @@ def resolve_runtime_provider(
         # Azure keys don't start with "sk-ant-" so resolve_anthropic_token()
         # would find the Claude Code OAuth token first (priority 3) and return
         # that instead, causing 401s. Detect Azure endpoints and use the env
-        # key directly to bypass the OAuth priority chain.
+            # key directly to bypass the OAuth priority chain.
         _is_azure_endpoint = base_url_host_matches(base_url, "azure.com") or (
             cfg_base_url and base_url_host_matches(cfg_base_url, "azure.com")
         )
         if _is_azure_endpoint:
             # Honor user-specified env var hints on the model config before
             # falling back to the built-in AZURE_ANTHROPIC_KEY / ANTHROPIC_API_KEY
-            # chain.  Accept both `key_env` (Hermes canonical — matches the
-            # custom_providers field name) and `api_key_env` (documented in the
-            # Azure Foundry guide and read by most Hermes-compatible importers).
-            # Matches the config.yaml examples in README.md
-            token = ""
-            for hint_key in ("key_env", "api_key_env"):
-                env_var = str(model_cfg.get(hint_key) or "").strip()
-                if env_var:
-                    token = _getenv(env_var, "").strip()
-                    if token:
-                        break
+            # chain. ``key_env`` is the sole current configuration field.
+            env_var = str(model_cfg.get("key_env") or "").strip()
+            token = _getenv(env_var, "").strip() if env_var else ""
             # Next: an inline api_key on the model config (useful in multi-profile
             # setups that want to avoid env-var juggling).
             if not token:
@@ -2132,7 +2124,7 @@ def resolve_runtime_provider(
             if not token:
                 raise AuthError(
                     "No Azure Anthropic API key found. Set AZURE_ANTHROPIC_KEY or "
-                    "ANTHROPIC_API_KEY, or point key_env/api_key_env in your "
+                    "ANTHROPIC_API_KEY, or point key_env in your "
                     "config.yaml model section at a custom env var."
                 )
         else:

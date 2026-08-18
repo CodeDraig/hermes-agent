@@ -14,6 +14,9 @@ loaded) so this module never imports ``cli`` at import time -> no import cycle.
 
 from __future__ import annotations
 
+import agent.session_runtime as session_runtime
+
+
 import sys
 
 from rich.markup import escape as _escape
@@ -182,7 +185,7 @@ class CLIAgentSetupMixin:
         # models when provider is openai-codex).  Fixes #651.
         model_changed = self._normalize_model_for_provider(resolved_provider)
 
-        # AIAgent/OpenAI client holds auth at init time, so rebuild if key,
+        # create_agent/OpenAI client holds auth at init time, so rebuild if key,
         # routing, or the effective model changed.
         if (credentials_changed or routing_changed or model_changed) and self.agent is not None:
             self.agent = None
@@ -344,7 +347,8 @@ class CLIAgentSetupMixin:
         Returns:
             bool: True if successful, False otherwise
         """
-        from cli import AIAgent, ChatConsole, _DIM, _RST, _accent_hex, _cprint, _prepare_deferred_agent_startup, logger
+        import agent.session_runtime as session_runtime
+        from cli import create_agent, ChatConsole, _DIM, _RST, _accent_hex, _cprint, _prepare_deferred_agent_startup, logger
         if self.agent is not None:
             return True
 
@@ -488,7 +492,7 @@ class CLIAgentSetupMixin:
                 "credential_pool": getattr(self, "_credential_pool", None),
             }
             effective_model = model_override or self.model
-            self.agent = AIAgent(
+            self.agent = create_agent(
                 model=effective_model,
                 api_key=runtime.get("api_key"),
                 base_url=runtime.get("base_url"),
@@ -578,7 +582,7 @@ class CLIAgentSetupMixin:
             # Force-create DB row on /title intent, then apply title.
             if self._pending_title and self._session_db and self.agent:
                 try:
-                    self.agent._ensure_db_session()
+                    session_runtime._ensure_db_session(self.agent)
                     if self.agent._session_db_created:
                         self._session_db.set_session_title(self.session_id, self._pending_title)
                         _cprint(f"  Session title applied: {self._pending_title}")

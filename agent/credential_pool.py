@@ -45,6 +45,13 @@ from hermes_cli.auth import (
 logger = logging.getLogger(__name__)
 
 
+def pool_may_recover_from_rate_limit(pool: Any) -> bool:
+    """Return whether rate-limit rotation has another usable credential."""
+    if pool is None or not pool.has_available():
+        return False
+    return len(pool.entries()) > 1
+
+
 def _load_config_safe() -> Optional[dict]:
     """Load config.yaml read-only, returning None on any error.
 

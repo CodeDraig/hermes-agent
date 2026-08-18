@@ -1,4 +1,4 @@
-"""Ordered orchestration for :meth:`run_agent.AIAgent.__init__`.
+"""Ordered orchestration for agent-state creation.
 
 The responsibility-owned phase modules perform the actual initialization;
 this module keeps only the public argument contract and their dependency
@@ -229,7 +229,7 @@ def init_agent(
         enabled_toolsets=enabled_toolsets,
         disabled_toolsets=disabled_toolsets,
     )
-    
+
     _agent_cfg = initialize_session(
         agent,
         session_id=session_id,
@@ -254,4 +254,13 @@ def init_agent(
 
 
 
-__all__ = ["init_agent"]
+def create_agent(*args, **kwargs):
+    """Create and initialize the current agent state object."""
+    from agent.agent_state import AgentState
+
+    agent = AgentState()
+    init_agent(agent, *args, **kwargs)
+    return agent
+
+
+__all__ = ["create_agent", "init_agent"]

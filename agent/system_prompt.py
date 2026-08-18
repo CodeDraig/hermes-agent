@@ -1,4 +1,4 @@
-"""System-prompt assembly for :class:`AIAgent`.
+"""System-prompt assembly for :class:`create_agent`.
 
 The agent's system prompt is built once per session and reused across all
 turns — only context compression triggers a rebuild.  This keeps the
@@ -20,10 +20,12 @@ Three tiers are joined with ``\\n\\n``:
 * ``volatile`` — skills index, memory snapshot, USER.md profile, external
   memory provider block, timestamp/session/model/provider line.
 
-Pure helpers that read the agent's state.  AIAgent keeps thin forwarders.
+Pure helpers that read the agent's state.  create_agent keeps thin forwarders.
 """
 
 from __future__ import annotations
+
+
 
 import json
 import logging
@@ -49,7 +51,15 @@ from agent.prompt_builder import (
     drain_truncation_warnings,
 )
 from agent.runtime_cwd import resolve_context_cwd
+from agent.prompt_builder import (
+    build_context_files_prompt,
+    build_environment_hints,
+    build_nous_subscription_prompt,
+    build_skills_system_prompt,
+    load_soul_md,
+)
 from hermes_constants import get_default_hermes_root, get_hermes_home
+from model_tools import get_toolset_for_tool
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -58,21 +68,6 @@ _PLUGIN_SECTION_FRAME_RE = re.compile(
     r"<!-- hermes-plugin-section-chars:(?P<chars>[0-9]{1,4}) -->\n\n",
     re.MULTILINE,
 )
-
-
-def _ra():
-    """Lazy reference to the ``run_agent`` module.
-
-    Helpers like ``load_soul_md``, ``build_environment_hints``,
-    ``build_context_files_prompt``, ``build_nous_subscription_prompt``,
-    ``build_skills_system_prompt`` and ``get_toolset_for_tool`` are
-    imported into ``run_agent``'s namespace.  Many tests
-    ``patch("run_agent.load_soul_md", ...)``; if we imported them
-    directly here those patches would not reach us.  Looking them up
-    through ``run_agent`` on every call preserves the patch contract.
-    """
-    import run_agent
-    return run_agent
 
 
 def _resolve_platform_hint(agent: Any, platform_key: str, default_hint: str) -> str:
@@ -317,15 +312,10 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
 
     Joined into a single string by :func:`build_system_prompt` and
     cached on ``agent._cached_system_prompt`` for the lifetime of the
-    AIAgent.  Hermes never re-renders parts of this string mid-
+    create_agent.  Hermes never re-renders parts of this string mid-
     session — that's the only way to keep upstream prompt caches
     warm across turns.
     """
-    # Local import to avoid pulling model_tools at module load.  Tests
-    # patch ``run_agent.get_toolset_for_tool`` and similar helpers, so
-    # we resolve through ``_ra()`` to honor those patches.
-    _r = _ra()
-
     # Resolve the model's context window once so context-file caps can scale
     # to it (dynamic cap — see prompt_builder._dynamic_context_file_max_chars).
     # None falls back to the historical flat default. This value is stable for
@@ -348,7 +338,7 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
         # Scope the SOUL.md read to the agent's OWN home (see _agent_home) —
         # ambient resolution on a thread that lost the HERMES_HOME ContextVar
         # reads the launch profile's SOUL.md instead (#50233).
-        _soul_content = _r.load_soul_md(_ctx_len, home_override=_agent_home(agent))
+        _soul_content = load_soul_md(_ctx_len, home_override=_agent_home(agent))
         if _soul_content:
             stable_parts.append(_soul_content)
             _soul_loaded = True
@@ -414,7 +404,7 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
         from agent.prompt_builder import computer_use_guidance
         stable_parts.append(computer_use_guidance())
 
-    nous_subscription_prompt = _r.build_nous_subscription_prompt(agent.valid_tool_names)
+    nous_subscription_prompt = build_nous_subscription_prompt(agent.valid_tool_names)
     if nous_subscription_prompt:
         stable_parts.append(nous_subscription_prompt)
     # Tool-use enforcement: tells the model to actually call tools instead
@@ -458,7 +448,7 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
         avail_toolsets = {
             toolset
             for toolset in (
-                _r.get_toolset_for_tool(tool_name) for tool_name in agent.valid_tool_names
+                get_toolset_for_tool(tool_name) for tool_name in agent.valid_tool_names
             )
             if toolset
         }
@@ -475,7 +465,7 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
             )
         except Exception:
             _compact_cats = frozenset()
-        skills_prompt = _r.build_skills_system_prompt(
+        skills_prompt = build_skills_system_prompt(
             available_tools=agent.valid_tool_names,
             available_toolsets=avail_toolsets,
             compact_categories=_compact_cats or None,
@@ -501,7 +491,7 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
     # Environment hints (WSL, Termux, etc.) — tell the agent about the
     # execution environment so it can translate paths and adapt behavior.
     # Stable for the lifetime of the process.
-    _env_hints = _r.build_environment_hints()
+    _env_hints = build_environment_hints()
     if _env_hints:
         stable_parts.append(_env_hints)
 
@@ -672,7 +662,7 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
         # user's shell cwd, so an in-tree fallback is a deliberate choice
         # (developing Hermes). Gateway daemons self-spawn into the install tree, where the
         # fallback would inject this repo's contributor AGENTS.md (#64590).
-        context_files_prompt = _r.build_context_files_prompt(
+        context_files_prompt = build_context_files_prompt(
             cwd=resolve_context_cwd(), skip_soul=_soul_loaded,
             context_length=_ctx_len,
             allow_install_tree_fallback=agent.platform == "cli",
@@ -791,6 +781,7 @@ def build_system_prompt(agent: Any, system_message: Optional[str] = None) -> str
     rebuilt (on compaction/restore) the unchanged stable scaffold ahead of
     the change stays in the reused prefix.
     """
+    import agent.status_output as status_output
     parts = build_system_prompt_parts(agent, system_message=system_message)
     joined = "\n\n".join(p for p in (parts["stable"], parts["context"], parts["volatile"]) if p)
     agent._cached_system_prompt_static = parts["stable"]
@@ -798,7 +789,7 @@ def build_system_prompt(agent: Any, system_message: Optional[str] = None) -> str
     # Surface context-file truncation warnings through the normal agent status
     # channel so gateway/CLI users see them in chat instead of only in logs.
     for warning in drain_truncation_warnings():
-        agent._emit_status(warning)
+        status_output._emit_status(agent, warning)
 
     return joined
 

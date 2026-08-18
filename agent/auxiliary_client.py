@@ -1031,7 +1031,7 @@ def _apply_user_default_headers(headers: dict | None) -> dict | None:
     """Merge user-configured ``model.default_headers`` onto resolved headers.
 
     User values take precedence over provider/SDK defaults, mirroring the main
-    agent client (``AIAgent._apply_user_default_headers``). This lets a
+    agent client (``create_agent._apply_user_default_headers``). This lets a
     ``custom`` OpenAI-compatible endpoint behind a gateway/WAF that rejects the
     OpenAI SDK's identifying headers (``User-Agent: OpenAI/Python ...``,
     ``X-Stainless-*``) override them for auxiliary calls too — otherwise the
@@ -2974,7 +2974,7 @@ def _read_main_model() -> str:
     config.yaml model.default is the single source of truth for the active
     model. Environment variables are no longer consulted.
 
-    Runtime override: when an AIAgent is active with a CLI/gateway-provided
+    Runtime override: when an create_agent is active with a CLI/gateway-provided
     model that differs from config.yaml, ``set_runtime_main()`` records the
     override in a process-local global. This is consulted FIRST so tools
     that gate on "the active main model" (e.g. ``vision_analyze``'s native
@@ -3028,7 +3028,7 @@ def _read_main_api_key() -> str:
 
     Mirrors ``_read_main_model`` / ``_read_main_provider``: checks the
     process-local ``_RUNTIME_MAIN_API_KEY`` override first (set by
-    ``set_runtime_main`` when an AIAgent is active), then falls back to
+    ``set_runtime_main`` when an create_agent is active), then falls back to
     ``model.api_key`` in config.yaml.
 
     Used by the ``custom`` provider fallback chain so that auxiliary tasks
@@ -4995,7 +4995,7 @@ def _replan_synchronous_cache_sections(
     destination: _FallbackDestination,
 ) -> tuple[list, list]:
     """Strip source decoration and plan one synchronous destination locally."""
-    from agent.agent_runtime_helpers import (
+    from agent.provider_runtime import (
         configured_cache_ttl,
         plan_cache_sections_for_destination,
     )
@@ -6480,7 +6480,7 @@ def resolve_provider_client(
         if custom_entry:
             custom_base = (custom_entry.get("base_url") or "").strip()
             custom_key = (custom_entry.get("api_key") or "").strip()
-            custom_key_env = (custom_entry.get("key_env") or custom_entry.get("api_key_env") or "").strip()
+            custom_key_env = (custom_entry.get("key_env") or "").strip()
             if not custom_key and custom_key_env:
                 custom_key = _scoped_key_env(custom_key_env)
             # Auxiliary tasks resolve named custom providers here rather than
@@ -7877,9 +7877,7 @@ def _resolve_task_provider_model(
         cfg_api_key = str(task_config.get("api_key", "")).strip() or None
         # Resolve key_env → env var when api_key is not set directly
         if not cfg_api_key:
-            cfg_key_env = str(
-                task_config.get("key_env") or task_config.get("api_key_env") or ""
-            ).strip()
+            cfg_key_env = str(task_config.get("key_env") or "").strip()
             if cfg_key_env:
                 cfg_api_key = _scoped_key_env(cfg_key_env) or None
         cfg_api_mode = str(task_config.get("api_mode", "")).strip() or None

@@ -995,23 +995,17 @@ def _normalize_custom_provider_entry(
         "baseUrl": "base_url",
         "apiMode": "api_mode",
         "keyEnv": "key_env",
-        "apiKeyEnv": "key_env",  # alias — OpenClaw-compatible + docs variant
         "defaultModel": "default_model",
         "contextLength": "context_length",
         "rateLimitDelay": "rate_limit_delay",
     }
-    # api_key_env is a documented snake_case alias for key_env (see
-    # README.md).  Normalize it up front so the
-    # rest of the normalizer treats it as the canonical field.
-    if "api_key_env" in entry and "key_env" not in entry:
-        entry["key_env"] = entry["api_key_env"]
     _KNOWN_KEYS = {
         # ``provider`` duplicates the ``providers.<name>`` mapping key and is
         # unused here, but Hermes' own config writer has historically emitted it
         # into provider entries. Accept it silently so those (self-written)
         # configs don't warn on every load.
         "provider",
-        "name", "api", "url", "base_url", "api_key", "key_env", "api_key_env",
+        "name", "api", "url", "base_url", "api_key", "key_env",
         "key_cmd",
         "api_mode", "transport", "model", "default_model", "models",
         "context_length", "rate_limit_delay",
@@ -1396,8 +1390,8 @@ def get_custom_provider_context_length(
 
     This is the single source of truth for custom-provider context overrides,
     used by:
-      * ``AIAgent.__init__`` (startup resolution)
-      * ``AIAgent.switch_model`` (mid-session ``/model`` switch)
+      * ``create_agent.__init__`` (startup resolution)
+      * ``create_agent.switch_model`` (mid-session ``/model`` switch)
       * ``hermes_cli.model_switch.resolve_display_context_length`` (``/model`` confirmation display)
       * ``gateway.run._format_session_info`` (``/info`` display)
       * ``agent.model_metadata.get_model_context_length`` (when custom_providers is threaded through)
@@ -2686,7 +2680,7 @@ from hermes_cli.personality import NEUTRAL_PERSONALITY_NAMES as _NEUTRAL_PERSONA
 
 
 def _prompt_text(value: Any) -> str:
-    """Normalize config prompt values from YAML before handing them to AIAgent.
+    """Normalize config prompt values from YAML before handing them to create_agent.
 
     Delegates to :mod:`hermes_cli.personality` — the single owner of
     personality/overlay semantics. Kept as a re-export for existing importers.

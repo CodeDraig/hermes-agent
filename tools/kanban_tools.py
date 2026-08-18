@@ -27,6 +27,8 @@ through the board.
 """
 from __future__ import annotations
 
+
+
 import json
 import logging
 import os
@@ -380,6 +382,7 @@ def inject_new_comments_from_env(agent: Any) -> bool:
     the run started are injected. The worker's own authored comments (matched
     by ``HERMES_PROFILE``) are skipped to avoid echoing itself.
     """
+    import agent.interruption as interruption
     tid = os.environ.get("HERMES_KANBAN_TASK")
     if not tid or agent is None or not hasattr(agent, "steer"):
         return False
@@ -429,7 +432,7 @@ def inject_new_comments_from_env(agent: Any) -> bool:
         + "\n".join(lines)
     )
     try:
-        return bool(agent.steer(note))
+        return bool(interruption.steer(agent, note))
     except Exception:
         logger.debug("comment-inject: steer failed", exc_info=True)
         return False

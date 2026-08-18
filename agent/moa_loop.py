@@ -434,7 +434,7 @@ def _maybe_apply_moa_cache_control(
     per-destination by :func:`effective_cache_ttl` (Qwen → 5m, #84733).
     """
     try:
-        from agent.agent_runtime_helpers import (
+        from agent.provider_runtime import (
             anthropic_prompt_cache_policy,
             blank_cache_policy_stub,
         )
@@ -1553,7 +1553,7 @@ class MoAChatCompletions:
         #   "moa.aggregating" kwargs: aggregator (label), ref_count
         # Never raises into the model call — display is best-effort.
         self.reference_callback = reference_callback
-        # Back-reference to the owning AIAgent, so the reference fan-out can
+        # Back-reference to the owning create_agent, so the reference fan-out can
         # check agent._interrupt_requested (see _run_references_parallel).
         # Optional — a caller that doesn't pass it just keeps the fan-out
         # uninterruptible, as it was before.
@@ -1761,7 +1761,7 @@ class MoAChatCompletions:
         extra_body: Any = agg_kwargs.get("extra_body")
         agg_runtime = _slot_runtime(aggregator)
         try:
-            from agent.agent_runtime_helpers import (
+            from agent.provider_runtime import (
                 plan_cache_sections_for_destination,
             )
 

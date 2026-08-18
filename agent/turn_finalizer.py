@@ -22,6 +22,8 @@ keep the exact logger name (``"agent.conversation_loop"``).
 
 from __future__ import annotations
 
+
+
 import logging
 import os
 
@@ -140,6 +142,11 @@ def finalize_turn(
     Lifted verbatim from ``run_conversation`` (the region after the main agent
     loop). See module docstring.
     """
+    import agent.error_reporting as error_reporting
+    import agent.interruption as interruption
+    import agent.lifecycle as lifecycle
+    import agent.session_runtime as session_runtime
+    import agent.status_output as status_output
     from agent.conversation_loop import logger
 
     budget_exhausted = (
@@ -180,16 +187,16 @@ def finalize_turn(
         # API call with tools stripped.  _handle_max_iterations injects a
         # user message and makes a single toolless request.
         _turn_exit_reason = f"max_iterations_reached({api_call_count}/{agent.max_iterations})"
-        agent._emit_status(
+        status_output._emit_status(agent,
             f"⚠️ Iteration budget exhausted ({api_call_count}/{agent.max_iterations}) "
             "— asking model to summarise"
         )
         if not agent.quiet_mode:
-            agent._safe_print(
+            status_output._safe_print(agent,
                 f"\n⚠️  Iteration budget exhausted ({api_call_count}/{agent.max_iterations}) "
                 "— requesting summary..."
             )
-        final_response = agent._handle_max_iterations(messages, api_call_count)
+        final_response = lifecycle._handle_max_iterations(agent, messages, api_call_count)
         iteration_limit_fallback = True
 
     if iteration_limit_fallback:
@@ -279,14 +286,14 @@ def finalize_turn(
     # Save trajectory if enabled.  ``user_message`` may be a multimodal
     # list of parts; the trajectory format wants a plain string.
     try:
-        agent._save_trajectory(messages, _summarize_user_message_for_log(user_message), completed)
+        session_runtime._save_trajectory(agent, messages, _summarize_user_message_for_log(user_message), completed)
     except Exception as _save_err:
         _cleanup_errors.append(f"save_trajectory: {_save_err}")
         logger.error("finalize_turn: _save_trajectory failed: %s", _save_err, exc_info=True)
 
     # Clean up VM and browser for this task after conversation completes
     try:
-        agent._cleanup_task_resources(effective_task_id)
+        lifecycle._cleanup_task_resources(agent, effective_task_id)
     except Exception as _cleanup_err:
         _cleanup_errors.append(f"cleanup_task_resources: {_cleanup_err}")
         logger.error("finalize_turn: _cleanup_task_resources failed: %s", _cleanup_err, exc_info=True)
@@ -296,7 +303,7 @@ def finalize_turn(
     # can replay assistant("(empty)") / recovery nudges and fall into the
     # same empty-response loop again.
     try:
-        agent._drop_trailing_empty_response_scaffolding(messages)
+        session_runtime._drop_trailing_empty_response_scaffolding(agent, messages)
 
         # Drop verification-continuation nudges (synthetic user messages)
         # from the live history before the tail-assistant check — only the
@@ -446,7 +453,7 @@ def finalize_turn(
             except Exception as _mc_err:
                 logger.info("Micro-compaction failed: %s", _mc_err)
 
-        agent._persist_session(messages, conversation_history)
+        session_runtime._persist_session(agent, messages, conversation_history)
     except Exception as _persist_err:
         _cleanup_errors.append(f"persist_session: {_persist_err}")
         logger.error("finalize_turn: _persist_session failed: %s", _persist_err, exc_info=True)
@@ -521,8 +528,8 @@ def finalize_turn(
     if final_response and not interrupted:
         try:
             _failed = getattr(agent, "_turn_failed_file_mutations", None) or {}
-            if _failed and agent._file_mutation_verifier_enabled():
-                footer = agent._format_file_mutation_failure_footer(_failed)
+            if _failed and error_reporting._file_mutation_verifier_enabled(agent):
+                footer = error_reporting._format_file_mutation_failure_footer(_failed)
                 if footer:
                     final_response = final_response.rstrip() + "\n\n" + footer
         except Exception as _ver_err:
@@ -546,7 +553,7 @@ def finalize_turn(
     #     punctuation (e.g. "The").  A real short answer keeps its text.
     if not interrupted:
         try:
-            if agent._turn_completion_explainer_enabled():
+            if error_reporting._turn_completion_explainer_enabled(agent):
                 _stripped = (final_response or "").strip()
                 _is_empty_terminal = _stripped == "" or _stripped == "(empty)"
                 # A short fragment that is not a normal text_response exit
@@ -567,7 +574,7 @@ def finalize_turn(
                     or _is_partial_fragment
                     or _is_partial_stream_recovery
                 ):
-                    _explanation = agent._format_turn_completion_explanation(
+                    _explanation = error_reporting._format_turn_completion_explanation(
                         _turn_exit_reason,
                         getattr(agent, "_last_persistence_error_cause", None),
                     )
@@ -752,7 +759,7 @@ def finalize_turn(
     # If a /steer landed after the final assistant turn (no more tool
     # batches to drain into), hand it back to the caller so it can be
     # delivered as the next user turn instead of being silently lost.
-    _leftover_steer = agent._drain_pending_steer()
+    _leftover_steer = interruption._drain_pending_steer(agent)
     if _leftover_steer:
         result["pending_steer"] = _leftover_steer
     agent._response_was_previewed = False
@@ -762,7 +769,7 @@ def finalize_turn(
         result["interrupt_message"] = agent._interrupt_message
 
     # Clear interrupt state after handling
-    agent.clear_interrupt()
+    interruption.clear_interrupt(agent)
 
     # Clear stream callback so it doesn't leak into future calls
     agent._stream_callback = None
@@ -776,7 +783,7 @@ def finalize_turn(
         agent._iters_since_skill = 0
 
     # External memory provider: sync the completed turn + queue next prefetch.
-    agent._sync_external_memory_for_turn(
+    lifecycle._sync_external_memory_for_turn(agent,
         original_user_message=original_user_message,
         final_response=final_response,
         interrupted=interrupted,
@@ -786,7 +793,7 @@ def finalize_turn(
     # Background memory/skill review — runs AFTER the response is delivered
     # so it never competes with the user's task for model attention.
     # Suppressed when skip_background_review=True (e.g. cron) — review forks
-    # spawn another AIAgent (~30K tokens / event) and cron sessions have no
+    # spawn another create_agent (~30K tokens / event) and cron sessions have no
     # human-in-the-loop benefit from the review.
     if (
         final_response
@@ -795,7 +802,7 @@ def finalize_turn(
         and (_should_review_memory or _should_review_skills)
     ):
         try:
-            agent._spawn_background_review(
+            lifecycle._spawn_background_review(agent,
                 messages_snapshot=list(messages),
                 review_memory=_should_review_memory,
                 review_skills=_should_review_skills,

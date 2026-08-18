@@ -1,8 +1,8 @@
 """Background memory/skill review — fork the agent to evaluate the turn.
 
-After every turn, ``AIAgent.run_conversation`` may call
+After every turn, ``create_agent.run_conversation`` may call
 :func:`spawn_background_review` to fire off a daemon thread that replays
-the conversation snapshot in a forked :class:`AIAgent` and asks itself
+the conversation snapshot in a forked :class:`create_agent` and asks itself
 "should any skill/memory be saved or updated?".  Writes go straight to
 the memory + skill stores.  Main conversation and prompt cache are never
 touched.
@@ -17,6 +17,8 @@ for invariants and PR review criteria.
 """
 
 from __future__ import annotations
+
+
 
 import copy
 import json
@@ -136,7 +138,8 @@ def _resolve_review_runtime(
     ``auxiliary.background_review.{provider,model}`` names a concrete model
     different from the parent's, resolve that runtime and set ``routed=True``.
     """
-    parent_runtime = agent._current_main_runtime()
+    import agent.status_output as status_output
+    parent_runtime = status_output._current_main_runtime(agent)
     parent_api_mode = parent_runtime.get("api_mode") or None
     if parent_api_mode == "codex_app_server":
         parent_api_mode = "codex_responses"
@@ -242,7 +245,7 @@ def _digest_history(messages_snapshot: List[Dict], tail: int = 24) -> List[Dict]
 
 
 # Review-prompt strings — used by ``spawn_background_review_thread`` to build
-# the user-message that the forked review agent receives.  AIAgent exposes
+# the user-message that the forked review agent receives.  create_agent exposes
 # them as class attributes (``_MEMORY_REVIEW_PROMPT`` etc.) for back-compat;
 # the actual text lives here so future edits are one-place.
 _MEMORY_REVIEW_PROMPT = (
@@ -865,12 +868,14 @@ def _run_review_in_thread(
 ) -> None:
     """Worker function executed in the background-review daemon thread.
 
-    Spawns a forked ``AIAgent`` inheriting the parent's runtime, runs the
+    Spawns a forked ``create_agent`` inheriting the parent's runtime, runs the
     review prompt, and surfaces a compact action summary back to the user
     via ``agent._safe_print`` and ``agent.background_review_callback``.
     """
+    import agent.lifecycle as lifecycle
+    import agent.status_output as status_output
     # Local import to avoid a hard circular dep at module load.
-    from run_agent import AIAgent
+    from agent.agent_init import create_agent
     from tools.terminal_tool import set_approval_callback as _set_approval_callback
 
     # Install a non-interactive approval callback on this worker
@@ -931,7 +936,7 @@ def _run_review_in_thread(
             # Inherit the parent agent's live runtime (provider, model,
             # base_url, api_key, api_mode) so the fork uses the exact
             # same credentials the main turn is using.  Without this,
-            # AIAgent.__init__ re-runs auto-resolution from env vars,
+            # create_agent.__init__ re-runs auto-resolution from env vars,
             # which fails for OAuth-only providers, session-scoped
             # creds, or credential-pool setups where the resolver can't
             # reconstruct auth from scratch -- producing the spurious
@@ -1017,7 +1022,7 @@ def _run_review_in_thread(
                     _pref_val = getattr(agent, _pref_attr, None)
                     if _pref_val:
                         _fork_kwargs[_pref_attr] = _pref_val
-            review_agent = AIAgent(
+            review_agent = create_agent(
                 model=_rt.get("model") or agent.model,
                 max_iterations=_REVIEW_MAX_ITERATIONS,
                 quiet_mode=True,
@@ -1180,7 +1185,7 @@ def _run_review_in_thread(
                     _digest_history(messages_snapshot) if _routed
                     else messages_snapshot
                 )
-                review_agent.run_conversation(
+                lifecycle.run_conversation(review_agent,
                     user_message=(
                         prompt
                         + "\n\nYou can only call memory and skill "
@@ -1216,11 +1221,11 @@ def _run_review_in_thread(
             # Hindsight sync, etc.) stays silent.  The finally block
             # below is a safety net for the exception path.
             try:
-                review_agent.shutdown_memory_provider()
+                lifecycle.shutdown_memory_provider(review_agent)
             except Exception:
                 pass
             try:
-                review_agent.close()
+                lifecycle.close(review_agent)
             except Exception:
                 pass
             review_agent = None
@@ -1261,7 +1266,7 @@ def _run_review_in_thread(
 
         if actions:
             summary = " · ".join(dict.fromkeys(actions))
-            agent._safe_print(
+            status_output._safe_print(agent,
                 f"  💾 Self-improvement review: {summary}"
             )
             _bg_cb = agent.background_review_callback
@@ -1277,7 +1282,7 @@ def _run_review_in_thread(
         logger.warning("Background memory/skill review failed: %s", e)
         if review_usage:
             _log_review_completion(review_usage, "error")
-        agent._emit_auxiliary_failure("background review", e)
+        status_output._emit_auxiliary_failure(agent, "background review", e)
     finally:
         # Safety-net cleanup for the exception path.  Normal completion already
         # shut down inside the thread-scoped silence above.  Re-enter the
@@ -1295,11 +1300,11 @@ def _run_review_in_thread(
             try:
                 with thread_scoped_silence():
                     try:
-                        review_agent.shutdown_memory_provider()
+                        lifecycle.shutdown_memory_provider(review_agent)
                     except Exception:
                         pass
                     try:
-                        review_agent.close()
+                        lifecycle.close(review_agent)
                     except Exception:
                         pass
             except Exception:
@@ -1322,7 +1327,7 @@ def spawn_background_review_thread(
 ):
     """Build the review thread target and prompt for a background review.
 
-    Returns a ``(target, prompt)`` tuple.  The caller (``AIAgent._spawn_background_review``)
+    Returns a ``(target, prompt)`` tuple.  The caller (``create_agent._spawn_background_review``)
     owns the actual ``threading.Thread`` construction so test-level patches
     of ``run_agent.threading.Thread`` keep working.
 

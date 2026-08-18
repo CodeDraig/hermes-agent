@@ -433,7 +433,7 @@ def _resolve_cron_enabled_toolsets(job: dict, cfg: dict) -> list[str] | None:
     2. Per-platform ``hermes tools`` config for the ``cron`` platform.
        Mirrors gateway behavior (``_get_platform_tools(cfg, platform_key)``)
        so users can gate cron toolsets globally without recreating every job.
-    3. ``None`` on any lookup failure — AIAgent loads the full default set
+    3. ``None`` on any lookup failure — create_agent loads the full default set
        (legacy behavior before this change, preserved as the safety net).
 
     _DEFAULT_OFF_TOOLSETS ({moa, homeassistant, rl}) are removed by
@@ -4289,7 +4289,7 @@ def run_job(
     Execute a single cron job.
 
     ``defer_agent_teardown``: when a caller passes a list, ``run_job`` skips
-    the agent's async-resource teardown (``agent.close()`` +
+    the agent's async-resource teardown (``lifecycle.close(agent)`` +
     ``cleanup_stale_async_clients()``) in its ``finally`` block and instead
     appends the live agent to that list. The caller is then responsible for
     calling ``_teardown_cron_agent(agent)`` AFTER it has delivered the result.
@@ -4305,6 +4305,10 @@ def run_job(
     Returns:
         Tuple of (success, full_output_doc, final_response, error_message)
     """
+    import agent.error_reporting as error_reporting
+    import agent.interruption as interruption
+    import agent.lifecycle as lifecycle
+    import agent.status_output as status_output
     job_id = job["id"]
     job_name = str(job.get("name") or job.get("prompt") or job_id or "cron job")
 
@@ -4313,7 +4317,7 @@ def run_job(
     # ---------------------------------------------------------------
     # This mirrors the classic "run a bash script on a timer, send its
     # stdout to telegram" watchdog pattern. The agent path is skipped
-    # entirely: no AIAgent, no prompt, no tool loop, no token spend.
+    # entirely: no create_agent, no prompt, no tool loop, no token spend.
     #
     # We check this BEFORE importing run_agent / constructing SessionDB so
     # a pure-script tick never pays for the agent machinery it isn't going
@@ -4486,10 +4490,10 @@ def run_job(
     # ---------------------------------------------------------------
     # Default (LLM) path — import and construct the agent machinery now
     # that we know we actually need it. Doing these imports here instead of
-    # at module top keeps no_agent ticks from paying for AIAgent / SessionDB
+    # at module top keeps no_agent ticks from paying for create_agent / SessionDB
     # construction costs.
     # ---------------------------------------------------------------
-    from run_agent import AIAgent
+    from agent.agent_init import create_agent
 
     # Initialize SQLite session store so cron job messages are persisted
     # and discoverable via session_search (same pattern as gateway/run.py).
@@ -4946,7 +4950,7 @@ def run_job(
         # A job whose configuration cannot possibly produce a successful
         # run — missing provider API key (no fallback chain), unready
         # attached skill, unconfigured delivery platform — is refused HERE,
-        # before AIAgent is constructed and before the resolution below can
+        # before create_agent is constructed and before the resolution below can
         # feed a doomed runtime into it, so a misconfigured job never burns
         # an LLM call. run_one_job keys off the BLOCKED_CONFIG_MARKER in
         # the returned error to record last_status='blocked_config' and
@@ -5225,7 +5229,7 @@ def run_job(
                 logger.debug("Job '%s': failed to load credential pool for %s: %s", job_id, runtime_provider, e)
 
         # Initialize MCP servers so configured mcp_servers are available to
-        # the agent's tool registry before AIAgent is constructed. Without
+        # the agent's tool registry before create_agent is constructed. Without
         # this, cron jobs never saw any MCP tools — only the gateway / CLI
         # paths called discover_mcp_tools() at startup. Idempotent: subsequent
         # ticks short-circuit on already-connected servers inside
@@ -5245,7 +5249,7 @@ def run_job(
                 job_id, _mcp_exc,
             )
 
-        agent = AIAgent(
+        agent = create_agent(
             model=model,
             api_key=runtime.get("api_key"),
             base_url=runtime.get("base_url"),
@@ -5312,7 +5316,7 @@ def run_job(
             if cancel_event is None or not cancel_event.is_set():
                 return
             if agent is not None and hasattr(agent, "interrupt"):
-                agent.interrupt("Cron fire claim ownership was lost")
+                interruption.interrupt(agent, "Cron fire claim ownership was lost")
             raise RuntimeError(
                 f"Cron job '{job_name}' lost its durable fire claim ownership"
             )
@@ -5340,7 +5344,9 @@ def run_job(
         # Tag this fire and time the run_conversation call for the usage_audit.jsonl entry.
         _audit_fire_id = uuid.uuid4().hex
         _audit_t_start = time.monotonic()
-        _cron_future = _cron_pool.submit(_cron_context.run, agent.run_conversation, prompt)
+        _cron_future = _cron_pool.submit(
+            _cron_context.run, lifecycle.run_conversation, agent, prompt
+        )
         _inactivity_timeout = False
         try:
             if _cron_inactivity_limit is None:
@@ -5376,7 +5382,7 @@ def run_job(
                     _idle_secs = 0.0
                     if hasattr(agent, "get_activity_summary"):
                         try:
-                            _act = agent.get_activity_summary()
+                            _act = status_output.get_activity_summary(agent)
                             _idle_secs = _act.get("seconds_since_activity", 0.0)
                         except Exception:
                             pass
@@ -5394,7 +5400,7 @@ def run_job(
             _activity = {}
             if hasattr(agent, "get_activity_summary"):
                 try:
-                    _activity = agent.get_activity_summary()
+                    _activity = status_output.get_activity_summary(agent)
                 except Exception:
                     pass
             _last_desc = _activity.get("last_activity_desc", "unknown")
@@ -5477,13 +5483,13 @@ def run_job(
                 _causes = ("locked", "disk", "unknown")
             for _cause in (None, *_causes):
                 try:
-                    _variant = AIAgent._format_turn_completion_explanation(
+                    _variant = error_reporting._format_turn_completion_explanation(
                         turn_exit_reason, _cause
                     )
                 except TypeError:
                     # Older single-argument formatter (or a test double).
                     try:
-                        _variant = AIAgent._format_turn_completion_explanation(
+                        _variant = error_reporting._format_turn_completion_explanation(
                             turn_exit_reason
                         )
                     except Exception:
@@ -5612,7 +5618,7 @@ def run_job(
             _session_db = _BoundedCronSessionDB(_session_db, job_id)
             # Compression can rotate the live agent onto a continuation while
             # this run is in flight. Finalize that continuation, not the stale
-            # cron id captured before AIAgent started. SessionDB is the source
+            # cron id captured before create_agent started. SessionDB is the source
             # of truth for the lineage; agent.session_id is only a fail-safe
             # when the lookup itself is unavailable.
             _final_cron_session_id = _cron_session_id
@@ -5704,10 +5710,11 @@ def _teardown_cron_agent(
     The timeout matters because this executes after ``run_conversation`` has
     returned, outside the agent inactivity watchdog.
     """
+    import agent.lifecycle as lifecycle
     def _cleanup_agent() -> None:
         try:
             if agent is not None:
-                agent.close()
+                lifecycle.close(agent)
         except (Exception, KeyboardInterrupt) as e:
             logger.debug("Job '%s': failed to close agent resources: %s", job_id, e)
         # Each cron run spins up a short-lived worker thread whose event loop

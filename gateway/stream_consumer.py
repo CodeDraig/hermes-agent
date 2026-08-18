@@ -159,8 +159,8 @@ class GatewayStreamConsumer:
     Usage::
 
         consumer = GatewayStreamConsumer(adapter, chat_id, config, metadata=metadata)
-        # Pass consumer.on_delta as stream_delta_callback to AIAgent
-        agent = AIAgent(..., stream_delta_callback=consumer.on_delta)
+        # Pass consumer.on_delta as stream_delta_callback to create_agent
+        agent = create_agent(..., stream_delta_callback=consumer.on_delta)
         # Start the consumer as an asyncio task
         task = asyncio.create_task(consumer.run())
         # ... run agent in thread pool ...

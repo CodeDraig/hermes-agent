@@ -2425,8 +2425,8 @@ class HindsightMemoryProvider(MemoryProvider):
         # The module-global background event loop (_loop / _loop_thread)
         # is intentionally NOT stopped here. It is shared across every
         # HindsightMemoryProvider instance in the process — the plugin
-        # loader creates a new provider per AIAgent, and the gateway
-        # creates one AIAgent per concurrent chat session. Stopping the
+        # loader creates a new provider per create_agent, and the gateway
+        # creates one create_agent per concurrent chat session. Stopping the
         # loop from one provider's shutdown() strands the aiohttp
         # ClientSession + TCPConnector owned by every sibling provider
         # on a dead loop, which surfaces as the "Unclosed client session"

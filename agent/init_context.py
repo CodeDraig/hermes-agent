@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+
+
 import copy
 import logging
 import os
@@ -29,7 +31,7 @@ logger = logging.getLogger("run_agent")
 
 
 # Memory providers we've already warned are unavailable. Deduped because the
-# gateway builds a fresh AIAgent per message, so an un-deduped warning would
+# gateway builds a fresh create_agent per message, so an un-deduped warning would
 # fire on every turn.
 _warned_unavailable_providers: set[str] = set()
 
@@ -187,6 +189,8 @@ def initialize_context(
     skip_memory,
     session_db,
 ):
+    import agent.provider_runtime as provider_runtime
+    import agent.status_output as status_output
     _agent_cfg = config
     # Codex commentary visibility (display.show_commentary, default true).
     # When true, completed Codex phase=commentary messages are delivered as
@@ -283,7 +287,7 @@ def initialize_context(
                 elif _mp is not None:
                     # Skip the (potentially expensive) unavailable_reason() call
                     # if we've already warned for this provider — the gateway
-                    # builds a fresh AIAgent per message, so without this guard
+                    # builds a fresh create_agent per message, so without this guard
                     # unavailable_reason() (which reads config from disk and may
                     # probe importlib) runs on every turn.
                     if _mem_provider_name not in _warned_unavailable_providers:
@@ -300,8 +304,12 @@ def initialize_context(
                         "agent_context": "primary",
                     }
                     if _init_kwargs["platform"] == "cli":
-                        _init_kwargs["warning_callback"] = agent._emit_warning
-                        _init_kwargs["status_callback"] = agent._emit_status
+                        _init_kwargs["warning_callback"] = (
+                            lambda message: status_output._emit_warning(agent, message)
+                        )
+                        _init_kwargs["status_callback"] = (
+                            lambda message: status_output._emit_status(agent, message)
+                        )
                     # Thread session title for memory provider scoping
                     # (e.g. honcho uses this to derive chat-scoped session keys)
                     if agent._session_db:
@@ -995,15 +1003,15 @@ def initialize_context(
     # AFTER the custom_providers branch so per-model overrides aren't lost.
     agent._config_context_length = _config_context_length
 
-    _lmstudio_runtime_context_length = agent._ensure_lmstudio_runtime_loaded(
+    _lmstudio_runtime_context_length = provider_runtime._ensure_lmstudio_runtime_loaded(agent,
         _config_context_length
     )
-    if agent._lmstudio_load_was_unverified(_lmstudio_runtime_context_length):
+    if provider_runtime._lmstudio_load_was_unverified(_lmstudio_runtime_context_length):
         logger.warning(
             "LM Studio model activation was rejected or completed without a "
             "verifiable active context length; falling back to configured context"
         )
-    _effective_context_length = agent._effective_lmstudio_context_length(
+    _effective_context_length = provider_runtime._effective_lmstudio_context_length(
         _config_context_length,
         _lmstudio_runtime_context_length,
     )
@@ -1197,7 +1205,7 @@ def initialize_context(
                     "(Claude, GPT, Gemini, Qwen-Coder, etc.)."
                 )
                 if hasattr(agent, "_emit_warning"):
-                    agent._emit_warning(_user_msg)
+                    status_output._emit_warning(agent, _user_msg)
                 else:
                     print(f"\n{_user_msg}\n", file=sys.stderr)
                 logger.warning(_hermes_warn)

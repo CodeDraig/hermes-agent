@@ -7,12 +7,14 @@ drop, the HTTP status, the underlying httpx error class.  These helpers
 collect that info and emit it both to ``agent.log`` (full detail) and to
 the user-facing status line (compact).
 
-All helpers are extracted from :class:`AIAgent` for cleanliness.
+All helpers are extracted from :class:`create_agent` for cleanliness.
 ``run_agent`` keeps thin forwarder methods so existing call sites and
 tests that patch ``run_agent.<helper>`` keep working.
 """
 
 from __future__ import annotations
+
+
 
 import logging
 import time
@@ -141,9 +143,10 @@ def log_stream_retry(
     These are the breadcrumbs needed to answer "is one CF edge / one
     downstream provider responsible, or is it random across runs?"
     """
+    import agent.error_reporting as error_reporting
     try:
         try:
-            _summary = agent._summarize_api_error(error)
+            _summary = error_reporting._summarize_api_error(error)
         except Exception:
             _summary = str(error)
         if _summary and len(_summary) > 240:
@@ -235,6 +238,8 @@ def emit_stream_drop(
     mid-flight.  Full diagnostic detail goes to ``agent.log`` only —
     ``hermes logs --level WARNING | grep "Stream drop"`` to inspect.
     """
+    import agent.session_runtime as session_runtime
+    import agent.status_output as status_output
     kind = "drop mid tool-call" if mid_tool_call else "drop"
     log_stream_retry(
         agent,
@@ -258,11 +263,11 @@ def emit_stream_drop(
         except Exception:
             pass
     try:
-        agent._buffer_status(
+        status_output._buffer_status(agent,
             f"⚠️ {provider} stream {kind} ({type(error).__name__}){_suffix} "
             f"— reconnecting, retry {attempt}/{max_attempts}"
         )
-        agent._touch_activity(
+        session_runtime._touch_activity(agent,
             f"stream retry {attempt}/{max_attempts} "
             f"after {type(error).__name__}"
         )

@@ -1,7 +1,7 @@
 """CLI presentation -- spinner, kawaii faces, tool preview formatting.
 
-Pure display functions and classes with no AIAgent dependency.
-Used by AIAgent._execute_tool_calls for CLI feedback.
+Pure display functions and classes with no create_agent dependency.
+Used by create_agent._execute_tool_calls for CLI feedback.
 """
 
 import logging

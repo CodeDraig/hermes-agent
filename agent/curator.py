@@ -3,7 +3,7 @@
 The curator is an auxiliary-model task that periodically reviews agent-created
 skills and maintains the collection. It runs inactivity-triggered (no cron
 daemon): when the agent is idle and the last curator run was longer than
-``interval_hours`` ago, ``maybe_run_curator()`` spawns a forked AIAgent to do
+``interval_hours`` ago, ``maybe_run_curator()`` spawns a forked create_agent to do
 the review.
 
 Responsibilities:
@@ -20,6 +20,8 @@ Strict invariants:
 """
 
 from __future__ import annotations
+
+
 
 import json
 import logging
@@ -1482,7 +1484,7 @@ def _render_report_markdown(p: Dict[str, Any]) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Orchestrator — spawn a forked AIAgent for the LLM review pass
+# Orchestrator — spawn a forked create_agent for the LLM review pass
 # ---------------------------------------------------------------------------
 
 def _render_candidate_list() -> str:
@@ -1519,7 +1521,7 @@ def run_curator_review(
     Steps:
       1. Apply automatic state transitions (pure, no LLM).
       2. If consolidation is enabled AND there are agent-created skills, spawn
-         a forked AIAgent that runs the LLM review prompt against the current
+         a forked create_agent that runs the LLM review prompt against the current
          candidate list.
       3. Update .curator_state with last_run_at and a one-line summary.
       4. Invoke *on_summary* with a user-visible description.
@@ -1840,7 +1842,7 @@ def _resolve_review_model(cfg: Dict[str, Any]) -> tuple[str, str]:
 
 
 def _run_llm_review(prompt: str) -> Dict[str, Any]:
-    """Spawn an AIAgent fork to run the curator review prompt.
+    """Spawn an create_agent fork to run the curator review prompt.
 
     Returns a dict with:
       - final: full (untruncated) final response from the reviewer
@@ -1852,6 +1854,7 @@ def _run_llm_review(prompt: str) -> Dict[str, Any]:
 
     Never raises; callers get a structured failure instead.
     """
+    import agent.lifecycle as lifecycle
     import contextlib
     result_meta: Dict[str, Any] = {
         "final": "",
@@ -1862,16 +1865,16 @@ def _run_llm_review(prompt: str) -> Dict[str, Any]:
         "error": None,
     }
     try:
-        from run_agent import AIAgent
+        from agent.agent_init import create_agent
     except Exception as e:
-        result_meta["error"] = f"AIAgent import failed: {e}"
+        result_meta["error"] = f"create_agent import failed: {e}"
         result_meta["summary"] = result_meta["error"]
         return result_meta
 
     # Resolve provider + model the same way the CLI does, so the curator
     # fork inherits the user's active main config rather than falling
     # through to an empty provider/model pair (which sends HTTP 400
-    # "No models provided"). AIAgent() without explicit provider/model
+    # "No models provided"). create_agent() without explicit provider/model
     # arguments hits an auto-resolution path that fails for OAuth-only
     # providers and for pool-backed credentials.
     #
@@ -1929,7 +1932,7 @@ def _run_llm_review(prompt: str) -> Dict[str, Any]:
         if isinstance(_acp_command, str) and _acp_command:
             _agent_kwargs["acp_command"] = _acp_command
             _agent_kwargs["acp_args"] = _acp_args or []
-        review_agent = AIAgent(
+        review_agent = create_agent(
             model=_model_name,
             provider=_resolved_provider,
             api_key=_api_key,
@@ -1970,7 +1973,7 @@ def _run_llm_review(prompt: str) -> Dict[str, Any]:
         with open(os.devnull, "w", encoding="utf-8") as _devnull, \
              contextlib.redirect_stdout(_devnull), \
              contextlib.redirect_stderr(_devnull):
-            conv_result = review_agent.run_conversation(user_message=prompt)
+            conv_result = lifecycle.run_conversation(review_agent, user_message=prompt)
 
         final = ""
         if isinstance(conv_result, dict):
@@ -2003,7 +2006,7 @@ def _run_llm_review(prompt: str) -> Dict[str, Any]:
     finally:
         if review_agent is not None:
             try:
-                review_agent.close()
+                lifecycle.close(review_agent)
             except Exception:
                 pass
     return result_meta

@@ -755,7 +755,7 @@ def _init_shadow_repo(shadow_repo: Path, working_dir: str) -> Optional[str]:
 class CheckpointManager:
     """Manages automatic filesystem checkpoints.
 
-    Designed to be owned by AIAgent.  Call ``new_turn()`` at the start of
+    Designed to be owned by create_agent.  Call ``new_turn()`` at the start of
     each conversation turn and ``ensure_checkpoint(dir, reason)`` before
     any file-mutating tool call.  The manager deduplicates so at most one
     snapshot is taken per directory per turn.

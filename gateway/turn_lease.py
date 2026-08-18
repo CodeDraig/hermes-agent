@@ -22,7 +22,7 @@ point while a turn runs (both routing-key guards hold them), so the lock is
 uncontended everywhere except the alias-key route — where the second turn now
 waits for the first turn's flush and logs one WARNING naming the session and
 both routing keys (pairing with the cross-agent tripwire in
-``agent/agent_runtime_helpers.note_turn_start``).
+``agent.session_runtime.note_turn_start``).
 
 Safety properties:
 

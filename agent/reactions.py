@@ -5,7 +5,7 @@ gratitude toward the agent (``ily``, ``<3``, ``love you``, ``good bot``, a heart
 emoji, …). Detection is a curated regex/lexicon: **no model call, no tokens**.
 
 This is the source of truth used by the CLI pet, delivered via
-``AIAgent.reaction_callback``.
+``create_agent.reaction_callback``.
 
 Generalized on purpose: :func:`detect_reaction` returns a reaction *kind*
 string, so new kinds (other emoji reactions, etc.) can be added here without

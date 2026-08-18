@@ -208,7 +208,7 @@ def current_origin() -> str:
 
     Reuses the skill-provenance ContextVar, which the background review fork
     already sets (see ``agent.background_review`` /
-    ``AIAgent._spawn_background_review``). Foreground agent turns leave it at
+    ``create_agent._spawn_background_review``). Foreground agent turns leave it at
     the default ``foreground``.
     """
     try:

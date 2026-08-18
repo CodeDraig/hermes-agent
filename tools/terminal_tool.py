@@ -2148,7 +2148,7 @@ def is_persistent_env(task_id: str) -> bool:
 
     Session-scoped docker containers (per-session isolation mode) also count
     as persistent HERE: their lifetime is the SESSION, not the turn — they
-    are removed by ``AIAgent.close()`` → ``cleanup_vm`` at session teardown
+    are removed by ``create_agent.close()`` → ``cleanup_vm`` at session teardown
     and by the idle reaper, not per-turn.
     """
     env = get_active_env(task_id)
@@ -2194,7 +2194,7 @@ def cleanup_vm(task_id: str, *, force_remove: bool = False):
     *force_remove* (default False) is forwarded to backends that accept it
     — currently only ``DockerEnvironment``. The default of False matches
     session-lifecycle semantics: this function is called from
-    ``AIAgent.close()`` (TUI session close, gateway session teardown) and the
+    ``create_agent.close()`` (TUI session close, gateway session teardown) and the
     per-turn cleanup branch for non-persistent envs, both of which should
     honor the user's persist-mode preference. Stopping the container here
     would defeat the "ONE long-lived container shared across sessions"

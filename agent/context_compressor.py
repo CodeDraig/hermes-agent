@@ -2930,7 +2930,7 @@ class ContextCompressor(ContextEngine):
 
         # Defer context-length resolution to first access (#32221):
         # get_model_context_length() can issue a synchronous /models HTTP
-        # probe, which must not block AIAgent construction. The small-context
+        # probe, which must not block create_agent construction. The small-context
         # threshold floor and the absolute threshold cap both need the
         # resolved window, so they are applied on first resolution (see
         # _resolve_context_length / the threshold_tokens property) instead
@@ -3840,9 +3840,9 @@ class ContextCompressor(ContextEngine):
         (API keys, tokens, passwords) from leaking into the summary that
         gets sent to the auxiliary model and persisted across compactions.
         """
-        # Lazy import (matches title_generator.py) — agent_runtime_helpers
+        # Lazy import (matches title_generator.py) — message_protocol
         # pulls in heavy transitive imports we don't want at module load.
-        from agent.agent_runtime_helpers import strip_think_blocks
+        from agent.message_protocol import strip_think_blocks
 
         parts = []
         for msg in turns:
@@ -4214,7 +4214,7 @@ Summary generation was unavailable, so this is a best-effort deterministic fallb
                     resp.choices[0].message.content
                     if hasattr(resp, "choices") else str(resp)
                 ) or ""
-                from agent.agent_runtime_helpers import strip_think_blocks
+                from agent.message_protocol import strip_think_blocks
 
                 body = strip_think_blocks(None, body).strip()
             except Exception as exc:
@@ -4724,7 +4724,7 @@ This compaction should PRIORITISE preserving all information related to the focu
             # _previous_summary, injected into the conversation, AND fed back
             # into every subsequent iterative-update prompt — compounding
             # token bloat across compactions. Mirrors title_generator.py.
-            from agent.agent_runtime_helpers import strip_think_blocks
+            from agent.message_protocol import strip_think_blocks
             stripped = strip_think_blocks(None, content).strip()
             if stripped:
                 content = stripped
@@ -6360,7 +6360,7 @@ This compaction should PRIORITISE preserving all information related to the focu
             logger.info("micro-summarization returned empty content")
             return None
 
-        from agent.agent_runtime_helpers import strip_think_blocks
+        from agent.message_protocol import strip_think_blocks
         stripped = strip_think_blocks(None, content).strip()
         return stripped if stripped else None
 

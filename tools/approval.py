@@ -4297,7 +4297,7 @@ def _await_gateway_decision(session_key: str, notify_cb, approval_data: dict,
             # timeout from the gateway) so a pending approval doesn't keep the
             # session wedged on threading.Event.wait() until the 5-minute approval
             # timeout. The wait runs on the agent's execution thread, which is the
-            # exact thread AIAgent.interrupt() flags — so is_interrupted() here
+            # exact thread create_agent.interrupt() flags — so is_interrupted() here
             # sees the signal. Resolve as "deny" so the agent loop receives a
             # normal denial and unwinds cleanly (#8697).
             if is_interrupted():

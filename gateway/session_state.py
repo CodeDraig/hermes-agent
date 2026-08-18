@@ -59,7 +59,7 @@ class TurnState:
     lease exactly once per acquiring turn.
     """
 
-    # Running AIAgent instance (or _AGENT_PENDING_SENTINEL); None = idle.
+    # Running create_agent instance (or _AGENT_PENDING_SENTINEL); None = idle.
     agent: Any = None
     # Turn start timestamp (0.0 = not running).
     started_ts: float = 0.0
@@ -148,7 +148,7 @@ class PersistentState:
     # Consecutive session-hygiene compression failures for this session
     # (#79624).  The in-agent compressor escalates repeat timeouts via
     # ContextCompressor._consecutive_timeout_failures, but hygiene builds a
-    # FRESH AIAgent per run and bind_session_state() zeroes that counter, so
+    # FRESH create_agent per run and bind_session_state() zeroes that counter, so
     # the in-agent ladder is structurally unreachable from the gateway.
     # Tracking the streak here — outside the per-run agent — lets hygiene
     # escalate its cooldown instead of retrying on a flat interval forever.

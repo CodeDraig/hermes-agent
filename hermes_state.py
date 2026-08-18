@@ -6282,8 +6282,8 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
     #
     # The race: ``conversation_compression.py`` rotates ``agent.session_id``
     # as a side effect of a successful compression (end old session, create
-    # new). That mutation is local to the AIAgent instance — but ``state.db``
-    # is shared across all instances. Two AIAgents that share the same
+    # new). That mutation is local to the create_agent instance — but ``state.db``
+    # is shared across all instances. Two agents that share the same
     # ``session_id`` at the moment they both decide to compress (most
     # commonly the parent turn's agent + a background-review fork started
     # right after the turn ended) each end the parent and create their own
@@ -6697,7 +6697,7 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
     ) -> None:
         """Stamp durable mid-turn session activity (observation-only).
 
-        Called (rate-limited) from ``AIAgent._touch_activity`` so gateway/CLI
+        Called (rate-limited) from ``create_agent._touch_activity`` so gateway/CLI
         surfaces and stall consumers observe API/tool/compaction activity
         even when no new message row has been written yet (#72016 / #72039).
 
@@ -10304,7 +10304,7 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
             # Lazy import: hermes_state already depends on agent.* (see
             # sanitize_context above), but keep this optional path from
             # widening the import surface at module load.
-            from agent.agent_runtime_helpers import repair_message_sequence
+            from agent.session_runtime import repair_message_sequence
 
             repaired = repair_message_sequence(None, messages)
             if repaired:

@@ -1,6 +1,8 @@
-"""Runtime-owned phases of AIAgent initialization."""
+"""Runtime-owned phases of create_agent initialization."""
 
 from __future__ import annotations
+
+
 
 import logging
 import re
@@ -294,6 +296,7 @@ def _merge_custom_provider_extra_body(agent, custom_providers: List[Dict[str, An
 
 
 def initialize_provider_route(agent, *, api_mode, provider_name, credential_pool):
+    import agent.provider_runtime as provider_runtime
     if api_mode in {"chat_completions", "codex_responses", "anthropic_messages", "bedrock_converse", "codex_app_server"}:
         agent.api_mode = api_mode
     elif agent.provider == "openai-codex":
@@ -327,7 +330,7 @@ def initialize_provider_route(agent, *, api_mode, provider_name, credential_pool
     elif agent.provider in {"nous", "nous-portal", "nousresearch"}:
         # Portal is dual-wire: anthropic/* → Messages, everything else →
         # chat_completions. Callers that already pass api_mode win above;
-        # this covers direct AIAgent construction without a resolved runtime.
+        # this covers direct create_agent construction without a resolved runtime.
         from hermes_cli.providers import nous_api_mode
 
         agent.api_mode = nous_api_mode(agent.model)
@@ -355,7 +358,7 @@ def initialize_provider_route(agent, *, api_mode, provider_name, credential_pool
     # Eagerly warm the transport cache so import errors surface at init,
     # not mid-conversation.  Also validates the api_mode is registered.
     try:
-        agent._get_transport()
+        provider_runtime._get_transport(agent)
     except Exception:
         pass  # Non-fatal — transport may not exist for all modes yet
 
@@ -388,10 +391,10 @@ def initialize_provider_route(agent, *, api_mode, provider_name, credential_pool
         and agent.provider != "copilot-acp"
         and not str(agent.base_url or "").lower().startswith("acp://copilot")
         and not str(agent.base_url or "").lower().startswith("acp+tcp://")
-        and not agent._is_azure_openai_url()
+        and not provider_runtime._is_azure_openai_url(agent)
         and (
-            agent._is_direct_openai_url()
-            or agent._provider_model_requires_responses_api(
+            provider_runtime._is_direct_openai_url(agent)
+            or provider_runtime._provider_model_requires_responses_api(
                 agent.model,
                 provider=agent.provider,
             )
@@ -407,10 +410,10 @@ def initialize_provider_route(agent, *, api_mode, provider_name, credential_pool
     # fetch_model_metadata() is cached for 1 hour; this avoids a blocking
     # HTTP request on the first API response when pricing is estimated.
     # Use a process-level Event so this thread is only spawned once — a new
-    # AIAgent is created for every gateway request, so without the guard
+    # create_agent is created for every gateway request, so without the guard
     # each message leaks one OS thread and the process eventually exhausts
     # the system thread limit (RuntimeError: can't start new thread).
-    if (agent.provider == "openrouter" or agent._is_openrouter_url()) and \
+    if (agent.provider == "openrouter" or provider_runtime._is_openrouter_url(agent)) and \
             not openrouter_prewarm_done.is_set():
         openrouter_prewarm_done.set()
         threading.Thread(
@@ -421,6 +424,7 @@ def initialize_provider_route(agent, *, api_mode, provider_name, credential_pool
 
 
 def initialize_provider_client(agent, *, api_key, base_url, fallback_providers):
+    import agent.provider_runtime as provider_runtime
     agent._anthropic_client = None
     agent._is_anthropic_oauth = False
 
@@ -526,7 +530,7 @@ def initialize_provider_client(agent, *, api_key, base_url, fallback_providers):
         agent.client = build_moa_facade(agent, agent.model)
         agent._client_kwargs = {}
         agent.api_key = api_key or "moa-virtual-provider"
-        agent.base_url = "moa://local"
+        provider_runtime.set_base_url(agent, "moa://local")
         if not agent.quiet_mode:
             print(f"🤖 AI Agent initialized with MoA preset: {agent.model}")
     elif agent.api_mode == "bedrock_converse":
@@ -738,7 +742,7 @@ def initialize_provider_client(agent, *, api_key, base_url, fallback_providers):
         # OpenAI SDK's identifying headers swap in a plain User-Agent. (#40033)
         # client_kwargs is the same dict object as agent._client_kwargs, so
         # this mutation is reflected in the client built just below.
-        agent._apply_user_default_headers()
+        provider_runtime._apply_user_default_headers(agent)
 
         try:
             from hermes_cli.config import (
@@ -769,12 +773,12 @@ def initialize_provider_client(agent, *, api_key, base_url, fallback_providers):
             logger.debug("custom-provider TLS resolution skipped", exc_info=True)
 
         agent.api_key = client_kwargs.get("api_key", "")
-        agent.base_url = client_kwargs.get("base_url", agent.base_url)
+        provider_runtime.set_base_url(agent, client_kwargs.get("base_url", agent.base_url))
         try:
             from agent.ssl_guard import verify_ca_bundle_with_fallback
 
             verify_ca_bundle_with_fallback()
-            agent.client = agent._create_openai_client(client_kwargs, reason="agent_init", shared=True)
+            agent.client = provider_runtime.create_openai_client(agent, client_kwargs, reason="agent_init", shared=True)
             if not agent.quiet_mode:
                 print(f"🤖 AI Agent initialized with model: {agent.model}")
                 if base_url:
@@ -799,7 +803,7 @@ def initialize_provider_client(agent, *, api_key, base_url, fallback_providers):
     # OAuth refreshes can replace the runtime token before a failed request is
     # recovered, so the mutable API-key value alone cannot reliably attribute
     # the failure to its source entry.
-    from agent.agent_runtime_helpers import sync_credential_pool_entry_id
+    from agent.provider_runtime import sync_credential_pool_entry_id
     sync_credential_pool_entry_id(agent)
 
     # Provider fallback chain — ordered list of backup providers tried

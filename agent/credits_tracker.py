@@ -199,7 +199,7 @@ def new_credits_latch() -> dict:
 class AgentNotice:
     """A structured, driver-agnostic out-of-band notice.
 
-    The agent fires these via ``AIAgent.notice_callback`` (and clears them via
+    The agent fires these via ``create_agent.notice_callback`` (and clears them via
     ``notice_clear_callback``); each driver renders it its own way — the TUI as a
     status-bar override, the CLI as a console line, etc. v1 credits notices are all
     ``kind="sticky"``; ``kind``/``ttl_ms`` are kept fully expressive so a future

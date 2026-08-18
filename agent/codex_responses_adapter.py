@@ -433,7 +433,7 @@ def _chat_messages_to_responses_input(
     OpenAI-compatible relays accept the request but later reject the
     replayed encrypted blob with HTTP 400 ``invalid_encrypted_content``;
     when that happens the retry loop calls
-    ``AIAgent._disable_codex_reasoning_replay`` which both strips cached
+    ``create_agent._disable_codex_reasoning_replay`` which both strips cached
     items from the conversation history and threads ``replay_enabled=False``
     through this converter so subsequent turns send no reasoning items.
 

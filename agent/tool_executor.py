@@ -1,16 +1,8 @@
-"""Tool-call execution — sequential and concurrent dispatch.
-
-Both AIAgent methods (``_execute_tool_calls_sequential`` and
-``_execute_tool_calls_concurrent``) live here as module-level
-functions that take the parent ``AIAgent`` as their first argument.
-
-``run_agent`` keeps thin wrappers so existing call sites work; tests
-that patch ``run_agent._set_interrupt`` are honored because the
-extracted functions reach back through the ``run_agent`` module via
-``_ra()`` for that symbol.
-"""
+"""Tool-call execution — sequential and concurrent dispatch."""
 
 from __future__ import annotations
+
+
 
 import concurrent.futures
 import json
@@ -44,6 +36,8 @@ from agent.tool_dispatch_helpers import (
 from tools.terminal_tool import (
     get_active_env,
 )
+from tools.interrupt import set_interrupt
+from model_tools import handle_function_call
 from tools.thread_context import propagate_context_to_thread
 from tools.tool_result_storage import (
     maybe_persist_tool_result,
@@ -187,8 +181,9 @@ def _flush_session_db_after_tool_progress(
     Flush the already-appended assistant/tool messages immediately so the
     transcript survives destructive-but-valid tool calls.
     """
+    import agent.session_runtime as session_runtime
     try:
-        persisted = agent._flush_messages_to_session_db(messages) is not False
+        persisted = session_runtime._flush_messages_to_session_db(agent, messages) is not False
         if not persisted:
             agent._incremental_persistence_failed = True
             # The flush caught its own exception and returned False; the
@@ -243,12 +238,6 @@ def _max_workers_for_tool_batch(runnable_calls) -> int:
     ):
         max_workers = min(max_workers, _image_generate_parallel_limit())
     return min(len(runnable_calls), max_workers)
-
-
-def _ra():
-    """Lazy reference to ``run_agent`` so patches like ``run_agent._set_interrupt`` work."""
-    import run_agent
-    return run_agent
 
 
 def _is_interpreter_shutdown_submit_error(exc: RuntimeError) -> bool:
@@ -528,10 +517,11 @@ def _run_tool_activity_heartbeat(
     wedged tools. The 30-min gateway backstop remains for turns whose
     agent loop itself stalls (no API call, no tool call in flight).
     """
+    import agent.session_runtime as session_runtime
 
     try:
         while not stop_event.wait(interval):
-            agent._touch_activity(label)
+            session_runtime._touch_activity(agent, label)
     except Exception:
         # A heartbeat must never break the agent loop.
         pass
@@ -552,6 +542,7 @@ def _run_agent_tool_execution_middleware(
     authorization_gate: _ConcurrentToolAuthorizationGate | None = None,
 ) -> _ManagedToolResult:
     """Run Relay rewrites before Hermes policy and dispatch exactly once."""
+    import agent.lifecycle as lifecycle
     from agent import relay_tools
     from hermes_cli.middleware import (
         apply_tool_request_middleware,
@@ -644,7 +635,7 @@ def _run_agent_tool_execution_middleware(
                 error_type = block_error_type
                 error_message = block_message
             else:
-                result = agent._guardrail_block_result(guardrail_decision)
+                result = lifecycle._guardrail_block_result(agent, guardrail_decision)
                 error_type = "guardrail_block"
                 error_message = (
                     getattr(guardrail_decision, "message", None)
@@ -793,6 +784,7 @@ def _run_sequential_tool_execution_middleware(
     ``<= 0``) owns that wait. Applying the generic tool deadline here would
     return ``tool_timeout`` while the prompt and worker stay active.
     """
+    import agent.session_runtime as session_runtime
     timeout_s = _resolve_sequential_tool_timeout()
     kwargs = {
         "function_name": function_name,
@@ -825,7 +817,7 @@ def _run_sequential_tool_execution_middleware(
             with agent._tool_worker_threads_lock:
                 agent._tool_worker_threads.discard(tid)
             try:
-                _ra()._set_interrupt(False, tid)
+                set_interrupt(False, tid)
             except Exception:
                 pass
 
@@ -860,7 +852,7 @@ def _run_sequential_tool_execution_middleware(
                 elapsed = int(time.monotonic() - started)
                 if elapsed - _last_heartbeat >= 30:
                     _last_heartbeat = elapsed
-                    agent._touch_activity(
+                    session_runtime._touch_activity(agent,
                         f"sequential tool running ({elapsed}s): {function_name}"
                     )
 
@@ -869,7 +861,7 @@ def _run_sequential_tool_execution_middleware(
             # tids, but the worker may have registered after the fan-out ran.
             for tid in worker_tid:
                 try:
-                    _ra()._set_interrupt(True, tid)
+                    set_interrupt(True, tid)
                 except Exception:
                     pass
             # Give a cooperative tool a moment to notice its per-thread
@@ -922,7 +914,7 @@ def _run_sequential_tool_execution_middleware(
         future.cancel()
         for tid in worker_tid:
             try:
-                _ra()._set_interrupt(True, tid)
+                set_interrupt(True, tid)
             except Exception:
                 pass
         trace = middleware_trace if middleware_trace is not None else []
@@ -962,6 +954,8 @@ def _begin_tool_execution(
     display_index: int | None,
 ) -> None:
     """Run user-visible and checkpoint preflight on final tool arguments."""
+    import agent.lifecycle as lifecycle
+    import agent.session_runtime as session_runtime
     if not agent.quiet_mode and getattr(agent, "tool_progress_mode", "all") != "off":
         display_args = (
             _redact_tool_args_for_display(function_name, function_args) or function_args
@@ -971,7 +965,7 @@ def _begin_tool_execution(
         if agent.verbose_logging:
             print(f"  📞 {prefix}: {function_name}({list(display_args.keys())})")
             print(
-                agent._wrap_verbose(
+                lifecycle._wrap_verbose(
                     "Args: ", json.dumps(display_args, indent=2, ensure_ascii=False)
                 )
             )
@@ -987,11 +981,15 @@ def _begin_tool_execution(
             )
 
     agent._current_tool = function_name
-    agent._touch_activity(f"executing tool: {function_name}")
+    session_runtime._touch_activity(agent, f"executing tool: {function_name}")
     try:
         from tools.environments.base import set_activity_callback
 
-        set_activity_callback(agent._touch_activity)
+        set_activity_callback(
+            lambda desc, **kwargs: session_runtime._touch_activity(
+                agent, desc, **kwargs
+            )
+        )
     except Exception:
         pass
 
@@ -1055,6 +1053,12 @@ def execute_tool_calls_concurrent(agent, assistant_message, messages: list, effe
     and /steer injection — used when this call is one segment of a larger
     mixed batch and the segmented dispatcher owns the turn-end work.
     """
+    import agent.error_reporting as error_reporting
+    import agent.interruption as interruption
+    import agent.lifecycle as lifecycle
+    import agent.provider_runtime as provider_runtime
+    import agent.session_runtime as session_runtime
+    import agent.status_output as status_output
     tool_calls = assistant_message.tool_calls
     num_tools = len(tool_calls)
 
@@ -1252,7 +1256,7 @@ def execute_tool_calls_concurrent(agent, assistant_message, messages: list, effe
     # Touch activity before launching workers so the gateway knows
     # we're executing tools (not stuck).
     agent._current_tool = tool_names_str
-    agent._touch_activity(f"executing {num_tools} tools concurrently: {tool_names_str}")
+    session_runtime._touch_activity(agent, f"executing {num_tools} tools concurrently: {tool_names_str}")
 
     def _run_tool(
         index,
@@ -1265,7 +1269,7 @@ def execute_tool_calls_concurrent(agent, assistant_message, messages: list, effe
     ):
         """Worker function executed in a thread."""
         # Register this worker tid so the agent can fan out an interrupt
-        # to it — see AIAgent.interrupt().  Must happen first thing, and
+        # to it — see create_agent.interrupt().  Must happen first thing, and
         # must be paired with discard + clear in the finally block.
         _worker_tid = threading.current_thread().ident
         with agent._tool_worker_threads_lock:
@@ -1276,7 +1280,7 @@ def execute_tool_calls_concurrent(agent, assistant_message, messages: list, effe
         # the tool returns True on the next poll.
         if agent._interrupt_requested:
             try:
-                _ra()._set_interrupt(True, _worker_tid)
+                set_interrupt(True, _worker_tid)
             except Exception:
                 pass
         # Set the activity callback on THIS worker thread so
@@ -1285,7 +1289,11 @@ def execute_tool_calls_concurrent(agent, assistant_message, messages: list, effe
         # is invisible to worker threads.
         try:
             from tools.environments.base import set_activity_callback
-            set_activity_callback(agent._touch_activity)
+            set_activity_callback(
+                lambda desc, **kwargs: session_runtime._touch_activity(
+                    agent, desc, **kwargs
+                )
+            )
         except Exception:
             pass
         # Approval/sudo callbacks (thread-local) and the agent turn's
@@ -1317,7 +1325,7 @@ def execute_tool_calls_concurrent(agent, assistant_message, messages: list, effe
         try:
             try:
                 def _execute(next_args: dict[str, Any]) -> Any:
-                    return agent._invoke_tool(
+                    return lifecycle.invoke_tool(agent,
                         function_name,
                         next_args,
                         effective_task_id,
@@ -1360,7 +1368,7 @@ def execute_tool_calls_concurrent(agent, assistant_message, messages: list, effe
                 return
             except KeyboardInterrupt:
                 try:
-                    agent.interrupt("keyboard interrupt")
+                    interruption.interrupt(agent, "keyboard interrupt")
                 except Exception:
                     pass
                 result = _emit_cancelled_terminal_post_tool_call(
@@ -1430,13 +1438,13 @@ def execute_tool_calls_concurrent(agent, assistant_message, messages: list, effe
             with agent._tool_worker_threads_lock:
                 agent._tool_worker_threads.discard(_worker_tid)
             try:
-                _ra()._set_interrupt(False, _worker_tid)
+                set_interrupt(False, _worker_tid)
             except Exception:
                 pass
 
     # Start spinner for CLI mode (skip when TUI handles tool progress)
     spinner = None
-    if agent._should_emit_quiet_tool_messages() and agent._should_start_quiet_spinner():
+    if status_output._should_emit_quiet_tool_messages(agent) and status_output._should_start_quiet_spinner(agent):
         face = random.choice(KawaiiSpinner.get_waiting_faces())
         spinner = KawaiiSpinner(f"{face} ⚡ running {num_tools} tools concurrently", spinner_type='dots', print_fn=agent._print_fn)
         spinner.start()
@@ -1578,7 +1586,7 @@ def execute_tool_calls_concurrent(agent, assistant_message, messages: list, effe
                             worker_tids = list(agent._tool_worker_threads)
                         for tid in worker_tids:
                             try:
-                                _ra()._set_interrupt(True, tid)
+                                set_interrupt(True, tid)
                             except Exception:
                                 pass
                         break
@@ -1592,7 +1600,7 @@ def execute_tool_calls_concurrent(agent, assistant_message, messages: list, effe
                         abandon_executor = True
                         if not _interrupt_logged:
                             _interrupt_logged = True
-                            agent._vprint(
+                            status_output._vprint(agent,
                                 f"{agent.log_prefix}⚡ Interrupt: cancelling "
                                 f"{len(not_done)} pending concurrent tool(s)",
                                 force=True,
@@ -1615,7 +1623,7 @@ def execute_tool_calls_concurrent(agent, assistant_message, messages: list, effe
                             for f in not_done
                             if f in future_to_index
                         ]
-                        agent._touch_activity(
+                        session_runtime._touch_activity(agent,
                             f"concurrent tools running ({_conc_elapsed}s, "
                             f"{len(not_done)} remaining: {', '.join(_still_running[:3])})"
                         )
@@ -1725,7 +1733,7 @@ def execute_tool_calls_concurrent(agent, assistant_message, messages: list, effe
                 effect_disposition = "none"
 
             if not blocked:
-                function_result = agent._append_guardrail_observation(
+                function_result = lifecycle._append_guardrail_observation(agent,
                     function_name,
                     function_args,
                     function_result,
@@ -1742,7 +1750,7 @@ def execute_tool_calls_concurrent(agent, assistant_message, messages: list, effe
             # block count as either a failure or a success.
             if not blocked:
                 try:
-                    agent._record_file_mutation_result(
+                    error_reporting._record_file_mutation_result(agent,
                         function_name, function_args, function_result, is_error,
                     )
                 except Exception as _ver_err:
@@ -1754,7 +1762,7 @@ def execute_tool_calls_concurrent(agent, assistant_message, messages: list, effe
 
         agent._current_tool = None
         _status_suffix = " (error)" if is_error else ""
-        agent._touch_activity(f"tool completed: {name} ({tool_duration:.1f}s){_status_suffix}")
+        session_runtime._touch_activity(agent, f"tool completed: {name} ({tool_duration:.1f}s){_status_suffix}")
 
         display_function_result = function_result
         function_result = maybe_persist_tool_result(
@@ -1782,7 +1790,7 @@ def execute_tool_calls_concurrent(agent, assistant_message, messages: list, effe
         # Text-only servers get a string-safe fallback here so a rejected
         # image tool result never poisons canonical session history.
         # String results pass through unchanged.
-        _tool_content = agent._tool_result_content_for_active_model(name, function_result)
+        _tool_content = provider_runtime._tool_result_content_for_active_model(agent, name, function_result)
         tool_message = make_tool_result_message(
             name,
             _tool_content,
@@ -1812,16 +1820,16 @@ def execute_tool_calls_concurrent(agent, assistant_message, messages: list, effe
                 logging.debug("Tool progress callback error: %s", cb_err)
 
         # Print cute message per tool
-        if agent._should_emit_quiet_tool_messages():
+        if status_output._should_emit_quiet_tool_messages(agent):
             cute_msg = _get_cute_tool_message_impl(
                 name, args, tool_duration, result=display_function_result,
             )
-            agent._safe_print(f"  {cute_msg}")
+            status_output._safe_print(agent, f"  {cute_msg}")
         elif not agent.quiet_mode and getattr(agent, "tool_progress_mode", "all") != "off":
             _preview_str = _multimodal_text_summary(display_function_result)
             if agent.verbose_logging:
                 print(f"  ✅ Tool {i+1} completed in {tool_duration:.2f}s")
-                print(agent._wrap_verbose("Result: ", _preview_str))
+                print(lifecycle._wrap_verbose("Result: ", _preview_str))
             else:
                 response_preview = _preview_str[:agent.log_prefix_chars] + "..." if len(_preview_str) > agent.log_prefix_chars else _preview_str
                 print(f"  ✅ Tool {i+1} completed in {tool_duration:.2f}s - {response_preview}")
@@ -1866,7 +1874,7 @@ def execute_tool_calls_concurrent(agent, assistant_message, messages: list, effe
     # agent sees it on its next iteration. Runs AFTER budget enforcement
     # so the steer marker is never truncated. See steer() for details.
     if finalize and num_tools > 0:
-        agent._apply_pending_steer_to_tool_results(messages, num_tools)
+        error_reporting.apply_pending_steer_to_tool_results(agent, messages, num_tools)
 
 
 
@@ -1897,6 +1905,12 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
     and /steer injection — used when this call is one segment of a larger
     mixed batch and the segmented dispatcher owns the turn-end work.
     """
+    import agent.error_reporting as error_reporting
+    import agent.interruption as interruption
+    import agent.lifecycle as lifecycle
+    import agent.provider_runtime as provider_runtime
+    import agent.session_runtime as session_runtime
+    import agent.status_output as status_output
     # Resolve the context-scaled tool-output budget once per turn.
     _tool_budget = _budget_for_agent(agent)
 
@@ -1914,7 +1928,7 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
         if agent._interrupt_requested:
             remaining_calls = assistant_message.tool_calls[i-1:]
             if remaining_calls:
-                agent._vprint(f"{agent.log_prefix}⚡ Interrupt: skipping {len(remaining_calls)} tool call(s)", force=True)
+                status_output._vprint(agent, f"{agent.log_prefix}⚡ Interrupt: skipping {len(remaining_calls)} tool call(s)", force=True)
             for skipped_tc in remaining_calls:
                 skipped_name = skipped_tc.function.name
                 cancelled_result = (
@@ -2040,11 +2054,11 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
                 display_index=i,
             ))
             tool_duration = time.time() - tool_start_time
-            if agent._should_emit_quiet_tool_messages():
-                agent._vprint(f"  {_get_cute_tool_message_impl('todo', function_args, tool_duration, result=function_result)}")
+            if status_output._should_emit_quiet_tool_messages(agent):
+                status_output._vprint(agent, f"  {_get_cute_tool_message_impl('todo', function_args, tool_duration, result=function_result)}")
         elif function_name == "session_search":
             def _execute(next_args: dict) -> Any:
-                session_db = agent._get_session_db_for_recall()
+                session_db = session_runtime._get_session_db_for_recall(agent)
                 if not session_db:
                     from hermes_state import format_session_db_unavailable
                     return json.dumps({"success": False, "error": format_session_db_unavailable()})
@@ -2072,8 +2086,8 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
                 display_index=i,
             ))
             tool_duration = time.time() - tool_start_time
-            if agent._should_emit_quiet_tool_messages():
-                agent._vprint(f"  {_get_cute_tool_message_impl('session_search', function_args, tool_duration, result=function_result)}")
+            if status_output._should_emit_quiet_tool_messages(agent):
+                status_output._vprint(agent, f"  {_get_cute_tool_message_impl('session_search', function_args, tool_duration, result=function_result)}")
         elif function_name == "memory":
             def _execute(next_args: dict) -> Any:
                 target = next_args.get("target", "memory")
@@ -2094,7 +2108,7 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
                     agent._memory_manager.notify_memory_tool_write(
                         result,
                         next_args,
-                        build_metadata=lambda: agent._build_memory_write_metadata(
+                        build_metadata=lambda: lifecycle._build_memory_write_metadata(agent,
                             task_id=effective_task_id,
                             tool_call_id=getattr(tool_call, "id", None),
                         ),
@@ -2111,8 +2125,8 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
                 display_index=i,
             ))
             tool_duration = time.time() - tool_start_time
-            if agent._should_emit_quiet_tool_messages():
-                agent._vprint(f"  {_get_cute_tool_message_impl('memory', function_args, tool_duration, result=function_result)}")
+            if status_output._should_emit_quiet_tool_messages(agent):
+                status_output._vprint(agent, f"  {_get_cute_tool_message_impl('memory', function_args, tool_duration, result=function_result)}")
         elif function_name == "clarify":
             def _execute(next_args: dict) -> Any:
                 from tools.clarify_tool import clarify_tool as _clarify_tool
@@ -2133,8 +2147,8 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
                 display_index=i,
             ))
             tool_duration = time.time() - tool_start_time
-            if agent._should_emit_quiet_tool_messages():
-                agent._vprint(f"  {_get_cute_tool_message_impl('clarify', function_args, tool_duration, result=function_result)}")
+            if status_output._should_emit_quiet_tool_messages(agent):
+                status_output._vprint(agent, f"  {_get_cute_tool_message_impl('clarify', function_args, tool_duration, result=function_result)}")
         elif function_name == "delegate_task":
             _action_arg = str(function_args.get("action") or "").strip().lower()
             tasks_arg = function_args.get("tasks")
@@ -2150,7 +2164,7 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
                     else "🔀 delegating · (/agents to monitor)"
                 )
             spinner = None
-            if agent._should_emit_quiet_tool_messages() and agent._should_start_quiet_spinner():
+            if status_output._should_emit_quiet_tool_messages(agent) and status_output._should_start_quiet_spinner(agent):
                 face = random.choice(KawaiiSpinner.get_waiting_faces())
                 spinner = KawaiiSpinner(f"{face} {spinner_label}", spinner_type='dots', print_fn=agent._print_fn)
                 spinner.start()
@@ -2158,7 +2172,7 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
             _delegate_result = None
             try:
                 def _execute(next_args: dict) -> Any:
-                    return agent._dispatch_delegate_task(next_args)
+                    return lifecycle._dispatch_delegate_task(agent, next_args)
                 function_result, function_args, middleware_trace, _execution_blocked, _execution_dispatched = _managed_values(_run_agent_tool_execution_middleware(
                     agent,
                     function_name=function_name,
@@ -2176,12 +2190,12 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
                 cute_msg = _get_cute_tool_message_impl('delegate_task', function_args, tool_duration, result=_delegate_result)
                 if spinner:
                     spinner.stop(cute_msg)
-                elif agent._should_emit_quiet_tool_messages():
-                    agent._vprint(f"  {cute_msg}")
+                elif status_output._should_emit_quiet_tool_messages(agent):
+                    status_output._vprint(agent, f"  {cute_msg}")
         elif agent._context_engine_tool_names and function_name in agent._context_engine_tool_names:
             # Context engine tools (lcm_grep, lcm_describe, lcm_expand, etc.)
             spinner = None
-            if agent._should_emit_quiet_tool_messages():
+            if status_output._should_emit_quiet_tool_messages(agent):
                 face = random.choice(KawaiiSpinner.get_waiting_faces())
                 emoji = _get_tool_emoji(function_name)
                 display_args = _redact_tool_args_for_display(function_name, function_args) or function_args
@@ -2211,13 +2225,13 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
                 cute_msg = _get_cute_tool_message_impl(function_name, function_args, tool_duration, result=_ce_result)
                 if spinner:
                     spinner.stop(cute_msg)
-                elif agent._should_emit_quiet_tool_messages():
-                    agent._vprint(f"  {cute_msg}")
+                elif status_output._should_emit_quiet_tool_messages(agent):
+                    status_output._vprint(agent, f"  {cute_msg}")
         elif agent._memory_manager and agent._memory_manager.has_tool(function_name):
             # Memory provider tools (hindsight_retain, honcho_search, etc.)
             # These are not in the tool registry — route through MemoryManager.
             spinner = None
-            if agent._should_emit_quiet_tool_messages() and agent._should_start_quiet_spinner():
+            if status_output._should_emit_quiet_tool_messages(agent) and status_output._should_start_quiet_spinner(agent):
                 face = random.choice(KawaiiSpinner.get_waiting_faces())
                 emoji = _get_tool_emoji(function_name)
                 display_args = _redact_tool_args_for_display(function_name, function_args) or function_args
@@ -2247,11 +2261,11 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
                 cute_msg = _get_cute_tool_message_impl(function_name, function_args, tool_duration, result=_mem_result)
                 if spinner:
                     spinner.stop(cute_msg)
-                elif agent._should_emit_quiet_tool_messages():
-                    agent._vprint(f"  {cute_msg}")
+                elif status_output._should_emit_quiet_tool_messages(agent):
+                    status_output._vprint(agent, f"  {cute_msg}")
         elif agent.quiet_mode:
             spinner = None
-            if agent._should_emit_quiet_tool_messages() and agent._should_start_quiet_spinner():
+            if status_output._should_emit_quiet_tool_messages(agent) and status_output._should_start_quiet_spinner(agent):
                 face = random.choice(KawaiiSpinner.get_waiting_faces())
                 emoji = _get_tool_emoji(function_name)
                 display_args = _redact_tool_args_for_display(function_name, function_args) or function_args
@@ -2264,7 +2278,7 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
                     from model_tools import suppress_post_tool_call_hook
 
                     with suppress_post_tool_call_hook():
-                        return _ra().handle_function_call(
+                        return handle_function_call(
                             function_name,
                             next_args,
                             effective_task_id,
@@ -2318,7 +2332,7 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
                 )
                 _spinner_result = function_result
                 try:
-                    agent.interrupt("keyboard interrupt")
+                    interruption.interrupt(agent, "keyboard interrupt")
                 except Exception:
                     pass
                 # Emit a tool result for THIS call and every remaining call in
@@ -2338,15 +2352,15 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
                 cute_msg = _get_cute_tool_message_impl(function_name, function_args, tool_duration, result=_spinner_result)
                 if spinner:
                     spinner.stop(cute_msg)
-                elif agent._should_emit_quiet_tool_messages():
-                    agent._vprint(f"  {cute_msg}")
+                elif status_output._should_emit_quiet_tool_messages(agent):
+                    status_output._vprint(agent, f"  {cute_msg}")
         else:
             try:
                 def _execute(next_args: dict) -> Any:
                     from model_tools import suppress_post_tool_call_hook
 
                     with suppress_post_tool_call_hook():
-                        return _ra().handle_function_call(
+                        return handle_function_call(
                             function_name,
                             next_args,
                             effective_task_id,
@@ -2398,7 +2412,7 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
                     middleware_trace=list(middleware_trace),
                 )
                 try:
-                    agent.interrupt("keyboard interrupt")
+                    interruption.interrupt(agent, "keyboard interrupt")
                 except Exception:
                     pass
                 # Emit a tool result for THIS call and every remaining call in
@@ -2453,7 +2467,7 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
                 middleware_trace=list(middleware_trace),
             )
         if not _execution_blocked:
-            function_result = agent._append_guardrail_observation(
+            function_result = lifecycle._append_guardrail_observation(agent,
                 function_name,
                 function_args,
                 function_result,
@@ -2473,7 +2487,7 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
         # turn, not just the parallel ones.
         if not _execution_blocked:
             try:
-                agent._record_file_mutation_result(
+                error_reporting._record_file_mutation_result(agent,
                     function_name, function_args, function_result, _is_error_result,
                 )
             except Exception as _ver_err:
@@ -2481,7 +2495,7 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
 
         agent._current_tool = None
         _status_suffix = " (error)" if _is_error_result else ""
-        agent._touch_activity(f"tool completed: {function_name} ({tool_duration:.1f}s){_status_suffix}")
+        session_runtime._touch_activity(agent, f"tool completed: {function_name} ({tool_duration:.1f}s){_status_suffix}")
 
         if agent.verbose_logging:
             logging.debug("Tool %s completed in %.2fs", function_name, tool_duration)
@@ -2507,7 +2521,7 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
 
         # Unwrap _multimodal dicts to an OpenAI-style content list
         # (see parallel path for rationale). String results pass through.
-        _tool_content = agent._tool_result_content_for_active_model(function_name, function_result)
+        _tool_content = provider_runtime._tool_result_content_for_active_model(agent, function_name, function_result)
         tool_message = make_tool_result_message(
             function_name,
             _tool_content,
@@ -2570,7 +2584,7 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
         if not agent.quiet_mode and getattr(agent, "tool_progress_mode", "all") != "off":
             if agent.verbose_logging:
                 print(f"  ✅ Tool {i} completed in {tool_duration:.2f}s")
-                print(agent._wrap_verbose("Result: ", function_result))
+                print(lifecycle._wrap_verbose("Result: ", function_result))
             else:
                 _fr_str = function_result if isinstance(function_result, str) else str(function_result)
                 response_preview = _fr_str[:agent.log_prefix_chars] + "..." if len(_fr_str) > agent.log_prefix_chars else _fr_str
@@ -2578,7 +2592,7 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
 
         if agent._interrupt_requested and i < len(assistant_message.tool_calls):
             remaining = len(assistant_message.tool_calls) - i
-            agent._vprint(f"{agent.log_prefix}⚡ Interrupt: skipping {remaining} remaining tool call(s)", force=True)
+            status_output._vprint(agent, f"{agent.log_prefix}⚡ Interrupt: skipping {remaining} remaining tool call(s)", force=True)
             for skipped_tc in assistant_message.tool_calls[i:]:
                 skipped_name = skipped_tc.function.name
                 messages.append(make_tool_result_message(
@@ -2607,7 +2621,7 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
     # See _execute_tool_calls_parallel for the rationale. Same hook,
     # applied to sequential execution as well.
     if finalize and num_tools_seq > 0:
-        agent._apply_pending_steer_to_tool_results(messages, num_tools_seq)
+        error_reporting.apply_pending_steer_to_tool_results(agent, messages, num_tools_seq)
 
 
 
@@ -2635,6 +2649,7 @@ def execute_tool_calls_segmented(agent, assistant_message, messages: list, effec
     *k+1..n* without executing them while preserving one result per
     tool_call_id.
     """
+    import agent.error_reporting as error_reporting
     from types import SimpleNamespace
 
     if segments is None:
@@ -2669,7 +2684,7 @@ def execute_tool_calls_segmented(agent, assistant_message, messages: list, effec
             env=get_active_env(effective_task_id),
             config=_tool_budget,
         )
-        agent._apply_pending_steer_to_tool_results(messages, total_tools)
+        error_reporting.apply_pending_steer_to_tool_results(agent, messages, total_tools)
 
 
 __all__ = [

@@ -3,7 +3,7 @@
 Owns one Codex thread per Hermes session. Drives `turn/start`, consumes
 streaming notifications via CodexEventProjector, handles server-initiated
 approval requests (apply_patch, exec command), translates cancellation,
-and returns a clean turn result that AIAgent.run_conversation() can splice
+and returns a clean turn result that create_agent.run_conversation() can splice
 into its `messages` list.
 
 Lifecycle:
@@ -19,7 +19,7 @@ Lifecycle:
 Threading model: the adapter is single-threaded from the caller's perspective.
 The underlying CodexAppServerClient owns its own reader threads but exposes
 blocking-with-timeout queues that this adapter polls in a loop, so the run_turn
-call is synchronous and behaves like AIAgent's existing chat_completions loop.
+call is synchronous and behaves like create_agent's existing chat_completions loop.
 """
 
 from __future__ import annotations
@@ -263,9 +263,9 @@ class _ServerRequestRouting:
 
 
 class CodexAppServerSession:
-    """One Codex thread per Hermes session, lifetime owned by AIAgent.
+    """One Codex thread per Hermes session, lifetime owned by create_agent.
 
-    Not thread-safe — one caller drives it at a time, matching how AIAgent's
+    Not thread-safe — one caller drives it at a time, matching how create_agent's
     run_conversation() loop is structured today. The codex client itself can
     handle interleaved reads/writes via its own threads, but the adapter's
     state (projector, thread_id, turn counter) is owned by the caller thread.
@@ -396,7 +396,7 @@ class CodexAppServerSession:
 
     def request_interrupt(self) -> None:
         """Idempotent: signal the active turn loop to issue turn/interrupt
-        and unwind. Called by AIAgent's _interrupt_requested path."""
+        and unwind. Called by create_agent's _interrupt_requested path."""
         self._interrupt_event.set()
 
     def request_steer(self, text: str) -> bool:
@@ -489,7 +489,7 @@ class CodexAppServerSession:
         # spawn, initialize handshake rejects, thread/start blows up) surface
         # the same way per-turn failures do — with a TurnResult.error string
         # the caller can render — instead of bubbling raw codex exceptions
-        # up to AIAgent.run_conversation.
+        # up to create_agent.run_conversation.
         result = TurnResult()
         try:
             self.ensure_started()

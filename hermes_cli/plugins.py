@@ -1113,7 +1113,7 @@ class PluginSystemPromptSection:
 
 @dataclass(frozen=True)
 class RenderedPluginSystemPromptSection:
-    """Validated prompt bytes frozen on the owning AIAgent."""
+    """Validated prompt bytes frozen on the owning create_agent."""
 
     id: str
     content: str

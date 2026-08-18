@@ -21,6 +21,8 @@ Env var fallbacks (used when the corresponding arg is not passed):
 
 from __future__ import annotations
 
+
+
 import logging
 import os
 import sys
@@ -190,7 +192,7 @@ def run_oneshot(
 
     Returns the exit code.  The caller owns process termination.
     """
-    # Silence every stdlib logger for the duration.  AIAgent, tools, and
+    # Silence every stdlib logger for the duration.  create_agent, tools, and
     # provider adapters all log to stderr through the root logger; file
     # handlers added by setup_logging() keep working (they're attached to
     # the root logger's handler list, not affected by level), but no
@@ -326,15 +328,16 @@ def _run_agent(
     toolsets: object = None,
     use_config_toolsets: bool = True,
 ) -> tuple[str, dict]:
-    """Build an AIAgent exactly like a normal CLI chat turn would, then
+    """Build an create_agent exactly like a normal CLI chat turn would, then
     run a single conversation.  Returns ``(final_response, run_result)``."""
+    import agent.lifecycle as lifecycle
     # Imports are local so they don't run when hermes is invoked for
     # other commands (keeps top-level CLI startup cheap).
     from hermes_cli.config import load_config
     from hermes_cli.models import detect_provider_for_model
     from hermes_cli.runtime_provider import resolve_runtime_provider
     from hermes_cli.tools_config import _get_platform_tools
-    from run_agent import AIAgent
+    from agent.agent_init import create_agent
 
     cfg = load_config()
 
@@ -411,7 +414,7 @@ def _run_agent(
 
     # Ensure MCP tools are discovered before building the agent.  Oneshot
     # bypasses cli.py's _prepare_agent_startup MCP background path and
-    # HermesCLI._init_agent's wait — it builds AIAgent directly here, so the
+    # HermesCLI._init_agent's wait — it builds create_agent directly here, so the
     # tool snapshot at construction time misses any MCP server that hasn't
     # registered yet.  This helper starts discovery if needed (idempotent) and
     # bounded-waits with the larger single-query bound (default 15s) because
@@ -425,7 +428,7 @@ def _run_agent(
 
     session_db = _create_session_db_for_oneshot()
     # The try spans agent construction (not just ``chat``) so the SQLite store
-    # opened above is always closed — including when ``AIAgent(...)`` itself
+    # opened above is always closed — including when ``create_agent(...)`` itself
     # raises on a provider/config error. The one-shot exit path hard-exits via
     # os._exit and skips finalizers, so an un-closed connection here would leak.
     agent = None
@@ -435,7 +438,7 @@ def _run_agent(
         # gateway sessions.
         _fb = get_fallback_chain(cfg)
 
-        agent = AIAgent(
+        agent = create_agent(
             api_key=runtime.get("api_key"),
             base_url=runtime.get("base_url"),
             provider=runtime.get("provider"),
@@ -462,13 +465,13 @@ def _run_agent(
             clarify_callback=_oneshot_clarify_callback,
         )
 
-        # Belt-and-braces: make sure AIAgent doesn't invoke any streaming
+        # Belt-and-braces: make sure create_agent doesn't invoke any streaming
         # display callbacks that would bypass our stdout capture.
         agent.suppress_status_output = True
         agent.stream_delta_callback = None
         agent.tool_gen_callback = None
 
-        result = agent.run_conversation(prompt)
+        result = lifecycle.run_conversation(agent, prompt)
         return (result.get("final_response") or "", result)
     finally:
         # Ordering deliberately mirrors gateway/run.py:_cleanup_agent_resources,
@@ -478,16 +481,16 @@ def _run_agent(
             try:
                 session_messages = getattr(agent, "_session_messages", None)
                 if isinstance(session_messages, list):
-                    agent.shutdown_memory_provider(session_messages)
+                    lifecycle.shutdown_memory_provider(agent, session_messages)
                 else:
-                    agent.shutdown_memory_provider()
+                    lifecycle.shutdown_memory_provider(agent)
             except Exception:
                 logging.debug("oneshot memory/context cleanup failed", exc_info=True)
             try:
-                agent.close()
+                lifecycle.close(agent)
             except Exception:
                 logging.debug("oneshot agent cleanup failed", exc_info=True)
-        # agent.close() calls session_db.end_session() but leaves the connection
+        # lifecycle.close(agent) calls session_db.end_session() but leaves the connection
         # open; close it here to checkpoint the WAL before os._exit skips
         # finalizers.
         if session_db is not None:

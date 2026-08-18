@@ -1,4 +1,4 @@
-"""Context compression — extract the AIAgent methods that drive summarisation.
+"""Context compression — extract the create_agent methods that drive summarisation.
 
 Three concerns live here:
 
@@ -10,7 +10,7 @@ Three concerns live here:
 
 * :func:`replay_compression_warning` — re-emit a stored warning through
   the gateway ``status_callback`` once it's wired up (the callback is
-  set after :class:`AIAgent` construction).
+  set after :class:`create_agent` construction).
 
 * :func:`compress_context` — the actual compression call.  Runs the
   configured compressor, splits the SQLite session, rotates the
@@ -50,6 +50,8 @@ thread, not the conversation thread. Extension authors must assume:
 """
 
 from __future__ import annotations
+
+
 
 import concurrent.futures
 import copy
@@ -1617,12 +1619,13 @@ def check_compression_model_feasibility(agent: Any) -> None:
     compression will either fail outright (the LLM call errors) or produce
     a severely truncated summary.
 
-    Called during ``AIAgent.__init__`` so CLI users see the warning
+    Called during ``create_agent.__init__`` so CLI users see the warning
     immediately (via ``_vprint``).  The gateway sets ``status_callback``
     *after* construction, so :func:`replay_compression_warning` re-sends
     the stored warning through the callback on the first
     ``run_conversation()`` call.
     """
+    import agent.status_output as status_output
     if not agent.compression_enabled:
         return
     try:
@@ -1646,7 +1649,7 @@ def check_compression_model_feasibility(agent: Any) -> None:
             _aux_cfg_provider = ""
         client, aux_model = get_text_auxiliary_client(
             "compression",
-            main_runtime=agent._current_main_runtime(),
+            main_runtime=status_output._current_main_runtime(agent),
         )
         if client is None or not aux_model:
             fb_client, fb_model, fb_label = _try_configured_fallback_for_unavailable_client(
@@ -1673,7 +1676,7 @@ def check_compression_model_feasibility(agent: Any) -> None:
                     "Run `hermes setup` or set OPENROUTER_API_KEY."
                 )
             agent._compression_warning = msg
-            agent._emit_status(msg)
+            status_output._emit_status(agent, msg)
             logger.warning(
                 "No auxiliary LLM provider for compression — "
                 "summaries will be unavailable."
@@ -1840,7 +1843,7 @@ def check_compression_model_feasibility(agent: Any) -> None:
                     f"compression model's {aux_context:,}.)"
                 )
             agent._compression_warning = msg
-            agent._emit_status(msg)
+            status_output._emit_status(agent, msg)
             logger.warning(
                 "Auxiliary compression model %s has %d token context, "
                 "below the main model's compression threshold of %d "
@@ -2246,7 +2249,7 @@ def compress_context(
     """Compress conversation context and split the session in SQLite.
 
     Args:
-        agent: The owning :class:`AIAgent`.
+        agent: The owning :class:`create_agent`.
         messages: Current message history (will be summarised).
         system_message: Current system prompt; used when compression needs a
             rebuilt cached prompt.
@@ -2272,6 +2275,10 @@ def compress_context(
         prompt — the session is NOT rotated.  Callers should detect the
         no-op via ``len(returned) == len(input)`` and stop the retry loop.
     """
+    import agent.lifecycle as lifecycle
+    import agent.message_protocol as message_protocol
+    import agent.session_runtime as session_runtime
+    import agent.status_output as status_output
     _compressor_attempt_snapshot = _snapshot_compressor_attempt_state(
         agent.context_compressor
     )
@@ -2331,7 +2338,7 @@ def compress_context(
                 )
                 existing_prompt = getattr(agent, "_cached_system_prompt", None)
                 if not existing_prompt:
-                    existing_prompt = agent._build_system_prompt(system_message)
+                    existing_prompt = message_protocol._build_system_prompt(agent, system_message)
                 return messages, existing_prompt
         try:
             return _compress_context_via_codex_app_server(
@@ -2347,7 +2354,7 @@ def compress_context(
                 commit_fence.finish_commit()
 
     # Every automatic entrypoint must honor compressor-owned cooldown and
-    # breaker state. Gateway hygiene constructs a fresh AIAgent, so the
+    # breaker state. Gateway hygiene constructs a fresh create_agent, so the
     # persisted fallback streak is loaded by bind_session_state() before this.
     if not force:
         _refresh_persisted_compression_guards(agent.context_compressor)
@@ -2359,12 +2366,12 @@ def compress_context(
         if callable(blocked) and blocked(agent.context_compressor):
             existing_prompt = getattr(agent, "_cached_system_prompt", None)
             if not existing_prompt:
-                existing_prompt = agent._build_system_prompt(system_message)
+                existing_prompt = message_protocol._build_system_prompt(agent, system_message)
             return messages, existing_prompt
 
     # Lazy feasibility check — run the auxiliary-provider probe + context
     # length lookup just-in-time on the first compression attempt instead of
-    # at AIAgent.__init__. Saves ~400ms cold off every short session that
+    # at create_agent.__init__. Saves ~400ms cold off every short session that
     # never reaches the threshold (the vast majority of ``chat -q`` runs).
     # The check itself sets ``agent._compression_warning`` so the
     # status-callback replay machinery still emits the warning to the user
@@ -2412,7 +2419,7 @@ def compress_context(
         )
     _compaction_status_emitted = bool(_compaction_status)
     if _compaction_status:
-        agent._emit_status(_compaction_status)
+        status_output._emit_status(agent, _compaction_status)
     _compaction_done_emitted = False
 
     def _complete_compaction_lifecycle() -> None:
@@ -2428,7 +2435,7 @@ def compress_context(
 
     # ── Compression lock ────────────────────────────────────────────────
     # Atomic, state.db-backed lock per session_id.  Without this, two
-    # AIAgent instances that share the same session_id (most commonly the
+    # create_agent instances that share the same session_id (most commonly the
     # parent-turn agent and its background-review fork — see
     # ``agent/background_review.py``: ``review_agent.session_id =
     # agent.session_id``) can each call compress() on overlapping
@@ -2544,7 +2551,7 @@ def compress_context(
                     agent._last_compaction_in_place = False
                     _existing_sp = getattr(agent, "_cached_system_prompt", None)
                     if not _existing_sp:
-                        _existing_sp = agent._build_system_prompt(system_message)
+                        _existing_sp = message_protocol._build_system_prompt(agent, system_message)
                     _emit_compression_attempt_telemetry(
                         agent,
                         started_at=_attempt_started_at,
@@ -2622,7 +2629,7 @@ def compress_context(
             if getattr(agent, "_last_compression_lock_warning_sid", None) != _lock_sid:
                 agent._last_compression_lock_warning_sid = _lock_sid
                 try:
-                    agent._emit_warning(
+                    status_output._emit_warning(agent,
                         "⚠ Skipping concurrent compression — another path "
                         "is already compressing this session. Will retry "
                         "after it finishes."
@@ -2631,7 +2638,7 @@ def compress_context(
                     pass
             _existing_sp = getattr(agent, "_cached_system_prompt", None)
             if not _existing_sp:
-                _existing_sp = agent._build_system_prompt(system_message)
+                _existing_sp = message_protocol._build_system_prompt(agent, system_message)
             try:
                 if hasattr(agent.context_compressor, "_begin_compression_telemetry"):
                     agent.context_compressor._begin_compression_telemetry(current_tokens=approx_tokens)
@@ -2710,7 +2717,7 @@ def compress_context(
             agent._last_compaction_in_place = False
             _existing_sp = getattr(agent, "_cached_system_prompt", None)
             if not _existing_sp:
-                _existing_sp = agent._build_system_prompt(system_message)
+                _existing_sp = message_protocol._build_system_prompt(agent, system_message)
             _emit_compression_attempt_telemetry(
                 agent,
                 started_at=_attempt_started_at,
@@ -2744,7 +2751,7 @@ def compress_context(
             _release_lock()
             _existing_sp = getattr(agent, "_cached_system_prompt", None)
             if not _existing_sp:
-                _existing_sp = agent._build_system_prompt(system_message)
+                _existing_sp = message_protocol._build_system_prompt(agent, system_message)
             return messages, _existing_sp
         if _parent_already_rotated:
             recovered_messages = _adopt_live_compression_child(
@@ -2753,7 +2760,7 @@ def compress_context(
             _release_lock()
             _existing_sp = getattr(agent, "_cached_system_prompt", None)
             if not _existing_sp:
-                _existing_sp = agent._build_system_prompt(system_message)
+                _existing_sp = message_protocol._build_system_prompt(agent, system_message)
             if recovered_messages is not None:
                 logger.warning(
                     "compression recovery: stale session=%s adopted live child=%s",
@@ -2785,7 +2792,7 @@ def compress_context(
         _release_lock()
         existing_prompt = getattr(agent, "_cached_system_prompt", None)
         if not existing_prompt:
-            existing_prompt = agent._build_system_prompt(system_message)
+            existing_prompt = message_protocol._build_system_prompt(agent, system_message)
         return messages, existing_prompt
 
     # The agent may have been constructed before another path completed an
@@ -2807,7 +2814,7 @@ def compress_context(
             _release_lock()
             existing_prompt = getattr(agent, "_cached_system_prompt", None)
             if not existing_prompt:
-                existing_prompt = agent._build_system_prompt(system_message)
+                existing_prompt = message_protocol._build_system_prompt(agent, system_message)
             return messages, existing_prompt
 
     _activity_heartbeat: Optional[_CompressionActivityHeartbeat] = None
@@ -2876,7 +2883,7 @@ def compress_context(
                         and 0 <= _preflush_idx < len(messages)
                     ):
                         try:
-                            _preflush_ok = agent._flush_messages_to_session_db(
+                            _preflush_ok = session_runtime._flush_messages_to_session_db(agent,
                                 messages,
                                 conversation_history=messages[:_preflush_idx],
                             )
@@ -2981,7 +2988,7 @@ def compress_context(
         # so it cannot leak into unrelated auxiliary calls.
         #
         # Callers that pass no commit_fence install a no-op progress hook
-        # here.  AIAgent._compress_context injects an owned fence for
+        # here.  create_agent._compress_context injects an owned fence for
         # fenceless callers so the host-level progress-aware wait can
         # extend on streamed tokens; gateway hygiene already passes its
         # own fence.  An ACTIVE hook (even a no-op) is what switches the
@@ -3090,7 +3097,7 @@ def compress_context(
         )
         _existing_sp = getattr(agent, "_cached_system_prompt", None)
         if not _existing_sp:
-            _existing_sp = agent._build_system_prompt(system_message)
+            _existing_sp = message_protocol._build_system_prompt(agent, system_message)
         return messages, _existing_sp
     except BaseException as _compress_exc:
         # ANY exception after lock acquisition — memory hook, capability
@@ -3138,14 +3145,14 @@ def compress_context(
                 _err = getattr(agent.context_compressor, "_last_summary_error", None) or "unknown error"
                 if getattr(agent, "_last_compression_summary_warning", None) != _err:
                     agent._last_compression_summary_warning = _err
-                    agent._emit_warning(
+                    status_output._emit_warning(agent,
                         f"⚠ Compression aborted: {_err}. "
                         "No messages were dropped — conversation continues unchanged. "
                         "Run /compress to retry, or /new to start a fresh session."
                     )
                 _existing_sp = getattr(agent, "_cached_system_prompt", None)
                 if not _existing_sp:
-                    _existing_sp = agent._build_system_prompt(system_message)
+                    _existing_sp = message_protocol._build_system_prompt(agent, system_message)
                 _emit_compression_attempt_telemetry(
                     agent,
                     started_at=_attempt_started_at,
@@ -3173,7 +3180,7 @@ def compress_context(
             )
             _existing_sp = getattr(agent, "_cached_system_prompt", None)
             if not _existing_sp:
-                _existing_sp = agent._build_system_prompt(system_message)
+                _existing_sp = message_protocol._build_system_prompt(agent, system_message)
             _emit_compression_attempt_telemetry(
                 agent,
                 started_at=_attempt_started_at,
@@ -3191,7 +3198,7 @@ def compress_context(
                 agent.session_id or "none",
             )
             try:
-                agent._emit_warning(
+                status_output._emit_warning(agent,
                     "⚠ Compression returned an empty transcript. "
                     "No session split was performed; conversation continues unchanged."
                 )
@@ -3199,7 +3206,7 @@ def compress_context(
                 pass
             _existing_sp = getattr(agent, "_cached_system_prompt", None)
             if not _existing_sp:
-                _existing_sp = agent._build_system_prompt(system_message)
+                _existing_sp = message_protocol._build_system_prompt(agent, system_message)
             _release_lock()
             return messages, _existing_sp
 
@@ -3225,7 +3232,7 @@ def compress_context(
                 agent._last_compaction_in_place = False
                 _existing_sp = getattr(agent, "_cached_system_prompt", None)
                 if not _existing_sp:
-                    _existing_sp = agent._build_system_prompt(system_message)
+                    _existing_sp = message_protocol._build_system_prompt(agent, system_message)
                 _emit_compression_attempt_telemetry(
                     agent,
                     started_at=_attempt_started_at,
@@ -3240,7 +3247,7 @@ def compress_context(
         if summary_error:
             if getattr(agent, "_last_compression_summary_warning", None) != summary_error:
                 agent._last_compression_summary_warning = summary_error
-                agent._emit_warning(
+                status_output._emit_warning(agent,
                     f"⚠ Compression summary failed: {summary_error}. "
                     "Inserted a fallback context marker."
                 )
@@ -3256,7 +3263,7 @@ def compress_context(
                 _aux_key = (_aux_fail_model, _aux_fail_err)
                 if getattr(agent, "_last_aux_fallback_warning_key", None) != _aux_key:
                     agent._last_aux_fallback_warning_key = _aux_key
-                    agent._emit_warning(
+                    status_output._emit_warning(agent,
                         f"ℹ Configured compression model '{_aux_fail_model}' failed "
                         f"({_aux_fail_err or 'unknown error'}). Recovered using main model — "
                         "check auxiliary.compression.model in config.yaml."
@@ -3325,7 +3332,7 @@ def compress_context(
         _ensure_compressed_has_user_turn(messages, compressed)
 
         cached_system_prompt = agent._cached_system_prompt
-        agent._invalidate_system_prompt()
+        message_protocol._invalidate_system_prompt(agent)
 
         # Built-in memory is the only system-prompt input that a normal
         # compaction reloads. When the cached prompt already embeds the
@@ -3358,7 +3365,7 @@ def compress_context(
                 log_label="compression keep-prompt",
             )
         else:
-            new_system_prompt = agent._build_system_prompt(system_message)
+            new_system_prompt = message_protocol._build_system_prompt(agent, system_message)
             agent._cached_system_prompt = new_system_prompt
 
         _session_commit_succeeded = False
@@ -3370,7 +3377,7 @@ def compress_context(
                 # transcript is rewritten (runs in BOTH modes — the logical
                 # conversation's pre-compaction turns are about to be summarized
                 # away regardless of whether the id rotates).
-                agent.commit_memory_session(messages)
+                lifecycle.commit_memory_session(agent, messages)
 
                 # Anti-growth guard at the COMMIT SITE: never persist a
                 # compression that makes the transcript larger (observed:
@@ -3396,7 +3403,7 @@ def compress_context(
                         f"{_rough_out:,}",
                     )
                     try:
-                        agent._emit_warning(
+                        status_output._emit_warning(agent,
                             "⚠️ Compression refused: the generated summary "
                             "would have GROWN the conversation instead of "
                             "shrinking it. No messages were dropped — "
@@ -3406,7 +3413,7 @@ def compress_context(
                         pass
                     _existing_sp = getattr(agent, "_cached_system_prompt", None)
                     if not _existing_sp:
-                        _existing_sp = agent._build_system_prompt(system_message)
+                        _existing_sp = message_protocol._build_system_prompt(agent, system_message)
                     _emit_compression_attempt_telemetry(
                         agent,
                         started_at=_attempt_started_at,
@@ -3546,7 +3553,7 @@ def compress_context(
                         # behavior (no tail preservation this rotation).
                         _foreign_tail_ceiling = None
                     try:
-                        agent._flush_messages_to_session_db(
+                        session_runtime._flush_messages_to_session_db(agent,
                             messages,
                             conversation_history=persisted_history,
                         )
@@ -3827,7 +3834,7 @@ def compress_context(
                 f"accuracy may degrade. Consider /new to start fresh."
             )
             agent._compression_warning = _cc_msg
-            agent._emit_status(_cc_msg)
+            status_output._emit_status(agent, _cc_msg)
 
         # Emit session:compress event so hooks (e.g. MemPalace sync) can ingest
         # the completed old session before its details are lost. In in-place mode
@@ -3946,6 +3953,8 @@ def _compress_context_via_codex_app_server(
     runtime, ask Codex to compact its own thread and keep Hermes' transcript
     unchanged.
     """
+    import agent.message_protocol as message_protocol
+    import agent.status_output as status_output
     auto_mode = str(
         getattr(agent, "codex_app_server_auto_compaction", "native") or "native"
     ).lower()
@@ -3962,7 +3971,7 @@ def _compress_context_via_codex_app_server(
         )
         existing_prompt = getattr(agent, "_cached_system_prompt", None)
         if not existing_prompt:
-            existing_prompt = agent._build_system_prompt(system_message)
+            existing_prompt = message_protocol._build_system_prompt(agent, system_message)
         return messages, existing_prompt
 
     codex_session = getattr(agent, "_codex_session", None)
@@ -3976,7 +3985,7 @@ def _compress_context_via_codex_app_server(
         )
         existing_prompt = getattr(agent, "_cached_system_prompt", None)
         if not existing_prompt:
-            existing_prompt = agent._build_system_prompt(system_message)
+            existing_prompt = message_protocol._build_system_prompt(agent, system_message)
         return messages, existing_prompt
 
     logger.info(
@@ -3986,7 +3995,7 @@ def _compress_context_via_codex_app_server(
         f"{approx_tokens:,}" if approx_tokens else "unknown",
     )
     try:
-        agent._emit_status(COMPACTION_STATUS)
+        status_output._emit_status(agent, COMPACTION_STATUS)
     except Exception:
         pass
 
@@ -4023,14 +4032,14 @@ def _compress_context_via_codex_app_server(
 
     if getattr(result, "interrupted", False) or getattr(result, "error", None):
         try:
-            agent._emit_warning(
+            status_output._emit_warning(agent,
                 f"⚠ Codex app-server compaction failed: {result.error}"
             )
         except Exception:
             pass
         existing_prompt = getattr(agent, "_cached_system_prompt", None)
         if not existing_prompt:
-            existing_prompt = agent._build_system_prompt(system_message)
+            existing_prompt = message_protocol._build_system_prompt(agent, system_message)
         _complete_compaction_lifecycle()
         return messages, existing_prompt
 
@@ -4070,7 +4079,7 @@ def _compress_context_via_codex_app_server(
     )
     existing_prompt = getattr(agent, "_cached_system_prompt", None)
     if not existing_prompt:
-        existing_prompt = agent._build_system_prompt(system_message)
+        existing_prompt = message_protocol._build_system_prompt(agent, system_message)
     _complete_compaction_lifecycle()
     return messages, existing_prompt
 

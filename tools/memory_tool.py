@@ -147,7 +147,7 @@ def _read_failed_error(path: "Path") -> Dict[str, Any]:
 
 class MemoryStore:
     """
-    Bounded curated memory with file persistence. One instance per AIAgent.
+    Bounded curated memory with file persistence. One instance per create_agent.
 
     Maintains two parallel states:
       - _system_prompt_snapshot: frozen at load time, used for system prompt injection.
@@ -1261,7 +1261,6 @@ registry.register(
     check_fn=check_memory_requirements,
     emoji="🧠",
 )
-
 
 
 

@@ -3,7 +3,7 @@
 Delegates to the existing adapter functions in agent/bedrock_adapter.py.
 Bedrock uses its own boto3 client (not the OpenAI SDK), so the transport
 owns format conversion and normalization, while client construction and
-boto3 calls stay on AIAgent.
+boto3 calls stay on create_agent.
 """
 
 from typing import Any, Dict, List, Optional

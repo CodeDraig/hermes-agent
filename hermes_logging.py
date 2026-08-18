@@ -346,7 +346,7 @@ def setup_logging(
 def setup_verbose_logging() -> None:
     """Enable DEBUG-level console logging for ``--verbose`` / ``-v`` mode.
 
-    Called by ``AIAgent.__init__()`` when ``verbose_logging=True``.
+    Called by ``create_agent.__init__()`` when ``verbose_logging=True``.
     """
     from agent.redact import RedactingFormatter
 

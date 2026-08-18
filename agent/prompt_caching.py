@@ -7,7 +7,7 @@ breakpoint plus the last 3 messages. All markers use the same TTL (5m or 1h).
 This preserves intra-session caching while allowing new sessions to reuse the
 stable system-prompt prefix.
 
-Pure functions -- no class state, no AIAgent dependency.
+Pure functions -- no class state, no create_agent dependency.
 """
 
 import copy
@@ -122,7 +122,7 @@ def _build_marker(ttl: str) -> Dict[str, str]:
 
 # Alibaba-family providers (Qwen routes). Their context cache documents a
 # five-minute window (renewed on hit) and rejects the Anthropic 1h tier.
-# Shared with agent_runtime_helpers.anthropic_prompt_cache_policy so the
+# Shared with provider_runtime.anthropic_prompt_cache_policy so the
 # cache-policy opt-in and the TTL clamp can never desync (#84733).
 ALIBABA_FAMILY_PROVIDERS = frozenset({
     "opencode",
@@ -136,7 +136,7 @@ def is_qwen_model(model: str) -> bool:
     """True when ``model`` names a Qwen-family model (case-insensitive).
 
     Shared by the TTL clamp below and
-    ``agent_runtime_helpers.anthropic_prompt_cache_policy`` so the
+    ``provider_runtime.anthropic_prompt_cache_policy`` so the
     cache-policy opt-in and the clamp can never desync (#84733).
     """
     return "qwen" in (model or "").lower()

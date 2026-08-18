@@ -226,10 +226,10 @@ def ensure_mcp_discovery_before_agent_build(
     single_query: bool = False,
     thread_name: str = "cli-mcp-discovery",
 ) -> None:
-    """Give configured MCP tools a bounded chance to register before AIAgent.
+    """Give configured MCP tools a bounded chance to register before create_agent.
 
     Non-interactive first turns (``chat -q``, ``hermes -z``) can construct
-    ``AIAgent`` before the normal banner or tool-list paths touch
+    ``create_agent`` before the normal banner or tool-list paths touch
     ``get_tool_definitions()``.  Because the agent snapshots its tool
     registry at construction time, the first and only model turn can miss
     native ``mcp__...`` tools even when the MCP server is healthy.

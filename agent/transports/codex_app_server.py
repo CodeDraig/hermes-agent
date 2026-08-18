@@ -7,7 +7,7 @@ consume streaming `item/*` notifications until `turn/completed`.
 
 This module is the wire-level speaker only. Higher-level concerns (event
 projection into Hermes' display, approval bridging, transcript projection into
-AIAgent.messages, plugin migration) live in sibling modules.
+create_agent.messages, plugin migration) live in sibling modules.
 
 Status: optional opt-in runtime gated behind `model.openai_runtime ==
 "codex_app_server"`. Hermes' default tool dispatch is unchanged when this
@@ -62,7 +62,7 @@ class CodexAppServerClient:
       - One reader thread captures stderr for diagnostics; codex emits
         tracing logs there at RUST_LOG-controlled levels.
 
-    Intentionally NOT async. AIAgent.run_conversation() is synchronous and
+    Intentionally NOT async. create_agent.run_conversation() is synchronous and
     runs on the main thread; layering asyncio just to drive a stdio child
     creates surprising interrupt semantics. We use blocking queues with
     timeouts and rely on `turn/interrupt` for cancellation.
@@ -261,7 +261,7 @@ class CodexAppServerClient:
         """Pop the next streaming notification, or return None on timeout.
 
         timeout=0.0 means non-blocking. Use small positive timeouts inside the
-        AIAgent turn loop to interleave reads with interrupt checks."""
+        create_agent turn loop to interleave reads with interrupt checks."""
         try:
             if timeout <= 0:
                 return self._notifications.get_nowait()

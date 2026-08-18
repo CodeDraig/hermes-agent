@@ -1,7 +1,7 @@
 """Gateway session stall notification policy (#72016 item 2).
 
 Consumes the shared activity observation contract from
-``agent.session_activity`` / ``AIAgent.get_activity_summary()``
+``agent.session_activity`` / ``create_agent.get_activity_summary()``
 (#72039) as the **single progress source**. This module owns only the
 notify-once policy for "pending inbound + stale progress"; it does not
 invent a parallel progress clock from turn-start or inbound event

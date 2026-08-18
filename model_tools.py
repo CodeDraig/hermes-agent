@@ -290,7 +290,7 @@ _LEGACY_TOOLSET_MAP = {
 
 # Module-level memoization for get_tool_definitions(). Keyed on
 # (profile scope, enabled/disabled toolsets, registry generation).
-# Hot callers (gateway runner, AIAgent.__init__) invoke this on every turn
+# Hot callers (gateway runner, create_agent.__init__) invoke this on every turn
 # with quiet_mode=True; caching avoids ~7 ms of registry walking + schema
 # filtering + check_fn probing per call. Only active when quiet_mode=True
 # because quiet_mode=False has stdout side effects (tool-selection prints).

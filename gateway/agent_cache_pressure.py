@@ -1,6 +1,6 @@
-"""Memory-pressure bounds for the gateway's per-session AIAgent cache.
+"""Memory-pressure bounds for the gateway's per-session create_agent cache.
 
-The gateway caches one ``AIAgent`` per session so a long-lived conversation
+The gateway caches one ``create_agent`` per session so a long-lived conversation
 reuses its prompt prefix instead of rebuilding the system prompt every turn.
 Each cached agent also pins ``_session_messages`` — the full live transcript,
 tool outputs included, which is tens of MB on a tool-heavy session.
@@ -260,7 +260,7 @@ def transcript_persistence_caught_up(agent: Any) -> bool:
     Soft eviction drops ``_session_messages`` and rebuilds it from the
     persisted session next turn, so it is only safe once persistence has
     caught up.  ``_last_flushed_db_idx`` is advanced to ``len(messages)`` by
-    ``AIAgent._flush_messages_to_session_db`` and only on a fully successful
+    ``create_agent._flush_messages_to_session_db`` and only on a fully successful
     write — the same divergence the FTS write-corruption guard reacts to when
     it preserves live history over a lagging transcript.  Unknown shapes are
     treated as *not* caught up: a skipped eviction costs memory, a wrong one

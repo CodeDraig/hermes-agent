@@ -1,3 +1,5 @@
+import agent.interruption as interruption
+import agent.lifecycle as lifecycle
 """
 OpenAI-compatible API server platform adapter.
 
@@ -265,7 +267,7 @@ def _clean_request_string(value: Any) -> Optional[str]:
 
 
 def _request_reasoning_config(model_options: Any) -> Optional[Dict[str, Any]]:
-    """Translate browser/API model_options into AIAgent reasoning_config.
+    """Translate browser/API model_options into create_agent reasoning_config.
 
     The browser extension sends both a structured ``reasoning`` object and a
     compatibility ``reasoning_effort`` scalar.  Keep this parser permissive so
@@ -1352,7 +1354,7 @@ class APIServerAdapter(BasePlatformAdapter):
     OpenAI-compatible HTTP API server adapter.
 
     Runs an aiohttp web server that accepts OpenAI-format requests
-    and routes them through hermes-agent's AIAgent.
+    and routes them through hermes-agent's create_agent.
     """
 
     # Stateless request/response: every route (the OpenAI-spec
@@ -2495,7 +2497,7 @@ class APIServerAdapter(BasePlatformAdapter):
         confirmed_runtime_lock: bool = False,
     ) -> Any:
         """
-        Create an AIAgent instance using the gateway's runtime config.
+        Create an create_agent instance using the gateway's runtime config.
 
         Uses _resolve_runtime_agent_kwargs() to pick up model, api_key,
         base_url, etc. from config.yaml / env vars.  Toolsets are resolved
@@ -2527,7 +2529,7 @@ class APIServerAdapter(BasePlatformAdapter):
         chain, and fails closed if the locked provider's credentials cannot
         be resolved.
         """
-        from run_agent import AIAgent
+        from agent.agent_init import create_agent
         from gateway.run import (
             _checkpoint_agent_kwargs,
             _current_max_iterations,
@@ -2806,7 +2808,7 @@ class APIServerAdapter(BasePlatformAdapter):
         if request_service_tier is not _REQUEST_OPTION_MISSING:
             agent_kwargs["service_tier"] = request_service_tier
 
-        agent = AIAgent(**agent_kwargs)
+        agent = create_agent(**agent_kwargs)
         agent._hermes_api_runtime = {
             "provider": runtime_kwargs.get("provider") or getattr(agent, "provider", "") or "",
             "model": getattr(agent, "model", None) or model,
@@ -3000,7 +3002,7 @@ class APIServerAdapter(BasePlatformAdapter):
                 "tool_execution": "server",
                 "split_runtime": False,
                 "description": (
-                    "The API server creates a server-side Hermes AIAgent; "
+                    "The API server creates a server-side Hermes create_agent; "
                     "tools execute on the API-server host unless a future "
                     "explicit split-runtime mode is enabled."
                 ),
@@ -3935,6 +3937,7 @@ class APIServerAdapter(BasePlatformAdapter):
         shield_wait: bool,
     ) -> None:
         """Preserve live run control refs until the executor-backed turn actually exits."""
+        import agent.interruption as interruption
         agent = self._active_run_agents.get(run_id)
         if agent is None:
             if not task.done():
@@ -3943,7 +3946,7 @@ class APIServerAdapter(BasePlatformAdapter):
                     await task
             return
         with suppress(Exception):
-            agent.interrupt(interrupt_message)
+            interruption.interrupt(agent, interrupt_message)
         if not task.done():
             with suppress(Exception):
                 await (asyncio.shield(task) if shield_wait else task)
@@ -4359,7 +4362,7 @@ class APIServerAdapter(BasePlatformAdapter):
         """Write real streaming SSE from agent's stream_delta_callback queue.
 
         If the client disconnects mid-stream (network drop, browser tab close),
-        the agent is interrupted via ``agent.interrupt()`` so it stops making
+        the agent is interrupted via ``interruption.interrupt(agent)`` so it stops making
         LLM API calls, and the asyncio task wrapper is cancelled.
         """
         sse_headers = {
@@ -4581,7 +4584,7 @@ class APIServerAdapter(BasePlatformAdapter):
           shape as the non-streaming path for parity)
         - ``response.failed`` — terminal event on agent error
 
-        If the client disconnects mid-stream, ``agent.interrupt()`` is
+        If the client disconnects mid-stream, ``interruption.interrupt(agent)`` is
         called so the agent stops issuing upstream LLM calls, then the
         asyncio task is cancelled.  When ``store=True`` an initial
         ``in_progress`` snapshot is persisted immediately after
@@ -5431,7 +5434,7 @@ class APIServerAdapter(BasePlatformAdapter):
         if isinstance(_result_sid, str) and _result_sid:
             _effective_session_id = _result_sid
 
-        # Build output items from the current turn only.  AIAgent returns a
+        # Build output items from the current turn only.  create_agent returns a
         # full transcript in result["messages"], while older/mocked paths may
         # return only the current turn suffix.
         output_start_index = self._response_messages_turn_start_index(
@@ -6173,15 +6176,16 @@ class APIServerAdapter(BasePlatformAdapter):
         locked selection or the turn fails, and the response carries
         sanitized ``runtime`` metadata reporting actual vs requested.
 
-        If *agent_ref* is a one-element list, the AIAgent instance is stored
+        If *agent_ref* is a one-element list, the create_agent instance is stored
         at ``agent_ref[0]`` before ``run_conversation`` begins.  This allows
-        callers (e.g. the SSE writer) to call ``agent.interrupt()`` from
+        callers (e.g. the SSE writer) to call ``interruption.interrupt(agent)`` from
         another thread to stop in-progress LLM calls.
 
         If *active_run_id* is supplied, the same live agent is registered in
         ``_active_run_agents`` while the turn is running so API clients can
         call run-scoped control endpoints such as ``/v1/runs/{run_id}/steer``.
         """
+        import agent.lifecycle as lifecycle
         loop = asyncio.get_running_loop()
         # Capture before hopping to the executor — ContextVars do not follow
         # run_in_executor threads, so the profile scope must be re-entered
@@ -6232,7 +6236,7 @@ class APIServerAdapter(BasePlatformAdapter):
                     # ``agent_ref``, and only /v1/runs has a run_id, so neither
                     # is a usable hook for the rest.
                     self._shutdown_interruptible_agents[id(agent)] = agent
-                    result = agent.run_conversation(
+                    result = lifecycle.run_conversation(agent,
                         user_message=user_message,
                         conversation_history=conversation_history,
                         task_id=effective_task_id,
@@ -6495,6 +6499,7 @@ class APIServerAdapter(BasePlatformAdapter):
     @_admit_api_agent_request
     async def _handle_runs(self, request: "web.Request") -> "web.Response":
         """POST /v1/runs — start an agent run, return run_id immediately."""
+        import agent.lifecycle as lifecycle
         # Long-term memory scope header (see chat_completions for details).
         gateway_session_key, key_err = self._parse_session_key_header(request)
         if key_err is not None:
@@ -6725,7 +6730,7 @@ class APIServerAdapter(BasePlatformAdapter):
                             # ownership so stop/cancel can reap only the
                             # background processes this run created (#76115).
                             _publish_turn_process_ownership(agent, effective_task_id)
-                            r = agent.run_conversation(
+                            r = lifecycle.run_conversation(agent,
                                 user_message=user_message,
                                 conversation_history=conversation_history,
                                 task_id=effective_task_id,
@@ -7065,6 +7070,7 @@ class APIServerAdapter(BasePlatformAdapter):
 
     async def _handle_steer_run(self, request: "web.Request") -> "web.Response":
         """POST /v1/runs/{run_id}/steer — inject guidance into a running agent."""
+        import agent.interruption as interruption
         auth_err = self._check_auth(request)
         if auth_err:
             return auth_err
@@ -7101,7 +7107,7 @@ class APIServerAdapter(BasePlatformAdapter):
             )
 
         try:
-            accepted = bool(agent.steer(steer_text))
+            accepted = bool(interruption.steer(agent, steer_text))
         except Exception as exc:
             logger.exception("[api_server] steer failed for run %s", run_id)
             return web.json_response(_openai_error(_redact_api_error_text(exc), code="steer_failed"), status=500)

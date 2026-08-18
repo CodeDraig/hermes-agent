@@ -7,7 +7,7 @@ prompt budget goes (issue #34667) without parsing a saved session JSON by hand.
 
 The diagnostic builds a real inspection agent (so the numbers match what
 actually ships on the wire) but never makes a network call: it passes dummy
-credentials so ``AIAgent.__init__`` takes the direct-construction path, then
+credentials so ``create_agent.__init__`` takes the direct-construction path, then
 calls ``build_system_prompt_parts`` / inspects ``agent.tools`` offline.
 """
 
@@ -48,13 +48,13 @@ def _tool_name(tool: Any) -> str:
 
 
 def _build_inspection_agent(platform: str) -> Any:
-    """Construct an offline AIAgent for prompt inspection.
+    """Construct an offline create_agent for prompt inspection.
 
     Dummy ``api_key`` + ``base_url`` force the direct-construction path in
     ``run_agent.py`` (no provider auto-detection, no network). Toolsets and
     platform come from the caller so the breakdown matches a real session.
     """
-    from run_agent import AIAgent
+    from agent.agent_init import create_agent
     from hermes_cli.config import load_config
     from hermes_cli.tools_config import _get_platform_tools
 
@@ -69,7 +69,7 @@ def _build_inspection_agent(platform: str) -> Any:
 
     disabled_toolsets = parse_config_string_list(agent_cfg.get("disabled_toolsets")) or None
 
-    return AIAgent(
+    return create_agent(
         model=model,
         api_key="inspect-only",
         base_url="https://openrouter.ai/api/v1",

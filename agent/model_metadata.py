@@ -1,6 +1,6 @@
 """Model metadata, context lengths, and token estimation utilities.
 
-Pure utility functions with no AIAgent dependency. Used by ContextCompressor
+Pure utility functions with no create_agent dependency. Used by ContextCompressor
 and run_agent.py for pre-flight context checks.
 """
 
@@ -252,7 +252,7 @@ def _is_connect_timeout(exc: BaseException) -> bool:
 
 # ── Disk L2 for local-endpoint probe results ────────────────────────────────
 # The in-process caches above die with the process, so every CLI cold start
-# with a local model re-paid the probe waterfall in AIAgent.__init__:
+# with a local model re-paid the probe waterfall in create_agent.__init__:
 # detect_local_server_type (up to 4 HTTP GETs, ≤2 s each on a hung server)
 # + /api/show (≤3 s). A short-TTL disk cache makes back-to-back CLI
 # invocations hit disk instead of the network. Only SUCCESSFUL probes are
@@ -2043,7 +2043,7 @@ def _model_name_suggests_minimax_m3(model: str) -> bool:
 
     Catches ``MiniMax-M3``, ``minimax/minimax-m3``, and similar variants
     across surfaces. Used by the models.dev underreport guard below and the
-    cache-control gating in agent_runtime_helpers (stale persisted cache
+    cache-control gating in provider_runtime (stale persisted cache
     entries are handled generically by _stale_pre_catalog_cache_entry).
     """
     return "minimax-m3" in model.lower()

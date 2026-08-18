@@ -1,15 +1,13 @@
 """Message and tool-payload sanitization helpers.
 
-Pure functions extracted from ``run_agent.py`` so the AIAgent module can
+Pure functions extracted from ``run_agent.py`` so the create_agent module can
 stay focused on the conversation loop.  These walk OpenAI-format message
 lists and structured payloads, repairing or stripping problematic
 characters that would otherwise crash ``json.dumps`` inside the OpenAI
 SDK or be rejected by upstream APIs.
 
 All helpers are stateless and side-effect-free except for in-place
-mutation of their input (where documented).  Backward-compatible
-re-exports from ``run_agent`` remain in place so existing imports
-``from run_agent import _sanitize_surrogates`` keep working.
+mutation of their input where documented.
 """
 
 from __future__ import annotations
@@ -21,6 +19,75 @@ import re
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+TOOL_CALL_ARGUMENTS_CORRUPTION_MARKER = (
+    "[hermes-agent: tool call arguments were corrupted in this session and "
+    "have been dropped to keep the conversation alive. See issue #15236.]"
+)
+
+VALID_API_ROLES = frozenset(
+    {"system", "user", "assistant", "tool", "function", "developer"}
+)
+
+
+def get_tool_call_name(tool_call: Any) -> str:
+    """Return the function name from a dict- or object-shaped tool call."""
+    if isinstance(tool_call, dict):
+        function = tool_call.get("function")
+        if isinstance(function, dict):
+            return function.get("name", "") or ""
+        return ""
+    function = getattr(tool_call, "function", None)
+    return getattr(function, "name", "") or ""
+
+
+def is_thinking_only_assistant(
+    message: dict[str, Any], *, drop_codex_reasoning_items: bool = True
+) -> bool:
+    """Return whether an assistant message contains reasoning but no output."""
+    if not isinstance(message, dict) or message.get("role") != "assistant":
+        return False
+    if message.get("tool_calls") or message.get("_thinking_prefill"):
+        return bool(message.get("_thinking_prefill"))
+    content = message.get("content")
+    if isinstance(content, str):
+        if content.strip():
+            return False
+    elif isinstance(content, list):
+        for block in content:
+            if not isinstance(block, dict):
+                if block:
+                    return False
+                continue
+            block_type = block.get("type")
+            if block_type in {"thinking", "redacted_thinking"}:
+                continue
+            if block_type == "text":
+                text = block.get("text", "")
+                if isinstance(text, str) and text.strip():
+                    return False
+                continue
+            return False
+    elif content is not None and content != "":
+        return False
+
+    from agent.native_compaction import has_compaction_checkpoint
+
+    codex_items = message.get("codex_reasoning_items")
+    if has_compaction_checkpoint(codex_items):
+        return False
+    reasoning = message.get("reasoning_content") or message.get("reasoning")
+    if isinstance(reasoning, str) and reasoning.strip():
+        return True
+    reasoning_details = message.get("reasoning_details")
+    if isinstance(reasoning_details, list) and reasoning_details:
+        return True
+    if drop_codex_reasoning_items and isinstance(codex_items, list):
+        return any(
+            isinstance(item, dict) and item.get("type") == "reasoning"
+            for item in codex_items
+        )
+    return False
 
 # Lone surrogate code points are invalid in UTF-8 and crash json.dumps
 # inside the OpenAI SDK.  Used by every surrogate-sanitization helper
@@ -510,9 +577,9 @@ __all__ = [
 # Three forked policy sites converged here:
 #   * agent/codex_responses_adapter.py `_deterministic_call_id` — hash
 #     synthesis when a provider omits call_id (fa3ab2ffd0 → e45f2b39e2).
-#   * run_agent.AIAgent._get_tool_call_id_static — `call_id or id`
+#   * coalesce_tool_call_id — `call_id or id`
 #     coalescing for dicts and SDK objects.
-#   * run_agent.AIAgent._uniquify_tool_call_ids — duplicate-id repair with
+#   * uniquify_tool_call_ids — duplicate-id repair with
 #     deterministic `_d<n>` suffixes (#58327 loss class).
 #
 # NOT consolidated (different scheme on purpose):

@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 _DEBUG_INTERRUPT = bool(os.getenv("HERMES_DEBUG_INTERRUPT"))
 
 if _DEBUG_INTERRUPT:
-    # AIAgent's quiet_mode path forces `tools` logger to ERROR on CLI startup.
+    # create_agent's quiet_mode path forces `tools` logger to ERROR on CLI startup.
     # Force our own logger back to INFO so the trace is visible in agent.log.
     logger.setLevel(logging.INFO)
 

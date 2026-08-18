@@ -1,9 +1,9 @@
-"""Callback factories for bridging AIAgent events to ACP notifications.
+"""Callback factories for bridging create_agent events to ACP notifications.
 
-Each factory returns a callable with the signature that AIAgent expects
+Each factory returns a callable with the signature that create_agent expects
 for its callbacks. Internally, the callbacks push ACP session updates
 to the client via ``conn.session_update()`` using
-``asyncio.run_coroutine_threadsafe()`` (since AIAgent runs in a worker
+``asyncio.run_coroutine_threadsafe()`` (since create_agent runs in a worker
 thread while the event loop lives on the main thread).
 """
 
@@ -119,9 +119,9 @@ def make_tool_progress_cb(
     tool_call_meta: Dict[str, Dict[str, Any]],
     edit_approval_policy_getter: Callable[[], tuple[str, str | None]] | None = None,
 ) -> Callable:
-    """Create a ``tool_progress_callback`` for AIAgent.
+    """Create a ``tool_progress_callback`` for create_agent.
 
-    Signature expected by AIAgent::
+    Signature expected by create_agent::
 
         tool_progress_callback(event_type: str, name: str, preview: str, args: dict, **kwargs)
 
@@ -191,7 +191,7 @@ def make_thinking_cb(
     session_id: str,
     loop: asyncio.AbstractEventLoop,
 ) -> Callable:
-    """Create a ``thinking_callback`` for AIAgent."""
+    """Create a ``thinking_callback`` for create_agent."""
 
     def _thinking(text: str) -> None:
         if not text:
@@ -213,9 +213,9 @@ def make_step_cb(
     tool_call_ids: Dict[str, Deque[str]],
     tool_call_meta: Dict[str, Dict[str, Any]],
 ) -> Callable:
-    """Create a ``step_callback`` for AIAgent.
+    """Create a ``step_callback`` for create_agent.
 
-    Signature expected by AIAgent::
+    Signature expected by create_agent::
 
         step_callback(api_call_count: int, prev_tools: list)
     """

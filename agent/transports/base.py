@@ -4,7 +4,7 @@ A transport owns the data path for one api_mode:
   convert_messages → convert_tools → build_kwargs → normalize_response
 
 It does NOT own: client construction, streaming, credential refresh,
-prompt caching, interrupt handling, or retry logic.  Those stay on AIAgent.
+prompt caching, interrupt handling, or retry logic.  Those stay on create_agent.
 """
 
 from abc import ABC, abstractmethod

@@ -1,4 +1,4 @@
-"""ACP session manager — maps ACP sessions to Hermes AIAgent instances.
+"""ACP session manager — maps ACP sessions to Hermes create_agent instances.
 
 Sessions are persisted to the shared SessionDB (``~/.hermes/state.db``) so they
 survive process restarts and appear in ``session_search``.  When the editor
@@ -113,7 +113,7 @@ def _acp_stderr_print(*args, **kwargs) -> None:
     """Best-effort human-readable output sink for ACP stdio sessions.
 
     ACP reserves stdout for JSON-RPC frames, so any incidental CLI/status output
-    from AIAgent must be redirected away from stdout. Route it to stderr instead.
+    from create_agent must be redirected away from stdout. Route it to stderr instead.
     """
     kwargs = dict(kwargs)
     kwargs.setdefault("file", sys.stderr)
@@ -171,7 +171,7 @@ class SessionState:
     """Tracks per-session state for an ACP-managed Hermes agent."""
 
     session_id: str
-    agent: Any  # AIAgent instance
+    agent: Any  # create_agent instance
     cwd: str = "."
     model: str = ""
     history: List[Dict[str, Any]] = field(default_factory=list)
@@ -184,7 +184,7 @@ class SessionState:
 
 
 class SessionManager:
-    """Thread-safe manager for ACP sessions backed by Hermes AIAgent instances.
+    """Thread-safe manager for ACP sessions backed by Hermes create_agent instances.
 
     Sessions are held in-memory for fast access **and** persisted to the
     shared SessionDB so they survive process restarts and are searchable
@@ -194,8 +194,8 @@ class SessionManager:
     def __init__(self, agent_factory=None, db=None):
         """
         Args:
-            agent_factory: Optional callable that creates an AIAgent-like object.
-                           Used by tests. When omitted, a real AIAgent is created
+            agent_factory: Optional callable that creates an create_agent-like object.
+                           Used by tests. When omitted, a real create_agent is created
                            using the current Hermes runtime provider configuration.
             db:            Optional SessionDB instance. When omitted, the default
                            SessionDB (``~/.hermes/state.db``) is lazily created.
@@ -208,7 +208,7 @@ class SessionManager:
     # ---- public API ---------------------------------------------------------
 
     def create_session(self, cwd: str = ".") -> SessionState:
-        """Create a new session with a unique ID and a fresh AIAgent."""
+        """Create a new session with a unique ID and a fresh create_agent."""
         import threading
 
         cwd = _translate_acp_cwd(cwd)
@@ -507,7 +507,7 @@ class SessionManager:
             logger.warning("Failed to persist ACP session %s", state.session_id, exc_info=True)
 
     def _restore(self, session_id: str) -> Optional[SessionState]:
-        """Load a session from the database into memory, recreating the AIAgent."""
+        """Load a session from the database into memory, recreating the create_agent."""
         import threading
 
         db = self._get_db()
@@ -612,7 +612,7 @@ class SessionManager:
         if self._agent_factory is not None:
             return self._agent_factory()
 
-        from run_agent import AIAgent
+        from agent.agent_init import create_agent
         from hermes_cli.config import load_config
         from hermes_cli.runtime_provider import resolve_runtime_provider
 
@@ -684,7 +684,7 @@ class SessionManager:
         except Exception:
             logger.debug("ACP: bounded MCP discovery wait failed", exc_info=True)
 
-        agent = AIAgent(**kwargs)
+        agent = create_agent(**kwargs)
         # Codex app-server sessions are spawned lazily on the first turn. Stamp
         # the ACP workspace onto the agent so the Codex runtime starts from the
         # editor/session cwd instead of the Hermes daemon's process cwd.

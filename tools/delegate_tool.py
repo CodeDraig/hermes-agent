@@ -2,7 +2,7 @@
 """
 Delegate Tool -- Subagent Architecture
 
-Spawns child AIAgent instances with isolated context, inherited toolsets,
+Spawns child create_agent instances with isolated context, inherited toolsets,
 and their own terminal sessions. Supports single-task and batch (parallel)
 modes. Top-level model calls run in the background; orchestrator children
 wait for their own workers so they can synthesize the results.
@@ -194,7 +194,7 @@ def interrupt_subagent(subagent_id: str) -> bool:
 
     Does not hard-kill the worker thread (Python can't); sets the child's
     interrupt flag which propagates to in-flight tools and recurses into
-    grandchildren via AIAgent.interrupt().  Returns True if a matching
+    grandchildren via create_agent.interrupt().  Returns True if a matching
     subagent was found.
     """
     with _active_subagents_lock:
@@ -220,7 +220,7 @@ def steer_subagent(
     """Queue steering text into a single running subagent without stopping it.
 
     The redirection-side mirror of interrupt_subagent(): resolves the live
-    child in the registry and calls AIAgent.steer(), which appends the text
+    child in the registry and calls create_agent.steer(), which appends the text
     to the child's last tool result at its next iteration boundary — the
     current tool call is never cut. Returns True if a matching subagent
     QUEUED the text while the child was still accepting work; False for an
@@ -230,6 +230,7 @@ def steer_subagent(
     acceptance wins but no delivery boundary remains, ``_run_single_child``
     drains the exact text into the completion entry as ``missed_steer``.
     """
+    import agent.interruption as interruption
     if not text or not text.strip():
         return False
     with _active_subagents_lock:
@@ -240,7 +241,7 @@ def steer_subagent(
         if agent is None:
             return False
         try:
-            return bool(agent.steer(text))
+            return bool(interruption.steer(agent, text))
         except Exception as exc:
             logger.debug("steer_subagent(%s) failed: %s", subagent_id, exc)
             return False
@@ -1111,7 +1112,7 @@ def _blocked_toolsets_for_role(role: str) -> List[str]:
 
     ``_strip_blocked_tools`` can remove fully blocked toolsets, but it must keep
     mixed platform bundles such as ``hermes-cli`` because those also contain
-    useful tools. Passing these exact deny toolsets to AIAgent lets
+    useful tools. Passing these exact deny toolsets to create_agent lets
     ``model_tools`` subtract blocked names *after* composite expansion, and the
     restriction survives later registry/MCP refreshes through the agent's
     stored ``disabled_toolsets``.
@@ -1410,7 +1411,7 @@ def _build_child_agent(
     role: str = "leaf",
 ):
     """
-    Build a child AIAgent on the main thread (thread-safe construction).
+    Build a child create_agent on the main thread (thread-safe construction).
     Returns the constructed child agent without running it.
 
     When override_* params are set (from delegation config), the child uses
@@ -1418,7 +1419,7 @@ def _build_child_agent(
     routing subagents to a different provider:model pair (e.g. cheap/fast
     model on OpenRouter while the parent runs on Nous Portal).
     """
-    from run_agent import AIAgent
+    from agent.agent_init import create_agent
     import uuid as _uuid
 
     # ── Role resolution ─────────────────────────────────────────────────
@@ -1653,7 +1654,7 @@ def _build_child_agent(
 
     # Inherit the parent's fallback provider chain so subagents can recover
     # from rate-limits and credential exhaustion exactly like the top-level
-    # agent does.  _fallback_chain is a list accepted by AIAgent's
+    # agent does.  _fallback_chain is a list accepted by create_agent's
     # fallback_providers parameter carries the ordered list from the parent.
     #
     # EXCEPT when the user pinned delegation.provider: an explicit pin means
@@ -1745,7 +1746,7 @@ def _build_child_agent(
 
     with delegated_child_context():
         try:
-            child = AIAgent(
+            child = create_agent(
                 base_url=effective_base_url,
                 api_key=effective_api_key,
                 model=effective_model,
@@ -1898,6 +1899,7 @@ def _dump_subagent_timeout_diagnostic(
 
     Returns the absolute path to the diagnostic file, or None on failure.
     """
+    import agent.status_output as status_output
     try:
         from hermes_constants import get_hermes_home
         import datetime as _dt
@@ -1986,7 +1988,7 @@ def _dump_subagent_timeout_diagnostic(
 
         _w("## Activity summary")
         try:
-            summary = child.get_activity_summary()
+            summary = status_output.get_activity_summary(child)
             for k, v in summary.items():
                 _w(f"  {k}: {v!r}")
         except Exception as exc:
@@ -2245,6 +2247,9 @@ def _run_single_child(
     Run a pre-built child agent. Called from within a thread.
     Returns a structured result dict.
     """
+    import agent.lifecycle as lifecycle
+    import agent.provider_runtime as provider_runtime
+    import agent.status_output as status_output
     child_start = time.monotonic()
 
     # Get the progress callback from the child agent
@@ -2266,7 +2271,7 @@ def _run_single_child(
             try:
                 leased_entry = child_pool.current()
                 if leased_entry is not None and hasattr(child, "_swap_credential"):
-                    child._swap_credential(leased_entry)
+                    provider_runtime._swap_credential(child, leased_entry)
             except Exception as exc:
                 logger.debug("Failed to bind child to leased credential: %s", exc)
 
@@ -2295,7 +2300,7 @@ def _run_single_child(
             # Pull detail from the child's own activity tracker
             desc = f"delegate_task: subagent {task_index} working"
             try:
-                child_summary = child.get_activity_summary()
+                child_summary = status_output.get_activity_summary(child)
                 child_tool = child_summary.get("current_tool")
                 child_iter = child_summary.get("api_call_count", 0)
                 child_max = child_summary.get("max_iterations", 0)
@@ -2560,7 +2565,7 @@ def _run_single_child(
             from agent.delegation_context import delegated_child_context
 
             with delegated_child_context(str(getattr(child, "session_id", "") or "")):
-                return child.run_conversation(
+                return lifecycle.run_conversation(child,
                     user_message=goal,
                     task_id=child_task_id,
                     stream_callback=_relay_child_text,
@@ -2603,7 +2608,7 @@ def _run_single_child(
             diagnostic_path: Optional[str] = None
             child_api_calls = 0
             try:
-                _summary = child.get_activity_summary()
+                _summary = status_output.get_activity_summary(child)
                 child_api_calls = int(_summary.get("api_call_count", 0) or 0)
             except Exception:
                 pass
@@ -2725,7 +2730,7 @@ def _run_single_child(
                 _schema_retries = 1
                 _retry_result = None
                 try:
-                    _retry_result = child.run_conversation(
+                    _retry_result = lifecycle.run_conversation(child,
                         user_message=build_retry_message(_schema_errors),
                         task_id=child_task_id,
                         stream_callback=_relay_child_text,
@@ -2876,11 +2881,11 @@ def _run_single_child(
                 ),
             },
             "tool_trace": tool_trace,
-            # Captured before the finally block calls child.close() so the
+            # Captured before the finally block calls lifecycle.close(child) so the
             # parent thread can fire subagent_stop with the correct role.
             # Stripped before the dict is serialised back to the model.
             "_child_role": getattr(child, "_delegate_role", None),
-            # Captured before child.close() so the parent aggregator can fold
+            # Captured before lifecycle.close(child) so the parent aggregator can fold
             # the child's total spend into the parent's session cost.  Port of
             # Kilo-Org/kilocode#9448 — previously the footer only reflected the
             # parent's direct API calls and under-counted subagent-heavy runs.
@@ -3113,11 +3118,11 @@ def _run_single_child(
         # don't outlive the delegation.
         try:
             if hasattr(child, "close"):
-                child.close()
+                lifecycle.close(child)
         except Exception:
             logger.debug("Failed to close child agent after delegation")
 
-        # The AIAgent turn boundary normally closes the child scope itself. This
+        # The create_agent turn boundary normally closes the child scope itself. This
         # fallback covers failures before that boundary starts, but must not pop
         # a scope while a timed-out child worker is still unwinding.
         try:
@@ -3562,7 +3567,7 @@ def delegate_task(
     )
 
     # Capture the ORIGINATING session's wake target BEFORE any child agent is
-    # constructed: _build_child_agent() -> AIAgent() -> agent_init calls
+    # constructed: _build_child_agent() -> create_agent() -> agent_init calls
     # set_current_session_id(child.session_id), which clobbers the
     # HERMES_SESSION_ID ContextVar and os.environ with the subagent's internal
     # id before the background-dispatch code below would read it. The
@@ -3894,7 +3899,7 @@ def delegate_task(
             # during gateway turns and HERMES_SESSION_KEY is not in the CLI
             # environment, so the key resolves empty here. Since #64240 the CLI
             # drains completions through a positive-ownership filter keyed on
-            # the durable AIAgent.session_id — an empty session_key would fail
+            # the durable create_agent.session_id — an empty session_key would fail
             # closed and the CLI could never claim its own completions, while
             # a restored foreign event with an empty key could leak into any
             # unfiltered consumer (#64484). Stamp the parent's durable session

@@ -986,7 +986,7 @@ class MemoryManager:
 
         Fires on ``/resume``, ``/branch``, ``/reset``, ``/new``, and
         context compression — any path that reassigns
-        ``AIAgent.session_id`` without tearing the provider down.
+        ``create_agent.session_id`` without tearing the provider down.
 
         Providers keep running; they only need to refresh cached
         per-session state so subsequent writes land in the correct

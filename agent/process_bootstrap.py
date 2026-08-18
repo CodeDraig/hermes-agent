@@ -1,6 +1,6 @@
 """Process-level bootstrap helpers for ``run_agent``.
 
-Three concerns, all tied to ``AIAgent`` boot-time / runtime IO setup:
+Three concerns, all tied to ``create_agent`` boot-time / runtime IO setup:
 
 1. **Lazy OpenAI SDK import** — ``_load_openai_cls`` + ``_OpenAIProxy``
    defer the 240ms-ish ``from openai import OpenAI`` cost until first use,
@@ -17,7 +17,7 @@ Three concerns, all tied to ``AIAgent`` boot-time / runtime IO setup:
    ``_get_proxy_for_base_url`` respects ``NO_PROXY`` for the given base URL.
 
 ``run_agent`` re-exports every name so existing
-``from run_agent import _get_proxy_from_env`` imports keep working
+Runtime modules import these helpers from their owning module
 unchanged.
 """
 
@@ -154,7 +154,7 @@ def build_keepalive_http_client(
     ``_get_proxy_for_base_url``. Plain no-proxy mounts disable httpx's default
     ``trust_env`` proxy path, so macOS system proxy settings from
     ``urllib.request.getproxies()`` (which omit the ExceptionsList) are not
-    applied. Mirrors ``AIAgent._build_keepalive_http_client``.
+    applied. Mirrors ``create_agent._build_keepalive_http_client``.
 
     Connection lifecycle is managed at the HTTP pool layer
     (``keepalive_expiry=20.0`` reaps idle connections before reverse proxies'

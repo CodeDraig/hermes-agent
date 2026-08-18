@@ -1,6 +1,8 @@
-"""State-owned phases of AIAgent initialization."""
+"""State-owned phases of create_agent initialization."""
 
 from __future__ import annotations
+
+
 
 import logging
 import os
@@ -53,6 +55,7 @@ def initialize_agent_identity(
     log_prefix_chars,
     log_prefix,
 ):
+    import agent.provider_runtime as provider_runtime
     _install_safe_stdio()
 
     agent.model = model
@@ -94,7 +97,7 @@ def initialize_agent_identity(
     agent.log_prefix_chars = log_prefix_chars
     agent.log_prefix = f"{log_prefix} " if log_prefix else ""
     # Store effective base URL for feature detection (prompt caching, reasoning, etc.)
-    agent.base_url = base_url or ""
+    provider_runtime.set_base_url(agent, base_url or "")
     provider_name = provider.strip().lower() if isinstance(provider, str) and provider.strip() else None
     agent.provider = provider_name or ""
     agent.requested_provider = (
@@ -142,6 +145,7 @@ def initialize_execution_state(
     request_overrides,
     prefill_messages,
 ):
+    import agent.provider_runtime as provider_runtime
     agent.tool_progress_callback = tool_progress_callback
     agent.tool_start_callback = tool_start_callback
     agent.tool_complete_callback = tool_complete_callback
@@ -207,11 +211,11 @@ def initialize_execution_state(
 
     # Subagent delegation state
     agent._delegate_depth = 0        # 0 = top-level agent, incremented for children
-    agent._active_children = []      # Running child AIAgents (for interrupt propagation)
+    agent._active_children = []      # Running child agents (for interrupt propagation)
     agent._active_children_lock = threading.Lock()
 
     # Background memory/skill review state (agent/background_review.py). Holds
-    # the forked review AIAgent while its run_conversation() is in flight, so
+    # the forked review create_agent while its run_conversation() is in flight, so
     # the NEXT live turn can proactively interrupt a still-running review
     # instead of letting the two race concurrently against the same
     # session_id/credentials (observed as doubled prompt-token counts and a
@@ -249,7 +253,7 @@ def initialize_execution_state(
     # (falling back to system-and-3 when no static prefix is available). See
     # ``_anthropic_prompt_cache_policy`` for the layout-vs-transport decision.
     agent._use_prompt_caching, agent._use_native_cache_layout = (
-        agent._anthropic_prompt_cache_policy()
+        provider_runtime.anthropic_prompt_cache_policy(agent)
     )
     agent._cache_disabled = False
     # Anthropic supports "5m" (default) and "1h" cache TTL tiers. Read from
@@ -268,7 +272,7 @@ def initialize_execution_state(
     try:
         from hermes_cli.config import load_config_readonly as _load_pc_cfg
 
-        from agent.agent_runtime_helpers import cache_ttl_means_disabled
+        from agent.provider_runtime import cache_ttl_means_disabled
 
         _pc_cfg = _load_pc_cfg().get("prompt_caching", {}) or {}
         _ttl = _pc_cfg.get("cache_ttl", "5m")
@@ -333,7 +337,7 @@ def initialize_execution_state(
 
     # Centralized logging — agent.log (INFO+) and errors.log (WARNING+)
     # both live under ~/.hermes/logs/.  Idempotent, so gateway mode
-    # (which creates a new AIAgent per message) won't duplicate handlers.
+    # (which creates a new create_agent per message) won't duplicate handlers.
     from hermes_logging import setup_logging, setup_verbose_logging
     setup_logging(hermes_home=get_hermes_home())
 

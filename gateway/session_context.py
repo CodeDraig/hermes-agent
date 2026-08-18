@@ -159,7 +159,7 @@ def set_current_session_id(session_id: str) -> None:
 
     Delegated subagent children are the exception: they are constructed inside
     the parent process within ``delegated_child_context()``, and their
-    ``AIAgent.__init__`` calls this same helper. Writing a child's internal
+    ``create_agent.__init__`` calls this same helper. Writing a child's internal
     session id to ``os.environ`` (process-global) would clobber the parent's
     ``HERMES_SESSION_ID`` for the rest of the process — leaking the child id
     into parent tools and subprocesses spawned after the child was built. The
@@ -192,7 +192,7 @@ def scoped_current_session_id(session_id: str | None = None) -> Iterator[None]:
 
     With ``session_id=None`` this acts as a save/restore boundary around code
     that may call :func:`set_current_session_id` itself (notably delegated
-    ``AIAgent`` construction).  It intentionally never mutates ``os.environ``.
+    ``create_agent`` construction).  It intentionally never mutates ``os.environ``.
     """
     previous = _SESSION_ID.get()
     if session_id is not None:

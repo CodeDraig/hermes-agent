@@ -8,7 +8,7 @@ This module exposes a ContextVar that run_agent.py sets before each tool
 loop so tool handlers (e.g. skill_manage create) can check whether they
 are executing inside the background-review fork.
 
-The signal piggybacks on AIAgent._memory_write_origin, which is already
+The signal piggybacks on create_agent._memory_write_origin, which is already
 set to "background_review" for review-fork instances (see
 _spawn_background_review in run_agent.py) and defaults to "assistant_tool"
 for normal (foreground) agents.
@@ -40,7 +40,7 @@ _write_origin: contextvars.ContextVar[str] = contextvars.ContextVar(
 )
 
 # The sentinel value the background review fork uses; mirrors
-# run_agent.py's AIAgent._memory_write_origin override in
+# run_agent.py's create_agent._memory_write_origin override in
 # _spawn_background_review().
 BACKGROUND_REVIEW = "background_review"
 

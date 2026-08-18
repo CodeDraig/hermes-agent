@@ -15,6 +15,10 @@ call time (run.py fully loaded by then), avoiding an import cycle.
 
 from __future__ import annotations
 
+import agent.lifecycle as lifecycle
+import agent.status_output as status_output
+
+
 import asyncio
 import dataclasses
 import hashlib
@@ -127,7 +131,7 @@ class GatewaySlashCommandsMixin:
     async def _handle_reset_command(self, event: MessageEvent) -> Union[str, EphemeralReply]:
         """Handle /new or /reset command."""
         source = event.source
-        
+
         # Get existing session key
         session_key = self._session_key_for_source(source)
         self._invalidate_session_run_generation(session_key, reason="session_reset")
@@ -147,7 +151,7 @@ class GatewaySlashCommandsMixin:
         # Guard with getattr because test fixtures may skip __init__.
         #
         # _cleanup_agent_resources is synchronous and can block for a long time
-        # (agent.close() does subprocess teardown; shutdown_memory_provider()
+        # (lifecycle.close(agent) does subprocess teardown; shutdown_memory_provider()
         # may do network IO). This handler runs ON the event loop when a
         # Telegram/Discord/Slack confirm-button click resolves the slash-confirm
         # (see _request_slash_confirm), so an inline call wedges the whole loop
@@ -2444,7 +2448,7 @@ class GatewaySlashCommandsMixin:
             /codex-runtime on / off         — synonyms
 
         On change, the cached agent for this session is evicted so the next
-        message creates a fresh AIAgent with the new api_mode wired in
+        message creates a fresh create_agent with the new api_mode wired in
         (avoids prompt-cache invalidation mid-session)."""
         from hermes_cli import codex_runtime_switch as crs
 
@@ -2545,7 +2549,7 @@ class GatewaySlashCommandsMixin:
         source = event.source
         session_entry = await self.async_session_store.get_or_create_session(source)
         history = await self.async_session_store.load_transcript(session_entry.session_id)
-        
+
         # Find the last *real* user message. Timeline bookkeeping rows carry
         # role=user + display_kind (model_switch / async_delegation_complete /
         # auto_continue / hidden); clients never count them as user turns.
@@ -2565,10 +2569,10 @@ class GatewaySlashCommandsMixin:
                 last_user_msg = msg.get("content", "")
                 last_user_idx = i
                 break
-        
+
         if not last_user_msg:
             return t("gateway.retry.no_previous")
-        
+
         # Truncate history to before the last user message and persist only the
         # live view. After in-place compaction the pre-compaction transcript
         # lives on as active=0/compacted=1 rows under this same session id, and
@@ -2590,7 +2594,7 @@ class GatewaySlashCommandsMixin:
             raw_message=event.raw_message,
             channel_prompt=event.channel_prompt,
         )
-        
+
         # Let the normal message handler process it
         return await self._handle_message(retry_event)
 
@@ -2841,11 +2845,12 @@ class GatewaySlashCommandsMixin:
     async def _handle_refine_command(self, event: "MessageEvent") -> str:
         """Handle /refine — run the memory/skill review fork on demand.
 
-        Uses the session's cached AIAgent (idle agents live in
+        Uses the session's cached create_agent (idle agents live in
         ``_agent_cache``). The review runs in a daemon thread against a
         snapshot of the conversation; the live session and prompt cache are
         untouched. Requires the session to have at least one completed turn.
         """
+        import agent.lifecycle as lifecycle
         args = (event.get_command_args() or "").strip()
         quick_key = self._session_key_for_source(event.source) if event.source else None
         if not quick_key:
@@ -2868,7 +2873,7 @@ class GatewaySlashCommandsMixin:
 
         review_skills = "skill_manage" in getattr(agent, "valid_tool_names", set())
         try:
-            agent._spawn_background_review(
+            lifecycle._spawn_background_review(agent,
                 messages_snapshot=snapshot,
                 review_memory=True,
                 review_skills=review_skills,
@@ -3331,7 +3336,7 @@ class GatewaySlashCommandsMixin:
     async def _handle_background_command(self, event: MessageEvent) -> str:
         """Handle /background <prompt> — run a prompt in a separate background session.
 
-        Spawns a new AIAgent in a background thread with its own session.
+        Spawns a new create_agent in a background thread with its own session.
         When it completes, sends the result back to the same chat without
         modifying the active session's conversation history.
         """
@@ -4010,6 +4015,7 @@ class GatewaySlashCommandsMixin:
         "Summarize up to here" action (v2.1.139, May 2026,
         https://code.claude.com/docs/en/whats-new/2026-w20).
         """
+        import agent.lifecycle as lifecycle
         source = event.source
         session_entry = await self.async_session_store.get_or_create_session(source)
         history = await self.async_session_store.load_transcript(session_entry.session_id)
@@ -4062,7 +4068,7 @@ class GatewaySlashCommandsMixin:
             return "\n".join(lines)
 
         try:
-            from run_agent import AIAgent
+            from agent.agent_init import create_agent
             from agent.manual_compression_feedback import summarize_manual_compression
             from agent.model_metadata import estimate_request_tokens_rough
 
@@ -4121,7 +4127,7 @@ class GatewaySlashCommandsMixin:
             # kwarg) also keeps each key single-valued, avoiding a "got multiple
             # values for keyword argument" TypeError. platform is only set when
             # known: for a source without platform metadata we leave it unset so
-            # AIAgent's default (platform=None -> source "cli") applies, exactly
+            # create_agent's default (platform=None -> source "cli") applies, exactly
             # the prior behavior. _resolve_session_agent_runtime does not set
             # either key today, so in practice this just adds them.
             if platform_key is not None:
@@ -4146,7 +4152,7 @@ class GatewaySlashCommandsMixin:
                         exc_info=True,
                     )
 
-            tmp_agent = AIAgent(
+            tmp_agent = create_agent(
                 **runtime_kwargs,
                 model=model,
                 max_iterations=4,
@@ -4190,7 +4196,7 @@ class GatewaySlashCommandsMixin:
                 # read credentials unscoped and fail closed under
                 # multiplexing.
                 compressed, _ = await self._run_in_executor_with_context(
-                    lambda: tmp_agent._compress_context(
+                    lambda: lifecycle._compress_context(tmp_agent,
                         head,
                         "",
                         approx_tokens=approx_tokens,
@@ -4724,7 +4730,7 @@ class GatewaySlashCommandsMixin:
 
         # Evict any cached agent for this session so the next message
         # rebuilds with the correct session_id end-to-end — mirrors
-        # /branch and /reset. Without this, the cached AIAgent (and its
+        # /branch and /reset. Without this, the cached create_agent (and its
         # memory provider, which cached `_session_id` during initialize())
         # keeps writing into the wrong session's record. See #6672.
         self._evict_cached_agent(session_key)
@@ -5083,6 +5089,7 @@ class GatewaySlashCommandsMixin:
         so that rate limits, cost estimates, and detailed token breakdowns are
         available whenever the user asks, not only while the agent is running.
         """
+        import agent.status_output as status_output
         from gateway.run import _AGENT_PENDING_SENTINEL
         source = event.source
         session_key = self._session_key_for_source(source)
@@ -5183,7 +5190,7 @@ class GatewaySlashCommandsMixin:
             lines = []
 
             # Rate limits (when available from provider headers)
-            rl_state = agent.get_rate_limit_state()
+            rl_state = status_output.get_rate_limit_state(agent)
             if rl_state and rl_state.has_data:
                 from agent.rate_limit_tracker import format_rate_limit_compact
                 lines.append(t("gateway.usage.rate_limits", state=format_rate_limit_compact(rl_state)))

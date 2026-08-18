@@ -24,12 +24,15 @@ move-and-name refactor with no semantic change.
 
 from __future__ import annotations
 
+
+
 import logging
 import threading
 import time
 import uuid
 from dataclasses import dataclass
 from typing import Any, Dict, List, Mapping, Optional
+from tools.interrupt import set_interrupt
 
 from agent.conversation_compression import (
     IDLE_COMPACTION_STATUS_TEMPLATE,
@@ -446,7 +449,6 @@ def build_turn_context(
     summarize_user_message_for_log,
     set_session_context,
     set_current_write_origin,
-    ra,
     moa_active: bool = False,
 ) -> TurnContext:
     """Run the once-per-turn setup and return the loop's input context.
@@ -455,6 +457,10 @@ def build_turn_context(
     ``conversation_loop`` module are passed in explicitly to keep this module
     free of an import cycle with ``agent.conversation_loop``.
     """
+    import agent.lifecycle as lifecycle
+    import agent.provider_runtime as provider_runtime
+    import agent.session_runtime as session_runtime
+    import agent.status_output as status_output
     # Guard stdio against OSError from broken pipes (systemd/headless/daemon).
     install_safe_stdio()
 
@@ -480,7 +486,7 @@ def build_turn_context(
     set_current_write_origin(getattr(agent, "_memory_write_origin", "assistant_tool"))
 
     # Restore the primary runtime if the previous turn activated fallback.
-    agent._restore_primary_runtime()
+    provider_runtime.restore_primary_runtime(agent)
 
     # Tell auxiliary_client what the live main provider/model are for this turn
     # after primary restoration has settled the runtime.
@@ -564,7 +570,7 @@ def build_turn_context(
     # Tripwire: warn (with both turn ids) when this turn starts before the
     # previous turn's turn-end persist — concurrent turns on one session
     # interleave transcript writes. Cleared in _persist_session.
-    from agent.agent_runtime_helpers import note_turn_start
+    from agent.session_runtime import note_turn_start
     note_turn_start(agent, turn_id)
 
     # Reset retry counters and iteration budget at the start of each turn.
@@ -589,8 +595,8 @@ def build_turn_context(
     # Pre-turn connection health check: clean up dead TCP connections.
     if agent.api_mode != "anthropic_messages":
         try:
-            if agent._cleanup_dead_connections():
-                agent._emit_status(
+            if provider_runtime.cleanup_dead_connections(agent):
+                status_output._emit_status(agent,
                     "🔌 Detected stale connections from a previous provider "
                     "issue — cleaned up automatically. Proceeding with fresh "
                     "connection."
@@ -599,7 +605,7 @@ def build_turn_context(
             pass
     # Replay compression warning through status_callback for gateway platforms.
     if agent._compression_warning:
-        agent._replay_compression_warning()
+        status_output._replay_compression_warning(agent)
         agent._compression_warning = None  # send once
 
     # NOTE: _turns_since_memory and _iters_since_skill are NOT reset here.
@@ -650,7 +656,7 @@ def build_turn_context(
 
     # Hydrate todo store from conversation history.
     if conversation_history and not agent._todo_store.has_items():
-        agent._hydrate_todo_store(conversation_history)
+        lifecycle._hydrate_todo_store(agent, conversation_history)
 
     # Hydrate per-session nudge counters from persisted history (issue #22357).
     if conversation_history and agent._user_turn_count == 0:
@@ -726,7 +732,7 @@ def build_turn_context(
 
     if not agent.quiet_mode:
         _print_preview = summarize_user_message_for_log(user_message)
-        agent._safe_print(
+        status_output._safe_print(agent,
             f"💬 Starting conversation: '{_print_preview[:60]}"
             f"{'...' if len(_print_preview) > 60 else ''}'"
         )
@@ -751,10 +757,10 @@ def build_turn_context(
     persist_lock = getattr(agent, "_session_persist_lock", None)
     try:
         if persist_lock is None:
-            agent._ensure_db_session()
+            session_runtime._ensure_db_session(agent)
         else:
             with persist_lock:
-                agent._ensure_db_session()
+                session_runtime._ensure_db_session(agent)
     except Exception:
         logger.warning(
             "Turn-start session row creation failed for session=%s",
@@ -825,9 +831,9 @@ def build_turn_context(
                     model=agent.model,
                 )
                 if _idle_status:
-                    agent._emit_status(_idle_status)
+                    status_output._emit_status(agent, _idle_status)
                 _idle_input = messages
-                messages, active_system_prompt = agent._compress_context(
+                messages, active_system_prompt = lifecycle._compress_context(agent,
                     messages, system_message, approx_tokens=_idle_tokens,
                     task_id=effective_task_id,
                 )
@@ -990,7 +996,7 @@ def build_turn_context(
                 model=agent.model,
             )
             if _preflight_status:
-                agent._emit_status(_preflight_status)
+                status_output._emit_status(agent, _preflight_status)
             # Preflight passes honor the same configured per-turn cap
             # (compression.max_attempts) as the loop's compression sites;
             # default 3 preserves the prior hardcoded behavior.
@@ -1001,7 +1007,7 @@ def build_turn_context(
                 _orig_len = len(messages)
                 _orig_tokens = _preflight_tokens
                 _preflight_input = messages
-                messages, active_system_prompt = agent._compress_context(
+                messages, active_system_prompt = lifecycle._compress_context(agent,
                     messages, system_message, approx_tokens=_preflight_tokens,
                     task_id=effective_task_id,
                 )
@@ -1067,7 +1073,7 @@ def build_turn_context(
             # answering — the conversation hits the hard provider token limit
             # with no explanation. Surface a deduped warning so the user can
             # take action (/new or /compress) instead of hitting a silent hang.
-            agent._warn_context_overflow_blocked(
+            status_output._warn_context_overflow_blocked(agent,
                 _compress_block_reason,
                 _preflight_tokens,
                 _compressor.threshold_tokens,
@@ -1134,7 +1140,7 @@ def build_turn_context(
                     f"{getattr(_compressor, 'threshold_tokens', 0):,}",
                 )
                 _engine_input = messages
-                messages, active_system_prompt = agent._compress_context(
+                messages, active_system_prompt = lifecycle._compress_context(agent,
                     messages, system_message, approx_tokens=_preflight_tokens,
                     task_id=effective_task_id,
                 )
@@ -1256,9 +1262,9 @@ def build_turn_context(
     agent._execution_thread_id = threading.current_thread().ident
 
     # Clear stale per-thread interrupt state, preserving a pending interrupt.
-    ra()._set_interrupt(False, agent._execution_thread_id)
+    set_interrupt(False, agent._execution_thread_id)
     if agent._interrupt_requested:
-        ra()._set_interrupt(True, agent._execution_thread_id)
+        set_interrupt(True, agent._execution_thread_id)
         agent._interrupt_thread_signal_pending = False
     else:
         agent._interrupt_message = None
@@ -1292,7 +1298,7 @@ def build_turn_context(
             try:
                 _recall_indicator = agent._memory_manager.describe_recall()
                 if _recall_indicator:
-                    agent._emit_status(_recall_indicator)
+                    status_output._emit_status(agent, _recall_indicator)
             except Exception:
                 pass
 
@@ -1360,8 +1366,8 @@ def build_turn_context(
     # critical section as CLI close persistence, and retry the row create if
     # the pre-compression attempt above failed transiently.
     def _ensure_and_persist() -> None:
-        agent._ensure_db_session()
-        agent._persist_session(messages, conversation_history)
+        session_runtime._ensure_db_session(agent)
+        session_runtime._persist_session(agent, messages, conversation_history)
 
     try:
         if persist_lock is None:

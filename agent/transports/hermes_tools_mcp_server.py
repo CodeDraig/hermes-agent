@@ -31,7 +31,7 @@ What we DO NOT expose:
   - clarify                              — codex's own UX
   - delegate_task / memory /             — `_AGENT_LOOP_TOOLS` in Hermes
     session_search / todo                  (model_tools.py). They require
-                                           the running AIAgent context to
+                                           the running create_agent context to
                                            dispatch (mid-loop state), so a
                                            stateless MCP callback can't
                                            drive them. See the inline
@@ -106,7 +106,7 @@ def _signature_from_schema(schema: dict | None) -> tuple[inspect.Signature, dict
 #     codex's own UI.
 #   - delegate_task / memory / session_search / todo — these are
 #     `_AGENT_LOOP_TOOLS` in Hermes (model_tools.py:493). They require
-#     the running AIAgent context to dispatch (mid-loop state), so a
+#     the running create_agent context to dispatch (mid-loop state), so a
 #     stateless MCP callback can't drive them. Hermes' default runtime
 #     keeps these working; the codex_app_server runtime cannot.
 EXPOSED_TOOLS: tuple[str, ...] = (

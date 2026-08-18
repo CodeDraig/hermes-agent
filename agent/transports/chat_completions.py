@@ -303,7 +303,7 @@ class ChatCompletionsTransport(ProviderTransport):
                 # (e.g. onerouter / Qwen, DeepSeek v4) rejects an assistant
                 # message carrying ``tool_calls: []`` (empty array) with
                 # HTTP 400 "Empty tool_calls is not supported in message."
-                # The pre-API sanitizer in agent_runtime_helpers drops these,
+                # The pre-API sanitizer in message_protocol drops these,
                 # but only on the conversation_loop path — other routes can
                 # reach the wire without it. For every request that
                 # serializes through this transport (conversation loop and

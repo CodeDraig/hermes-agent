@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import agent.interruption as interruption
+import agent.lifecycle as lifecycle
+
+
 import asyncio
 from datetime import datetime, timezone
 import base64
@@ -195,7 +199,7 @@ try:
 except Exception:
     HERMES_VERSION = "0.0.0"
 
-# Thread pool for running AIAgent (synchronous) in parallel.
+# Thread pool for running create_agent (synchronous) in parallel.
 _executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="acp-agent")
 
 # Server-side page size for list_sessions. The ACP ListSessionsRequest schema
@@ -564,7 +568,7 @@ def _content_blocks_to_openai_user_content(
 
 
 class HermesACPAgent(acp.Agent):
-    """ACP Agent implementation wrapping Hermes AIAgent."""
+    """ACP Agent implementation wrapping Hermes create_agent."""
 
     _SLASH_COMMANDS = {
         "help": "Show available commands",
@@ -1086,7 +1090,7 @@ class HermesACPAgent(acp.Agent):
 
                 # Session may have been closed while we waited.  In-memory-only
                 # lookup on purpose: ``get_session()`` falls through to a DB
-                # restore that builds a whole new AIAgent as a side effect just
+                # restore that builds a whole new create_agent as a side effect just
                 # to decide "no-op" here (the TUI equivalent also checks its
                 # in-memory dict only).
                 with self.session_manager._lock:
@@ -1638,6 +1642,8 @@ class HermesACPAgent(acp.Agent):
         **kwargs: Any,
     ) -> PromptResponse:
         """Run Hermes on the user's prompt and stream events back to the editor."""
+        import agent.interruption as interruption
+        import agent.lifecycle as lifecycle
         state = self.session_manager.get_session(session_id)
         if state is None:
             logger.error("prompt: session %s not found", session_id)
@@ -1737,7 +1743,7 @@ class HermesACPAgent(acp.Agent):
                     and hasattr(state.agent, "redirect")
                 ):
                     try:
-                        redirected = bool(state.agent.redirect(user_content))
+                        redirected = bool(interruption.redirect(state.agent, user_content))
                     except Exception:
                         logger.debug(
                             "ACP active-turn redirect failed for %s",
@@ -1916,7 +1922,7 @@ class HermesACPAgent(acp.Agent):
 
             agent._on_session_title = _notify_title_update
             try:
-                result = agent.run_conversation(
+                result = lifecycle.run_conversation(agent,
                     user_message=user_content,
                     conversation_history=state.history,
                     task_id=session_id,
@@ -2324,6 +2330,7 @@ class HermesACPAgent(acp.Agent):
         return "Conversation history cleared."
 
     def _cmd_compress(self, args: str, state: SessionState) -> str:
+        import agent.lifecycle as lifecycle
         if not state.history:
             return "Nothing to compress — conversation is empty."
         try:
@@ -2350,7 +2357,7 @@ class HermesACPAgent(acp.Agent):
                 # ACP sessions must keep a stable session id, so avoid the
                 # SQLite session-splitting side effect inside _compress_context.
                 agent._session_db = None
-                compressed, _ = agent._compress_context(
+                compressed, _ = lifecycle._compress_context(agent,
                     state.history,
                     getattr(agent, "_cached_system_prompt", "") or "",
                     approx_tokens=approx_tokens,
@@ -2379,13 +2386,14 @@ class HermesACPAgent(acp.Agent):
             return f"Compression failed: {e}"
 
     def _cmd_steer(self, args: str, state: SessionState) -> str:
+        import agent.interruption as interruption
         steer_text = args.strip()
         if not steer_text:
             return "Usage: /steer <guidance>"
 
         if state.is_running and hasattr(state.agent, "steer"):
             try:
-                if state.agent.steer(steer_text):
+                if interruption.steer(state.agent, steer_text):
                     preview = steer_text[:80] + ("..." if len(steer_text) > 80 else "")
                     return f"⏩ Steer queued for the active turn: {preview}"
             except Exception as exc:

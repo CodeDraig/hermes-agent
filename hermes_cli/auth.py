@@ -843,7 +843,7 @@ def _resolve_zai_base_url(api_key: str, default_url: str, env_override: str) -> 
     # empty Bearer token, all returning 401).  This path is hit during
     # auxiliary-client auto-detection when the user has no Z.AI credentials
     # at all — the caller discards the result immediately, so the probe is
-    # pure latency for every AIAgent construction.
+    # pure latency for every create_agent construction.
     if not api_key:
         return default_url
 

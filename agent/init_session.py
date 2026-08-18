@@ -1,4 +1,4 @@
-"""Session-owned phase of AIAgent initialization."""
+"""Session-owned phase of create_agent initialization."""
 
 from __future__ import annotations
 
@@ -6,12 +6,25 @@ import logging
 import os
 import threading
 import uuid
+import hashlib
+import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from hermes_constants import get_hermes_home
 
 logger = logging.getLogger("run_agent")
+
+
+def safe_session_filename_component(session_id: str) -> str:
+    """Return a stable, traversal-free filename component for a session ID."""
+    raw = str(session_id or "").strip()
+    sanitized = re.sub(r"[^\w-]", "_", raw).strip("._")
+    sanitized = sanitized[:96] or "session"
+    if raw and sanitized == raw:
+        return sanitized
+    digest = hashlib.sha256(raw.encode("utf-8", errors="surrogatepass")).hexdigest()[:12]
+    return f"{sanitized}_{digest}"
 
 
 def initialize_session(
@@ -75,7 +88,7 @@ def initialize_session(
     except Exception:
         pass
     # logs_dir is retained unconditionally for request_dump_*.json (debug
-    # breadcrumb path written by agent_runtime_helpers.dump_api_request_debug).
+    # breadcrumb path written by error_reporting.dump_api_request_debug).
 
     # Track conversation messages for session logging
     agent._session_messages: List[Dict[str, Any]] = []

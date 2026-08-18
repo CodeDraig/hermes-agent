@@ -49,7 +49,7 @@ DEFAULT_CONFIG = {
         # rejected with a resend notice rather than run without serialization.
         # Non-positive values fall back to 1800 seconds.
         "gateway_turn_lease_timeout": 1800,
-        # Per-session AIAgent cache in the gateway. Each cached agent keeps a
+        # Per-session create_agent cache in the gateway. Each cached agent keeps a
         # warm prompt prefix AND the session's full transcript, so the cache
         # trades memory for cost: too small and every turn re-pays an uncached
         # prompt, too large and tool-heavy transcripts fill the heap.
@@ -249,12 +249,12 @@ DEFAULT_CONFIG = {
         # bot is dead and /restart.
         "gateway_notify_interval": 180,
         # Session stall watchdog (seconds). Scope (#76354): this is a
-        # RECOVERY notifier for an in-process AIAgent that has an
+        # RECOVERY notifier for an in-process create_agent that has an
         # adapter-queued follow-up (pending inbound / queued event) while its
         # activity clock is stale — NOT a general gateway/session stall
         # detector. It does not observe startup restoration, build sentinels,
         # turn leases, debounce state, or work owned by another process; the
-        # scan cadence is per AIAgent instance, not globally coordinated per
+        # scan cadence is per create_agent instance, not globally coordinated per
         # durable session. Notify-only: warns the user to try /new. Distinct
         # from gateway_timeout (which kills the turn) and
         # gateway_notify_interval ("still working" heartbeats). 0 = disable.

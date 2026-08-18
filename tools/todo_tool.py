@@ -4,7 +4,7 @@ Todo Tool Module - Planning & Task Management
 
 Provides an in-memory task list the agent uses to decompose complex tasks,
 track progress, and maintain focus across long conversations. The state
-lives on the AIAgent instance (one per session) and is re-injected into
+lives on the create_agent instance (one per session) and is re-injected into
 the conversation after context compression events.
 
 Design:
@@ -33,7 +33,7 @@ MAX_TODO_ITEMS = 256
 # Upper bound on a single todo tool-result payload accepted during history
 # hydration. The gateway/API server replays caller-supplied conversation
 # history to rebuild the store, so an oversized forged result is dropped
-# before it is parsed and re-injected (see AIAgent._hydrate_todo_store).
+# before it is parsed and re-injected (see create_agent._hydrate_todo_store).
 MAX_TODO_RESULT_CHARS = 512_000
 _TRUNCATION_MARKER = "… [truncated]"
 # Persisted as ordinary message content. ContextCompressor uses this stable
@@ -45,7 +45,7 @@ TODO_INJECTION_HEADER = (
 
 class TodoStore:
     """
-    In-memory todo list. One instance per AIAgent (one per session).
+    In-memory todo list. One instance per create_agent (one per session).
 
     Items are ordered -- list position is priority. Each item has:
       - id: unique string identifier (agent-chosen)
@@ -239,7 +239,7 @@ def todo_tool(
     Args:
         todos: if provided, write these items. If None, read current list.
         merge: if True, update by id. If False (default), replace entire list.
-        store: the TodoStore instance from the AIAgent.
+        store: the TodoStore instance from the create_agent.
 
     Returns:
         JSON string with the full current list and summary metadata.

@@ -107,7 +107,7 @@ def conversation_tag(session_id: str) -> str:
     """Return the ``conversation=...`` tag for a Hermes session/conversation.
 
     Format: ``conversation=<session_id>``. ``session_id`` is the canonical
-    Hermes conversation identifier (``AIAgent.session_id``) — the same value
+    Hermes conversation identifier (``create_agent.session_id``) — the same value
     used for ``~/.hermes/sessions/`` storage, session logs, and lineage.
 
     Unlike the product/client tags this is high-cardinality (one value per

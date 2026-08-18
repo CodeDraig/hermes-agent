@@ -1,10 +1,10 @@
 """Best-effort accessors for the single-writer stream fence (#65991).
 
-The fence itself lives on ``AIAgent`` (``_claim_stream_writer`` /
+The fence itself lives on ``create_agent`` (``_claim_stream_writer`` /
 ``_stream_writer_is_current`` in ``run_agent.py``), but the streaming code paths
 that use it live in *other* modules — ``chat_completion_helpers`` (chat /
 anthropic / bedrock) and ``codex_runtime`` (codex responses). Calling the fence
-directly as ``agent._claim_stream_writer()`` from those modules makes them
+directly as ``stream_runtime._claim_stream_writer(agent)`` from those modules makes them
 hard-depend on the method being present on whatever object is passed in as
 ``agent``.
 
@@ -12,7 +12,7 @@ That coupling is a latent crash: a partially-updated checkout (the streaming
 helper module newer than ``run_agent``), a hot-reloaded gateway, a duck-typed
 agent, or a test double without the method turns an *additive* safety net into a
 fatal ``AttributeError`` that aborts the whole turn. A cron job died exactly
-this way with ``'AIAgent' object has no attribute '_claim_stream_writer'``.
+this way with ``'create_agent' object has no attribute '_claim_stream_writer'``.
 
 The fence is only ever allowed to drop a *provably* superseded stream — never
 the sole legitimate writer. So when the guard is unavailable (or raises), the
@@ -21,6 +21,8 @@ claim/check best-effort to guarantee that.
 """
 
 from __future__ import annotations
+
+
 
 import logging
 from typing import Any

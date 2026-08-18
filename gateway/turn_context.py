@@ -104,7 +104,7 @@ class TurnContext:
     needs_progress_queue: bool = False
 
     # --- lazy-imported callables captured from the outer body -------------
-    AIAgent: Any = None
+    create_agent: Any = None
     resolve_display_setting: Any = None
 
     # --- mutable holder cells (shared-list pattern; outer body + the

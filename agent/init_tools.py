@@ -1,4 +1,4 @@
-"""Tool-owned phase of AIAgent initialization."""
+"""Tool-owned phase of create_agent initialization."""
 
 from __future__ import annotations
 
