@@ -337,7 +337,7 @@ def test_review_requested_event_is_claimable_for_wake(kanban_home: Path) -> None
         kb.add_notify_sub(
             conn,
             task_id=tid,
-            platform="slack",
+            platform="mattermost",
             chat_id="C123",
             thread_id="T1",
         )
@@ -355,7 +355,7 @@ def test_review_requested_event_is_claimable_for_wake(kanban_home: Path) -> None
         _old, _new, events = kb.claim_unseen_events_for_sub(
             conn,
             task_id=tid,
-            platform="slack",
+            platform="mattermost",
             chat_id="C123",
             thread_id="T1",
             kinds=terminal_kinds,

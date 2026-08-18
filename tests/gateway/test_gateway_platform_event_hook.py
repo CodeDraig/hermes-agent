@@ -56,7 +56,7 @@ def _ensure_telegram_mock() -> None:
 
 _ensure_telegram_mock()
 
-from plugins.platforms.telegram.adapter import TelegramAdapter  # noqa: E402
+from gateway.platforms.telegram.adapter import TelegramAdapter  # noqa: E402
 from gateway.run import GatewayRunner  # noqa: E402
 from gateway.profile_routing import ProfileRoute  # noqa: E402
 from hermes_cli.plugins import (  # noqa: E402
@@ -730,14 +730,14 @@ class TestRegisterHandlers:
         builder.get_updates_request.return_value = builder
         builder.build.side_effect = [first_app, rebuilt_app]
         monkeypatch.setattr(
-            "plugins.platforms.telegram.adapter.Application",
+            "gateway.platforms.telegram.adapter.Application",
             SimpleNamespace(builder=MagicMock(return_value=builder)),
         )
         monkeypatch.setattr(
-            "plugins.platforms.telegram.adapter.HTTPXRequest", lambda **kwargs: MagicMock(),
+            "gateway.platforms.telegram.adapter.HTTPXRequest", lambda **kwargs: MagicMock(),
         )
         monkeypatch.setattr(
-            "plugins.platforms.telegram.adapter.discover_fallback_ips",
+            "gateway.platforms.telegram.adapter.discover_fallback_ips",
             lambda: _async_value([]),
         )
         monkeypatch.setattr("asyncio.sleep", MagicMock(return_value=_async_value(None)))

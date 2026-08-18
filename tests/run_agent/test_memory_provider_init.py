@@ -114,7 +114,7 @@ def test_aiagent_forwards_user_id_alt_to_memory_provider():
             skip_context_files=True,
             skip_memory=False,
             session_id="sess-alt",
-            platform="feishu",
+            platform="mattermost",
             user_id="open-id",
             user_id_alt="union-id",
         )
@@ -123,7 +123,7 @@ def test_aiagent_forwards_user_id_alt_to_memory_provider():
     assert provider.init_session_id == "sess-alt"
     assert provider.init_kwargs["user_id"] == "open-id"
     assert provider.init_kwargs["user_id_alt"] == "union-id"
-    assert provider.init_kwargs["platform"] == "feishu"
+    assert provider.init_kwargs["platform"] == "mattermost"
     assert "warning_callback" not in provider.init_kwargs
     assert "status_callback" not in provider.init_kwargs
 

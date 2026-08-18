@@ -50,9 +50,7 @@ class TestExplicitAllowlist:
         "SUDO_PASSWORD",
         "GITHUB_TOKEN",
         "TELEGRAM_BOT_TOKEN",
-        "DISCORD_BOT_TOKEN",
-        "SLACK_BOT_TOKEN",
-        "SLACK_APP_TOKEN",
+        "MATTERMOST_TOKEN",
     ])
     def test_explicit_key_routes_to_env(self, key, _isolated_hermes_home):
         set_config_value(key, "test-value-123")
@@ -74,7 +72,7 @@ class TestCatchAllPatterns:
         "ELEVENLABS_API_KEY",
         "SOME_FUTURE_SERVICE_API_KEY",
         "MY_CUSTOM_TOKEN",
-        "WHATSAPP_BOT_TOKEN",
+        "SOME_FUTURE_SERVICE_TOKEN",
         "CLIENT_SECRET",
     ])
     def test_api_key_suffix_routes_to_env(self, key, _isolated_hermes_home):
@@ -182,20 +180,20 @@ class TestConfigGetUnset:
     def test_config_unset_removes_dotted_token_yaml_key(self, _isolated_hermes_home, capsys):
         (_isolated_hermes_home / "config.yaml").write_text(
             "platforms:\n"
-            "  teams:\n"
+            "  mattermost:\n"
             "    extra:\n"
             "      access_token: yaml-token\n"
             "      tenant_id: tenant\n"
         )
 
-        args = argparse.Namespace(config_command="unset", key="platforms.teams.extra.access_token")
+        args = argparse.Namespace(config_command="unset", key="platforms.mattermost.extra.access_token")
         config_command(args)
 
         import yaml
         reloaded = yaml.safe_load(_read_config(_isolated_hermes_home))
-        assert "access_token" not in reloaded["platforms"]["teams"]["extra"]
-        assert reloaded["platforms"]["teams"]["extra"]["tenant_id"] == "tenant"
-        assert "Unset platforms.teams.extra.access_token" in capsys.readouterr().out
+        assert "access_token" not in reloaded["platforms"]["mattermost"]["extra"]
+        assert reloaded["platforms"]["mattermost"]["extra"]["tenant_id"] == "tenant"
+        assert "Unset platforms.mattermost.extra.access_token" in capsys.readouterr().out
 
 
 # ---------------------------------------------------------------------------
@@ -505,12 +503,12 @@ class TestValidateConfigKey:
         "model",
         "terminal.backend",
         "agent.max_turns",
-        "discord.gateway_restart_notification",
+        "mattermost.gateway_restart_notification",
         "telegram.bot_token",
         "mcp_servers.foo.command",
         "providers.openrouter.api_key",
         "gateway.strict",
-        "platforms.discord.enabled",
+        "platforms.mattermost.enabled",
         "gateway.platforms.my_platform.extra.token",
         "approvals.mode",
     ])
@@ -520,8 +518,8 @@ class TestValidateConfigKey:
         assert is_known, f"Expected {key!r} to validate as known"
 
     @pytest.mark.parametrize("key,expected_in_suggestion", [
-        ("gateway.discord.gateway_restart_notification", None),  # no close suggestion
-        ("disco", "discord"),
+        ("gateway.mattermost.gateway_restart_notification", None),  # no close suggestion
+        ("mattermos", "mattermost"),
         ("agent.max_turn", "agent.max_turns"),
     ])
     def test_unknown_keys_with_suggestion(self, key, expected_in_suggestion):

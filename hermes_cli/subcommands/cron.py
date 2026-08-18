@@ -36,7 +36,7 @@ def build_cron_parser(subparsers, *, cmd_cron: Callable) -> None:
     cron_create.add_argument("--name", help="Optional human-friendly job name")
     cron_create.add_argument(
         "--deliver",
-        help="Delivery target: origin, local, telegram, discord, signal, or platform:chat_id",
+        help="Delivery target: origin, local, telegram, mattermost, or platform:chat_id",
     )
     cron_create.add_argument("--repeat", type=int, help="Optional repeat count")
     cron_create.add_argument(

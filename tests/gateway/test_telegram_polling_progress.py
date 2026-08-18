@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from gateway.config import PlatformConfig
-from plugins.platforms.telegram import adapter as tg_adapter
-from plugins.platforms.telegram.adapter import TelegramAdapter
+from gateway.platforms.telegram import adapter as tg_adapter
+from gateway.platforms.telegram.adapter import TelegramAdapter
 
 
 class _ControlledRequest:

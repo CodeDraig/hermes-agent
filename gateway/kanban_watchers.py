@@ -126,7 +126,7 @@ def _release_singleton_lock(handle) -> None:
 
 
 def _wake_scope_id(adapter: Any, sub: dict) -> Optional[str]:
-    """Return the tenant scope (Slack workspace) a subscription's wake keys to.
+    """Return the Mattermost team scope a subscription's wake keys to.
 
     ``build_session_key()`` includes ``SessionSource.scope_id`` on platforms
     where one bot serves several isolated tenants, so a wake source must carry
@@ -141,7 +141,7 @@ def _wake_scope_id(adapter: Any, sub: dict) -> Optional[str]:
     """
     delivery_meta = sub.get("delivery_metadata")
     if isinstance(delivery_meta, dict):
-        for key in ("scope_id", "slack_team_id", "team_id"):
+        for key in ("scope_id", "team_id"):
             value = delivery_meta.get(key)
             if value:
                 return str(value)

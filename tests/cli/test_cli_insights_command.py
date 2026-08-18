@@ -38,11 +38,11 @@ def test_cli_insights_accepts_positional_days(capsys):
 
 
 def test_cli_insights_keeps_days_flag_and_source(capsys):
-    calls, db = _run_show_insights("/insights --days 14 --source discord")
+    calls, db = _run_show_insights("/insights --days 14 --source mattermost")
 
-    assert calls == [{"days": 14, "source": "discord"}]
+    assert calls == [{"days": 14, "source": "mattermost"}]
     db.close.assert_called_once()
-    assert "days=14 source=discord" in capsys.readouterr().out
+    assert "days=14 source=mattermost" in capsys.readouterr().out
 
 
 def test_subcommand_insights_closes_database_when_generation_fails(capsys):

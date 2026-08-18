@@ -8,8 +8,8 @@ from telegram.error import Conflict, TelegramError
 from telegram.request import BaseRequest
 
 from gateway.config import PlatformConfig
-from plugins.platforms.telegram import adapter as tg_adapter
-from plugins.platforms.telegram.adapter import TelegramAdapter
+from gateway.platforms.telegram import adapter as tg_adapter
+from gateway.platforms.telegram.adapter import TelegramAdapter
 
 
 class _GeneralRequest(BaseRequest):

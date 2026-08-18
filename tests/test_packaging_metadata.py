@@ -150,8 +150,8 @@ def test_locked_starlette_is_not_vulnerable_to_cve_2026_48710():
 # the extras — see the comments on LAZY_DEPS: "match the corresponding extra
 # in pyproject.toml ... update both this map AND the corresponding extra").
 #
-# They have silently drifted more than once: the aiohttp Slack pin (3.13.3 in
-# the extras vs 3.13.4 in lazy_deps) and the anthropic pin (0.86.0 vs 0.87.0).
+# They have silently drifted more than once, including aiohttp and anthropic
+# pins maintained in multiple install paths.
 # The version a user ends up with then depends on whether the backend was
 # installed eagerly (extra) or lazily (lazy_deps) — and for a CVE bump applied
 # to only one side, that divergence is a latent security regression. These two
@@ -227,8 +227,8 @@ def _lazy_deps_pinned_specs():
 def test_pyproject_pins_are_internally_consistent():
     """No package may be exact-pinned to two different versions in pyproject.
 
-    A package legitimately appearing in several extras (e.g. aiohttp in
-    messaging/slack/homeassistant/sms) must use the SAME version everywhere.
+    A package legitimately appearing in several extras must use the SAME
+    version everywhere.
     """
     pins = _pins_from_specs(_pyproject_pinned_specs())
     conflicts = {name: sorted(v) for name, v in pins.items() if len(v) > 1}
@@ -313,27 +313,12 @@ def _lazy_deps_by_feature():
 # Security-critical packages whose patched floor must be enforced on EVERY
 # install path, eager and lazy. test_pyproject_and_lazy_deps_pins_agree only
 # fires when a package is pinned in BOTH sources, so it cannot catch a lazy
-# feature that omits the pin entirely — the exact gap that left platform.slack
-# carrying aiohttp==3.14.0 while platform.discord (whose discord.py dep pulls
-# aiohttp transitively as its HTTP backbone) shipped without it, so the lazy
-# Discord path could keep an already-installed vulnerable aiohttp. A fully
+# feature that omits the pin entirely. A fully
 # general "no mirrored feature drops a pin" check is impossible statically
 # (it can't see transitive deps), so this is the explicit coverage contract:
 # each security package -> the lazy features that bundle an SDK pulling it and
 # must therefore carry the same pin as the pyproject extra.
-_REQUIRED_SECURITY_PINS = {
-    # Every lazy messaging feature whose SDK pulls aiohttp transitively must
-    # carry the patched floor directly: discord.py (aiohttp<4), slack-bolt,
-    # mautrix/aiohttp-socks (aiohttp<4 / >=3.10), and microsoft-teams-apps —
-    # none of those upper/lower bounds excludes a vulnerable already-installed
-    # aiohttp, so the lazy path would not upgrade it without an explicit pin.
-    "aiohttp": {
-        "platform.discord",
-        "platform.slack",
-        "platform.matrix",
-        "platform.teams",
-    },
-}
+_REQUIRED_SECURITY_PINS: dict[str, set[str]] = {}
 
 
 def test_security_pins_present_in_mirrored_lazy_features():

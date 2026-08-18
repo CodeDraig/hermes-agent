@@ -88,7 +88,7 @@ class TestMattermostConfigLoading:
 
 def _make_adapter():
     """Create a MattermostAdapter with mocked config."""
-    from plugins.platforms.mattermost.adapter import MattermostAdapter
+    from gateway.platforms.mattermost import MattermostAdapter
     config = PlatformConfig(
         enabled=True,
         token="test-token",
@@ -281,7 +281,7 @@ class TestMattermostWebSocketParsing:
             "id": "post_abc",
             "user_id": "user_123",
             "channel_id": "chan_456",
-            "message": "@bot_user_id Hello from Matrix!",
+            "message": "@bot_user_id Hello from Mattermost!",
         }
         event = {
             "event": "posted",
@@ -289,6 +289,7 @@ class TestMattermostWebSocketParsing:
                 "post": json.dumps(post_data),  # double-encoded JSON string
                 "channel_type": "O",
                 "sender_name": "@alice",
+                "team_id": "team_789",
             },
         }
 
@@ -296,8 +297,9 @@ class TestMattermostWebSocketParsing:
         assert self.adapter.handle_message.called
         msg_event = self.adapter.handle_message.call_args[0][0]
         # @mention is stripped from the message text
-        assert msg_event.text == "Hello from Matrix!"
+        assert msg_event.text == "Hello from Mattermost!"
         assert msg_event.message_id == "post_abc"
+        assert msg_event.source.scope_id == "team_789"
 
 
     @pytest.mark.asyncio
@@ -493,14 +495,14 @@ class TestMattermostRequirements:
     def test_check_requirements_with_token_and_url(self, monkeypatch):
         monkeypatch.setenv("MATTERMOST_TOKEN", "test-token")
         monkeypatch.setenv("MATTERMOST_URL", "https://mm.example.com")
-        from plugins.platforms.mattermost.adapter import check_mattermost_requirements
+        from gateway.platforms.mattermost import check_mattermost_requirements
         assert check_mattermost_requirements() is True
 
 
     def test_validate_config_accepts_platform_values(self, monkeypatch):
         monkeypatch.delenv("MATTERMOST_TOKEN", raising=False)
         monkeypatch.delenv("MATTERMOST_URL", raising=False)
-        from plugins.platforms.mattermost.adapter import validate_mattermost_config
+        from gateway.platforms.mattermost import validate_mattermost_config
 
         config = PlatformConfig(
             enabled=True,
@@ -592,5 +594,4 @@ async def test_mattermost_top_level_channel_post_is_thread_root():
     assert msg_event.source.thread_id == "top_post_123"
     assert msg_event.source.message_id == "top_post_123"
     assert msg_event.message_id == "top_post_123"
-
 

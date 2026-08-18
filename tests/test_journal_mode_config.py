@@ -142,7 +142,6 @@ def test_real_db_openers_honor_configured_delete(monkeypatch, tmp_path):
     from hermes_cli import kanban_db, projects_db
     from hermes_state import SessionDB
     from plugins.memory.holographic.store import MemoryStore
-    from plugins.platforms.discord.recovery import DiscordRecoveryStore
     from tools import async_delegation
 
     observed: dict[str, str] = {}
@@ -168,11 +167,6 @@ def test_real_db_openers_honor_configured_delete(monkeypatch, tmp_path):
         ).fetchone()[0].lower()
     finally:
         cron_conn.close()
-
-    discord = DiscordRecoveryStore(hermes_home=tmp_path)
-    observed["discord_recovery"] = discord.call(
-        lambda conn: conn.execute("PRAGMA journal_mode").fetchone()[0].lower()
-    )
 
     session_db = SessionDB(db_path=tmp_path / "state.db")
     try:
@@ -219,7 +213,6 @@ def test_real_db_openers_honor_configured_delete(monkeypatch, tmp_path):
         "delivery_ledger": "delete",
         "verification_evidence": "delete",
         "cron_executions": "delete",
-        "discord_recovery": "delete",
         "session_db": "delete",
         "kanban": "delete",
         "projects": "delete",

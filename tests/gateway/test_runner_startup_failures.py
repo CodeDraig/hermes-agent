@@ -49,7 +49,7 @@ class _DisabledAdapter(BasePlatformAdapter):
 
 class _SuccessfulAdapter(BasePlatformAdapter):
     def __init__(self):
-        super().__init__(PlatformConfig(enabled=True, token="***"), Platform.DISCORD)
+        super().__init__(PlatformConfig(enabled=True, token="***"), Platform.TELEGRAM)
 
     async def connect(self, *, is_reconnect: bool = False) -> bool:
         return True
@@ -297,7 +297,7 @@ async def test_runner_degrades_gracefully_when_all_adapters_missing(monkeypatch,
     config = GatewayConfig(
         platforms={
             Platform.TELEGRAM: PlatformConfig(enabled=True, token="***"),
-            Platform.DISCORD: PlatformConfig(enabled=True, token="***"),
+            Platform.TELEGRAM: PlatformConfig(enabled=True, token="***"),
         },
         sessions_dir=tmp_path / "sessions",
     )
@@ -328,7 +328,7 @@ async def test_runner_degrades_gracefully_when_all_adapters_missing(monkeypatch,
 class _NonRetryableFailureAdapter(BasePlatformAdapter):
     """Simulates a fatal config error like token collision."""
     def __init__(self):
-        super().__init__(PlatformConfig(enabled=True, token="***"), Platform.DISCORD)
+        super().__init__(PlatformConfig(enabled=True, token="***"), Platform.TELEGRAM)
 
     async def connect(self, *, is_reconnect: bool = False) -> bool:
         self._set_fatal_error(
@@ -356,7 +356,7 @@ async def test_runner_exits_with_ex_config_on_nonretryable_startup_error(monkeyp
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     config = GatewayConfig(
         platforms={
-            Platform.DISCORD: PlatformConfig(enabled=True, token="***")
+            Platform.TELEGRAM: PlatformConfig(enabled=True, token="***")
         },
         sessions_dir=tmp_path / "sessions",
     )

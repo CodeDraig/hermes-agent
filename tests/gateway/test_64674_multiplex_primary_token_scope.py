@@ -189,29 +189,25 @@ class TestPrimaryMessageRuntimeScope:
         home = tmp_path / "home"
         home.mkdir()
         (home / ".env").write_text(
-            "DISCORD_BOT_TOKEN=default-profile-token\n", encoding="utf-8"
+            "TELEGRAM_BOT_TOKEN=default-profile-token\n", encoding="utf-8"
         )
-        (home / "config.yaml").write_text(
-            "platform_toolsets:\n  discord:\n    - discord\n", encoding="utf-8"
-        )
+        (home / "config.yaml").write_text("", encoding="utf-8")
         monkeypatch.setattr(run_mod, "get_hermes_home", lambda: home)
-        monkeypatch.setenv("DISCORD_BOT_TOKEN", "wrong-process-token")
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "wrong-process-token")
         secret_scope.set_multiplex_active(True)
 
         runner = GatewayRunner.__new__(GatewayRunner)
         runner.config = GatewayConfig(multiplex_profiles=True)
 
         async def _handle_message(_event):
-            from gateway.session import _discord_tools_loaded
-
-            return _discord_tools_loaded()
+            return secret_scope.get_secret("TELEGRAM_BOT_TOKEN") == "default-profile-token"
 
         runner._handle_message = _handle_message  # type: ignore[method-assign]
         handler = runner._primary_message_handler()
 
         assert await handler(SimpleNamespace(source=SimpleNamespace(profile=None))) is True
         with pytest.raises(secret_scope.UnscopedSecretError):
-            secret_scope.get_secret("DISCORD_BOT_TOKEN")
+            secret_scope.get_secret("TELEGRAM_BOT_TOKEN")
 
 
 class TestReconnectDropsEmptyToken:

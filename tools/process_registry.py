@@ -2378,23 +2378,6 @@ class ProcessRegistry:
                 for s in self._running.values()
             )
 
-    def has_any_active(self) -> bool:
-        """Whether ANY background process is still running (across all sessions).
-
-        Used by scale-to-zero idle detection (gateway/scale_to_zero): a gateway
-        with a live background process (terminal background=true) is NOT idle and
-        must not be suspended, or the process is lost. Refreshes detached
-        sessions first so a finished-but-unreaped process reads as inactive.
-        """
-        with self._lock:
-            sessions = list(self._running.values())
-
-        for session in sessions:
-            self._refresh_detached_session(session)
-
-        with self._lock:
-            return any(not s.exited for s in self._running.values())
-
     def snapshot_running_ids(self, task_id: str) -> frozenset[str]:
         """Capture running process IDs owned by ``task_id``.
 

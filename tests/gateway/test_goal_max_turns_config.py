@@ -33,7 +33,7 @@ async def test_gateway_goal_uses_goals_max_turns_from_full_config(tmp_path, monk
 
     runner = object.__new__(GatewayRunner)
     runner.config = GatewayConfig(
-        platforms={Platform.DISCORD: PlatformConfig(enabled=True, token="token")}
+        platforms={Platform.TELEGRAM: PlatformConfig(enabled=True, token="token")}
     )
     runner.session_store = _FakeSessionStore()
     runner.adapters = {}
@@ -43,7 +43,7 @@ async def test_gateway_goal_uses_goals_max_turns_from_full_config(tmp_path, monk
         text="/goal ship the benchmark",
         message_type=MessageType.TEXT,
         source=SessionSource(
-            platform=Platform.DISCORD,
+            platform=Platform.TELEGRAM,
             chat_id="chat-goal-config",
             chat_type="channel",
             user_id="user-goal-config",

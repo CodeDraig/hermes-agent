@@ -1,8 +1,7 @@
 """Shared helper classes for gateway platform adapters.
 
-Extracts common patterns that were duplicated across 5-7 adapters:
-message deduplication, text batch aggregation, markdown stripping,
-and thread participation tracking.
+Shared message deduplication, text batching, markdown stripping, and thread
+participation helpers for retained adapters.
 """
 
 import asyncio
@@ -27,9 +26,7 @@ logger = logging.getLogger(__name__)
 class MessageDeduplicator:
     """TTL-based message deduplication cache.
 
-    Replaces the identical ``_seen_messages`` / ``_is_duplicate()`` pattern
-    previously duplicated in discord, slack, dingtalk, wecom, weixin,
-    mattermost, and feishu adapters.
+    Bounded duplicate suppression for transport message IDs.
 
     Usage::
 
@@ -211,73 +208,6 @@ def strip_markdown(text: str) -> str:
     return text.strip()
 
 
-# ─── Thread Participation Tracking ───────────────────────────────────────────
-
-
-class ThreadParticipationTracker:
-    """Persistent tracking of threads the bot has participated in.
-
-    Replaces the identical ``_load/_save_participated_threads`` +
-    ``_mark_thread_participated`` pattern previously duplicated in
-    discord.py and matrix.py.
-
-    Usage::
-
-        self._threads = ThreadParticipationTracker("discord")
-
-        # Check membership:
-        if thread_id in self._threads:
-            ...
-
-        # Mark participation:
-        self._threads.mark(thread_id)
-    """
-
-    _MAX_TRACKED = 500
-
-    def __init__(self, platform_name: str, max_tracked: int = 500):
-        self._platform = platform_name
-        self._max_tracked = max_tracked
-        self._threads: dict[str, None] = {
-            str(thread_id): None for thread_id in self._load()
-        }
-
-    def _state_path(self) -> Path:
-        from hermes_constants import get_hermes_home
-        return get_hermes_home() / f"{self._platform}_threads.json"
-
-    def _load(self) -> list[str]:
-        path = self._state_path()
-        if path.exists():
-            try:
-                data = json.loads(path.read_text(encoding="utf-8"))
-                if isinstance(data, list):
-                    return [str(thread_id) for thread_id in data]
-            except Exception:
-                pass
-        return []
-
-    def _save(self) -> None:
-        path = self._state_path()
-        thread_list = list(self._threads)
-        if len(thread_list) > self._max_tracked:
-            thread_list = thread_list[-self._max_tracked:]
-            self._threads = dict.fromkeys(thread_list)
-        atomic_json_write(path, thread_list, indent=None)
-
-    def mark(self, thread_id: str) -> None:
-        """Mark *thread_id* as participated and persist."""
-        if thread_id not in self._threads:
-            self._threads[thread_id] = None
-            self._save()
-
-    def __contains__(self, thread_id: str) -> bool:
-        return thread_id in self._threads
-
-    def clear(self) -> None:
-        self._threads.clear()
-
-
 # ─── Phone Number Redaction ──────────────────────────────────────────────────
 
 
@@ -439,7 +369,7 @@ def compile_mention_patterns(
     Two adapter families share this logic:
 
     * **Config-style** (dingtalk, telegram): pass ``platform_label`` (e.g.
-      ``"dingtalk"``). ``raw`` is the value from ``config.extra`` after env
+      ``"mattermost"``). ``raw`` is the value from ``config.extra`` after env
       fallback parsing; must be a list or string, anything else logs a warning
       and yields ``[]``. Non-string entries are skipped. A summary info log is
       emitted when patterns load.

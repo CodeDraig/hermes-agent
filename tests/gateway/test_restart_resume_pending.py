@@ -244,7 +244,7 @@ class TestGetOrCreateResumePending:
         """Interrupted platform mappings must not stay pinned to compressed roots."""
         store = _make_store(tmp_path)
         source = _make_source(
-            platform=Platform.WEIXIN,
+            platform=Platform.TELEGRAM,
             chat_id="wx-chat",
             user_id="wx-user",
         )
@@ -622,8 +622,8 @@ async def test_reconnect_reschedule_is_platform_scoped():
     reconnecting one platform never resumes another's pending session."""
     runner, adapter = make_restart_runner()
     tg_source = make_restart_source(chat_id="tg-chat")
-    discord_source = SessionSource(
-        platform=Platform.DISCORD, chat_id="dc-chat", chat_type="dm", user_id="u1"
+    mattermost_source = SessionSource(
+        platform=Platform.MATTERMOST, chat_id="mm-chat", chat_type="dm", user_id="u1"
     )
     tg_entry = SessionEntry(
         session_key="agent:main:telegram:dm:tg-chat",
@@ -637,13 +637,13 @@ async def test_reconnect_reschedule_is_platform_scoped():
         resume_reason="restart_interrupted",
         last_resume_marked_at=datetime.now(),
     )
-    discord_entry = SessionEntry(
-        session_key="agent:main:discord:dm:dc-chat",
-        session_id="sid-dc",
+    mattermost_entry = SessionEntry(
+        session_key="agent:main:mattermost:dm:mm-chat",
+        session_id="sid-mm",
         created_at=datetime.now(),
         updated_at=datetime.now(),
-        origin=discord_source,
-        platform=Platform.DISCORD,
+        origin=mattermost_source,
+        platform=Platform.MATTERMOST,
         chat_type="dm",
         resume_pending=True,
         resume_reason="restart_interrupted",
@@ -651,7 +651,7 @@ async def test_reconnect_reschedule_is_platform_scoped():
     )
     runner.session_store._entries = {
         tg_entry.session_key: tg_entry,
-        discord_entry.session_key: discord_entry,
+        mattermost_entry.session_key: mattermost_entry,
     }
     adapter.handle_message = AsyncMock()
     runner.adapters = {Platform.TELEGRAM: adapter}
@@ -659,7 +659,7 @@ async def test_reconnect_reschedule_is_platform_scoped():
     scheduled = runner._schedule_resume_pending_sessions(platform=Platform.TELEGRAM)
     await asyncio.sleep(0)
 
-    # Only the telegram session is resumed; the discord session waits for its
+    # Only the Telegram session is resumed; the Mattermost session waits for its
     # own reconnect.
     assert scheduled == 1
     adapter.handle_message.assert_awaited_once()
@@ -1038,5 +1038,4 @@ async def test_startup_restore_gate_releases_when_resume_turn_outlives_timeout(
 
     never_finishes.set()
     await slow_task
-
 

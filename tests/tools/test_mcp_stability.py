@@ -168,13 +168,13 @@ class TestStdioPidTracking:
             _orphan_stdio_pids.clear()
             _orphan_stdio_pid_servers.clear()
             _orphan_stdio_pids.update({target_pid, other_pid})
-            _orphan_stdio_pid_servers[target_pid] = "feishu"
+            _orphan_stdio_pid_servers[target_pid] = "mattermost"
             _orphan_stdio_pid_servers[other_pid] = "mimir"
 
         with patch("tools.mcp_tool.os.kill") as mock_kill, \
              patch("gateway.status._pid_exists", return_value=False), \
              patch("tools.mcp_tool.time.sleep") as mock_sleep:
-            _kill_orphaned_mcp_children(server_name="feishu")
+            _kill_orphaned_mcp_children(server_name="mattermost")
 
         mock_kill.assert_called_once_with(target_pid, signal.SIGTERM)
         mock_sleep.assert_called_once_with(2)

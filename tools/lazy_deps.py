@@ -2,7 +2,7 @@
 Lazy dependency installer for opt-in Hermes Agent backends.
 
 Many Hermes features (Mistral TTS, ElevenLabs TTS, Honcho memory, Bedrock,
-Slack, Matrix, etc.) require Python packages that not every user needs. The
+Telegram, etc.) require Python packages that not every user needs. The
 historical approach was to bundle them all under ``pyproject.toml`` extras
 (``hermes-agent[all]``) and install them eagerly at setup time. That has
 two problems:
@@ -150,7 +150,6 @@ LAZY_DEPS: dict[str, tuple[str, ...]] = {
     ),
     # SILK voice-note decoding (WeChat/QQ .silk voice messages). pilk is a
     # small silk-v3 codec binding; installed on first .silk transcription.
-    "stt.silk": ("pilk==0.2.4",),
 
     # ─── Wake word ("Hey Hermes") engines ──────────────────────────────────
     # Keep in sync with the `wake` extra in pyproject.toml. openWakeWord is the
@@ -204,54 +203,6 @@ LAZY_DEPS: dict[str, tuple[str, ...]] = {
 
     # ─── Messaging platforms (lazy-installable on demand) ──────────────────
     "platform.telegram": ("python-telegram-bot[webhooks]==22.8",),
-    # brotlicffi gives aiohttp a working 2-arg Decompressor.process() for
-    # Discord CDN's Brotli-encoded attachments. Without it, aiohttp falls
-    # back to google's `Brotli` package (1-arg API), and any .txt/.md/.doc
-    # uploaded to the Discord gateway fails to decode at att.read() with
-    # "Can not decode content-encoding: br" — see #12511 / #15744.
-    "platform.discord": (
-        "discord.py[voice]==2.7.1",
-        "brotlicffi==1.2.0.1",
-        # discord.py pulls aiohttp transitively (>=3.7.4,<4) as its HTTP
-        # backbone. Pin the patched floor here too so the lazy Discord path
-        # can't keep an already-installed vulnerable aiohttp satisfying that
-        # range — mirrors the messaging extra and platform.slack.
-        "aiohttp==3.14.3",  # prior CVEs + GHSA-cq5v-8q36-5273/GHSA-mfx4-hv73-q22v/GHSA-mq44-7p77-q5h7
-    ),
-    "platform.slack": (
-        "slack-bolt==1.30.0",
-        "slack-sdk==3.43.0",
-        "aiohttp==3.14.3",  # prior CVEs + GHSA-cq5v-8q36-5273/GHSA-mfx4-hv73-q22v/GHSA-mq44-7p77-q5h7
-    ),
-    "platform.matrix": (
-        "mautrix[encryption]==0.21.1",
-        "aiosqlite==0.22.1",
-        "asyncpg==0.31.0",
-        "aiohttp-socks==0.11.0",
-        # mautrix (aiohttp>=3,<4) and aiohttp-socks (aiohttp>=3.10.0) only cap
-        # aiohttp transitively, so a vulnerable already-installed aiohttp still
-        # satisfies both — pin the patched floor here too, like platform.discord.
-        "aiohttp==3.14.3",  # prior CVEs + GHSA-cq5v-8q36-5273/GHSA-mfx4-hv73-q22v/GHSA-mq44-7p77-q5h7
-    ),
-    "platform.dingtalk": (
-        "dingtalk-stream==0.24.3",
-        "alibabacloud-dingtalk==2.2.42",
-        "qrcode==7.4.2",
-    ),
-    "platform.feishu": (
-        "lark-oapi==1.6.8",
-        "qrcode==7.4.2",
-    ),
-    # WeCom callback-mode adapter — parses untrusted XML POST bodies. Pulls
-    # defusedxml only; aiohttp/httpx are core dependencies of every messaging
-    # adapter and ship via `platform.discord` / `platform.slack` / etc.
-    "platform.wecom_callback": ("defusedxml==0.7.1",),
-    # Microsoft Teams adapter — microsoft-teams-apps pulls a heavy tree
-    # (microsoft-teams-api/cards/common, dependency-injector, msal). Lazy-
-    # installed on demand like every other messaging platform; also exposed
-    # as the `teams` extra in pyproject for packagers / explicit installs.
-    "platform.teams": ("microsoft-teams-apps==2.0.13.4", "aiohttp==3.14.3"),  # aiohttp 3.14.3: prior CVEs + GHSA-cq5v-8q36-5273/GHSA-mfx4-hv73-q22v/GHSA-mq44-7p77-q5h7
-
     # ─── Terminal backends ─────────────────────────────────────────────────
     "terminal.modal": ("modal==1.3.4",),
     "terminal.daytona": ("daytona==0.155.0",),
@@ -536,12 +487,6 @@ def _unsupported_feature_reason(feature: str) -> Optional[str]:
     known-impossible installs out of both first-use lazy installation and the
     ``hermes update`` lazy-refresh pass.
     """
-    if sys.platform == "win32" and feature == "platform.matrix":
-        return (
-            "unsupported on Windows: Matrix E2EE depends on python-olm, "
-            "which has no Windows wheel and requires make + libolm to build "
-            "from sdist. Run Hermes under WSL to use Matrix on Windows."
-        )
     return None
 
 
@@ -559,8 +504,7 @@ def _spec_is_safe(spec: str) -> bool:
 def _pkg_name_from_spec(spec: str) -> str:
     """Extract the bare package name from a pip spec.
 
-    ``"slack-bolt>=1.18.0,<2"`` → ``"slack-bolt"``
-    ``"mautrix[encryption]>=0.20"`` → ``"mautrix"``
+    ``"honcho-ai>=2.0,<3"`` → ``"honcho-ai"``
     """
     m = re.match(r"^([A-Za-z0-9_][A-Za-z0-9_.\-]*)", spec)
     return m.group(1) if m else spec
@@ -570,7 +514,7 @@ def _specifier_from_spec(spec: str) -> str:
     """Extract just the version-specifier portion of a pip spec.
 
     ``"honcho-ai==2.2.0"`` → ``"==2.2.0"``
-    ``"mautrix[encryption]>=0.20,<1"`` → ``">=0.20,<1"``
+    ``"mcp[cli]>=1,<2"`` → ``">=1,<2"``
     ``"package"`` → ``""`` (no version constraint)
     """
     # Strip the package name + optional [extras] block.
@@ -1069,10 +1013,7 @@ def active_features() -> list[str]:
 
     A feature counts as "active" if its anchor package (the first declared
     spec) is currently installed in the venv (presence check, ignoring
-    version). We intentionally do NOT treat shared helper packages as proof
-    that a backend was enabled: for example ``platform.matrix`` depends on
-    generic packages like ``asyncpg``/``aiosqlite`` that can be installed for
-    unrelated reasons, while the actual Matrix adapter anchor is ``mautrix``.
+    version). The first declared package is the feature's anchor.
     Features the user has never enabled stay quiet.
 
     Used by ``hermes update`` to figure out which lazy backends need a
@@ -1173,24 +1114,7 @@ def ensure_and_bind(
 
     Returns True on success, False if deps couldn't be installed or imported.
 
-    Example usage in a platform adapter::
-
-        def check_slack_requirements() -> bool:
-            if SLACK_AVAILABLE:
-                return True
-            def _import():
-                from slack_bolt.async_app import AsyncApp
-                from slack_bolt.adapter.socket_mode.async_handler import AsyncSocketModeHandler
-                from slack_sdk.web.async_client import AsyncWebClient
-                import aiohttp
-                return {
-                    "AsyncApp": AsyncApp,
-                    "AsyncSocketModeHandler": AsyncSocketModeHandler,
-                    "AsyncWebClient": AsyncWebClient,
-                    "aiohttp": aiohttp,
-                    "SLACK_AVAILABLE": True,
-                }
-            return ensure_and_bind("platform.slack", _import, globals(), prompt=False)
+    The importer should return every symbol the caller needs rebound.
     """
     try:
         ensure(feature, prompt=prompt)

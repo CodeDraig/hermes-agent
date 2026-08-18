@@ -18,7 +18,7 @@ from gateway.session import build_session_key
 
 def _make_adapter():
     """Create a minimal TelegramAdapter for testing text batching."""
-    from plugins.platforms.telegram.adapter import TelegramAdapter
+    from gateway.platforms.telegram.adapter import TelegramAdapter
 
     config = PlatformConfig(enabled=True, token="test-token")
     adapter = object.__new__(TelegramAdapter)
@@ -123,7 +123,7 @@ class TestTextBatching:
     @pytest.mark.asyncio
     async def test_disconnected_adapter_drops_pending_media_group_flush_before_dispatch(self):
         """A pending media group should not dispatch after disconnect starts."""
-        from plugins.platforms.telegram.adapter import TelegramAdapter
+        from gateway.platforms.telegram.adapter import TelegramAdapter
 
         adapter = _make_adapter()
         event = _make_event("album caption")

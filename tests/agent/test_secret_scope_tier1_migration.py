@@ -9,7 +9,7 @@ against the three canonical scope semantics:
 - unscoped-under-multiplex behavior per pattern:
   * in-turn sites (get_secret direct) propagate/honor UnscopedSecretError
     semantics via get_secret's verdict,
-  * startup sites (Slack pattern) fall back to os.environ on
+  * startup sites fall back to os.environ on
     UnscopedSecretError.
 """
 
@@ -60,7 +60,7 @@ class TestPairingAllowlistRead:
             assert _read_allowlist_env("TELEGRAM_ALLOWED_USERS") == ""
 
     def test_unscoped_multiplex_falls_back_to_env(self, monkeypatch):
-        # Slack pattern: unscoped read under multiplex uses the process env.
+        # Unscoped reads under multiplex use the process environment.
         from gateway.pairing import _read_allowlist_env
 
         monkeypatch.setenv("TELEGRAM_ALLOWED_USERS", "own-env")
@@ -74,18 +74,18 @@ class TestAuthzPlatformGateEnv:
     def test_scoped_value_wins(self, monkeypatch):
         from gateway.authz_mixin import _platform_gate_env
 
-        monkeypatch.setenv("DISCORD_ALLOW_BOTS", "none")
+        monkeypatch.setenv("TELEGRAM_ALLOW_BOTS", "none")
         ss.set_multiplex_active(True)
-        with _Scope({"DISCORD_ALLOW_BOTS": "all"}):
-            assert _platform_gate_env("DISCORD_ALLOW_BOTS", "none") == "all"
+        with _Scope({"TELEGRAM_ALLOW_BOTS": "all"}):
+            assert _platform_gate_env("TELEGRAM_ALLOW_BOTS", "none") == "all"
 
     def test_scoped_miss_returns_default_not_env(self, monkeypatch):
         from gateway.authz_mixin import _platform_gate_env
 
-        monkeypatch.setenv("DISCORD_ALLOW_BOTS", "all")  # another profile's bridge
+        monkeypatch.setenv("TELEGRAM_ALLOW_BOTS", "all")  # another profile's bridge
         ss.set_multiplex_active(True)
         with _Scope({"UNRELATED": "x"}):
-            assert _platform_gate_env("DISCORD_ALLOW_BOTS", "none") == "none"
+            assert _platform_gate_env("TELEGRAM_ALLOW_BOTS", "none") == "none"
 
     def test_single_profile_legacy_env(self, monkeypatch):
         from gateway.authz_mixin import _platform_gate_env
@@ -93,33 +93,6 @@ class TestAuthzPlatformGateEnv:
         monkeypatch.setenv("GATEWAY_ALLOWED_USERS", "42")
         assert _platform_gate_env("GATEWAY_ALLOWED_USERS") == "42"
 
-
-# ── Cluster B: matrix startup reads (Slack pattern) ────────────────────────
-
-class TestMatrixStartupSecret:
-    def _helper(self):
-        mod = pytest.importorskip("plugins.platforms.matrix.adapter")
-        return mod._startup_env_secret
-
-    def test_scoped_value_wins(self, monkeypatch):
-        helper = self._helper()
-        monkeypatch.setenv("MATRIX_ACCESS_TOKEN", "env-token")
-        ss.set_multiplex_active(True)
-        with _Scope({"MATRIX_ACCESS_TOKEN": "scoped-token"}):
-            assert helper("MATRIX_ACCESS_TOKEN") == "scoped-token"
-
-    def test_scoped_miss_no_borrow(self, monkeypatch):
-        helper = self._helper()
-        monkeypatch.setenv("MATRIX_ACCESS_TOKEN", "other-profile")
-        ss.set_multiplex_active(True)
-        with _Scope({"UNRELATED": "x"}):
-            assert helper("MATRIX_ACCESS_TOKEN") == ""
-
-    def test_unscoped_multiplex_falls_back(self, monkeypatch):
-        helper = self._helper()
-        monkeypatch.setenv("MATRIX_PASSWORD", "own-env-pass")
-        ss.set_multiplex_active(True)
-        assert helper("MATRIX_PASSWORD") == "own-env-pass"
 
 
 # ── Cluster C: managed tool gateway token override ─────────────────────────

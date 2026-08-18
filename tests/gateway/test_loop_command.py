@@ -25,7 +25,7 @@ class _FakeSessionStore:
         return self.entry
 
     def _generate_session_key(self, source):
-        return "agent:main:discord:channel:loop-test"
+        return "agent:main:telegram:channel:loop-test"
 
 
 @pytest.fixture
@@ -41,7 +41,7 @@ def loop_env(tmp_path, monkeypatch):
 def _make_runner():
     runner = object.__new__(GatewayRunner)
     runner.config = GatewayConfig(
-        platforms={Platform.DISCORD: PlatformConfig(enabled=True, token="token")}
+        platforms={Platform.TELEGRAM: PlatformConfig(enabled=True, token="token")}
     )
     runner.session_store = _FakeSessionStore()
     runner.adapters = {}
@@ -54,7 +54,7 @@ def _make_event(text: str) -> MessageEvent:
         text=text,
         message_type=MessageType.TEXT,
         source=SessionSource(
-            platform=Platform.DISCORD,
+            platform=Platform.TELEGRAM,
             chat_id="chat-loop",
             chat_type="channel",
             thread_id="thread-9",
@@ -74,7 +74,7 @@ async def test_gateway_loop_create_captures_route(loop_env):
     state = loops.load_loop("sid-gateway-loop")
     assert state is not None
     assert state.prompt == "check the deploy"
-    assert state.route["platform"] == "discord"
+    assert state.route["platform"] == "telegram"
     assert state.route["chat_id"] == "chat-loop"
     assert state.route["thread_id"] == "thread-9"
 

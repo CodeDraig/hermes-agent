@@ -8,25 +8,15 @@ commits these under conformance/vectors/ and its vitest runner asserts the
 CONNECTOR's constructed REST payloads against them — so cross-repo renderer
 drift breaks a test instead of a user's formatting.
 
-Oracles (all imported, never reimplemented):
-  telegram  plugins.platforms.telegram.adapter.TelegramAdapter.format_message
+Oracle (imported, never reimplemented):
+  telegram  gateway.platforms.telegram.adapter.TelegramAdapter.format_message
             (standard markdown → Telegram MarkdownV2)
-  slack     plugins.platforms.slack.adapter.SlackAdapter.format_message
-            (standard markdown → Slack mrkdwn)
-  whatsapp  gateway.platforms.whatsapp_common.WhatsAppBehaviorMixin
-            .format_message (standard markdown → WhatsApp formatting)
-  discord   plugins.platforms.discord.adapter.DiscordAdapter.format_message
-            (GFM tables → bullet groups; otherwise identity)
 
 Expect semantics (consumed by the gg runner):
-  parity    connector render must BYTE-EQUAL native_output
-            (Slack / WhatsApp — same-dialect ports; most Discord).
   semantic  connector renders a DIFFERENT representation on purpose
             (Telegram: connector sends HTML, native sends MarkdownV2);
             the runner asserts plain-text content equivalence instead.
-  divergent documented no-parity (e.g. Discord tables: native converts to
-            bullets, connector passes raw markdown through). The runner
-            asserts the DOCUMENTED connector behavior named in `note`.
+  divergent documents renderer cases where structural comparison is noisy.
 
 Run:  python scripts/generate_conformance_vectors.py [--out DIR]
 Determinism is covered by tests/conformance/test_vector_generator.py.
@@ -89,19 +79,17 @@ SCAR: List[tuple] = [
     ("mdv2-reserved-chars", "Price is 3.50 (was 4.00) — save ~12%! #deal +tax = win."),
     ("mdv2-underscores", "snake_case_name and file_name.py in prose."),
     ("mdv2-brackets", "Array[0] and dict{key} and (parens) live here."),
-    # Slack: **bold** must become *bold*; [t](u) must become <u|t>.
-    ("slack-bold-conversion", "**important** word"),
-    ("slack-link-conversion", "[click here](https://example.com)"),
-    # Slack broadcast-mention escape (model output must not ping @everyone).
-    ("slack-broadcast-mention", "Hey <!everyone> and <!channel> and <!here>!"),
-    # Fence language tag handling (Slack renders the tag literally).
-    ("fence-lang-tag-slack", "```text\nliteral first line issue\n```"),
+    ("bold-conversion", "**important** word"),
+    ("link-conversion", "[click here](https://example.com)"),
+    # Broadcast-like mention syntax must remain harmless text.
+    ("broadcast-mention", "Hey <!everyone> and <!channel> and <!here>!"),
+    ("fence-language-tag", "```text\nliteral first line issue\n```"),
     # Backslashes inside code must survive doubling rules.
     ("backslash-in-code", "`C:\\Users\\ben\\file.txt` and ```\npath = \"a\\\\b\"\n```"),
     ("backtick-in-fence", "```\nuse `inline` inside fence\n```"),
     # Headers containing bold markers (native strips redundant **).
     ("header-with-bold", "## The **Real** Deal"),
-    # Table with CJK cells (display-width alignment scar in Slack).
+    # Table with CJK cells (display-width alignment scar).
     (
         "table-cjk",
         "| 名前 | 値 |\n|------|----|\n| 中文 | 42 |\n| b    | 2  |",
@@ -138,20 +126,12 @@ def corpus() -> List[Dict[str, str]]:
 
 
 def _oracles() -> Dict[str, Callable[[str], str]]:
-    from plugins.platforms.telegram.adapter import TelegramAdapter
-    from plugins.platforms.slack.adapter import SlackAdapter
-    from plugins.platforms.discord.adapter import DiscordAdapter
-    from gateway.platforms.whatsapp_common import WhatsAppBehaviorMixin
-
-    wa = object.__new__(WhatsAppBehaviorMixin)  # format_message needs no __init__
+    from gateway.platforms.telegram.adapter import TelegramAdapter
 
     return {
         # These format_message implementations are self-free (asserted by
         # tests/conformance/test_vector_generator.py) — invoked unbound.
         "telegram": lambda s: TelegramAdapter.format_message(None, s),  # type: ignore[arg-type]
-        "slack": lambda s: SlackAdapter.format_message(None, s),  # type: ignore[arg-type]
-        "discord": lambda s: DiscordAdapter.format_message(None, s),  # type: ignore[arg-type]
-        "whatsapp": wa.format_message,
     }
 
 
@@ -167,18 +147,6 @@ _EXPECT_OVERRIDES: Dict[str, Dict[str, tuple]] = {
         "unclosed-fence": ("divergent", "unterminated fence: native escapes as prose, connector HTML may close the block — degraded either way, never a 400"),
         "placeholder-injection": ("divergent", "NUL placeholder tokens are renderer-internal; each side neutralizes its own pattern"),
         "whitespace-only": ("divergent", "native collapses to empty-ish prose, connector HTML preserves — cosmetic"),
-    },
-    "slack": {
-        "placeholder-injection": ("divergent", "\\x00SL tokens are the native renderer's own placeholder alphabet; connector uses a different scheme"),
-        "unclosed-fence": ("divergent", "unterminated fence handling differs; both degrade without dropping content"),
-    },
-    "whatsapp": {
-        "placeholder-injection": ("divergent", "placeholder alphabets are renderer-internal"),
-        "unclosed-fence": ("divergent", "unterminated fence handling differs; both degrade without dropping content"),
-    },
-    "discord": {
-        "table-simple": ("divergent", "native converts GFM tables to bullet groups; connector passes raw markdown through (port deferred — parity report Phase 4/oracle section)"),
-        "table-cjk": ("divergent", "same as table-simple"),
     },
 }
 

@@ -56,10 +56,10 @@ class TestIsSkillDisabled:
 
 
     @patch("hermes_cli.config.load_config")
-    @patch.dict("os.environ", {"HERMES_PLATFORM": "discord"})
+    @patch.dict("os.environ", {"HERMES_PLATFORM": "mattermost"})
     def test_env_var_platform(self, mock_load):
         mock_load.return_value = {"skills": {
-            "platform_disabled": {"discord": ["discord-skill"]}
+            "platform_disabled": {"mattermost": ["discord-skill"]}
         }}
         from tools.skills_tool import _is_skill_disabled
         assert _is_skill_disabled("discord-skill") is True
@@ -99,12 +99,12 @@ class TestGetDisabledSkillNames:
             "  disabled:\n"
             "    - global-skill\n"
             "  platform_disabled:\n"
-            "    discord:\n"
+            "    mattermost:\n"
             "      - discord-skill\n"
         )
         monkeypatch.setenv("HERMES_HOME", str(tmp_path))
         monkeypatch.delenv("HERMES_PLATFORM", raising=False)
-        monkeypatch.setenv("HERMES_SESSION_PLATFORM", "discord")
+        monkeypatch.setenv("HERMES_SESSION_PLATFORM", "mattermost")
 
         from agent.skill_utils import get_disabled_skill_names
         result = get_disabled_skill_names()
@@ -123,7 +123,7 @@ class TestGetDisabledSkillNames:
         )
         monkeypatch.setenv("HERMES_HOME", str(tmp_path))
         monkeypatch.setenv("HERMES_PLATFORM", "telegram")
-        monkeypatch.setenv("HERMES_SESSION_PLATFORM", "discord")
+        monkeypatch.setenv("HERMES_SESSION_PLATFORM", "mattermost")
 
         from agent.skill_utils import get_disabled_skill_names
         result = get_disabled_skill_names()

@@ -21,7 +21,7 @@ Use any model you want — [Nous Portal](https://portal.nousresearch.com), OpenR
 
 <table>
 <tr><td><b>A real terminal interface</b></td><td>Prompt-toolkit CLI with multiline editing, slash-command autocomplete, conversation history, interrupt-and-redirect, and streaming tool output.</td></tr>
-<tr><td><b>Lives where you do</b></td><td>Telegram, Discord, Slack, WhatsApp, Signal, and CLI — all from a single gateway process. Voice memo transcription, cross-platform conversation continuity.</td></tr>
+<tr><td><b>Lives where you do</b></td><td>Telegram, Mattermost, API, and CLI — all from a single gateway process. Voice memo transcription and conversation continuity.</td></tr>
 <tr><td><b>A closed learning loop</b></td><td>Agent-curated memory with periodic nudges. Autonomous skill creation after complex tasks. Skills self-improve during use. FTS5 session search with LLM summarization for cross-session recall. <a href="https://github.com/plastic-labs/honcho">Honcho</a> dialectic user modeling. Compatible with the <a href="https://agentskills.io">agentskills.io</a> open standard.</td></tr>
 <tr><td><b>Scheduled automations</b></td><td>Built-in cron scheduler with delivery to any platform. Daily reports, nightly backups, weekly audits — all in natural language, running unattended.</td></tr>
 <tr><td><b>Delegates and parallelizes</b></td><td>Spawn isolated subagents for parallel workstreams. Write Python scripts that call tools via RPC, collapsing multi-step pipelines into zero-context-cost turns.</td></tr>
@@ -109,7 +109,7 @@ hermes model        # Choose your LLM provider and model
 hermes tools        # Configure which tools are enabled
 hermes config set   # Set individual config values
 hermes config get   # Print individual config values
-hermes gateway      # Start the messaging gateway (Telegram, Discord, etc.)
+hermes gateway      # Start the messaging gateway (Telegram, Mattermost, API)
 hermes setup        # Run the full setup wizard (configures everything at once)
 hermes update       # Update to the latest version
 hermes doctor       # Diagnose any issues
@@ -139,7 +139,7 @@ You can still bring your own keys per-tool whenever you want — the gateway is 
 
 ## CLI vs Messaging Quick Reference
 
-Hermes has two entry points: start the terminal UI with `hermes`, or run the gateway and talk to it from Telegram, Discord, Slack, WhatsApp, Signal, or Email. Once you're in a conversation, many slash commands are shared across both interfaces.
+Hermes has two entry points: start the prompt-toolkit client with `hermes`, or run the gateway and talk to it from Telegram, Mattermost, or an OpenAI-compatible API client. Once you're in a conversation, many slash commands are shared across both interfaces.
 
 | Action                         | CLI                                           | Messaging platforms                                                              |
 | ------------------------------ | --------------------------------------------- | -------------------------------------------------------------------------------- |

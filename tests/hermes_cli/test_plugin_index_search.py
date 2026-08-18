@@ -43,13 +43,13 @@ SAMPLE = _index_doc(
             "ref": "e" * 40,
         },
         {
-            "name": "hermes-telegram-business",
-            "description": "Telegram secretary bot with owner approval.",
+            "name": "hermes-media-studio",
+            "description": "Media workflow tools.",
             "author": "NousResearch",
-            "tags": ["telegram", "gateway"],
-            "repo": "NousResearch/hermes-telegram-business",
+            "tags": ["media", "tools"],
+            "repo": "NousResearch/hermes-media-studio",
             "ref": "f" * 40,
-            "capabilities": ["platform"],
+            "capabilities": ["tools"],
         },
         {
             "name": "plugin-llm-example",
@@ -94,7 +94,7 @@ class TestParsing:
         entries = _parse_entries(SAMPLE)
         assert [e.name for e in entries] == [
             "hermes-file-tools",
-            "hermes-telegram-business",
+            "hermes-media-studio",
             "plugin-llm-example",
         ]
         assert entries[2].subdir == "plugin-llm-example"
@@ -148,12 +148,12 @@ class TestSearch:
         assert results[0].name == "hermes-file-tools"
 
     def test_matches_tags(self):
-        results = search_index(self.entries, "telegram")
-        assert results and results[0].name == "hermes-telegram-business"
+        results = search_index(self.entries, "media")
+        assert results and results[0].name == "hermes-media-studio"
 
     def test_matches_description(self):
-        results = search_index(self.entries, "secretary")
-        assert [e.name for e in results] == ["hermes-telegram-business"]
+        results = search_index(self.entries, "studio")
+        assert [e.name for e in results] == ["hermes-media-studio"]
 
     def test_fuzzy_typo_tolerance(self):
         results = search_index(self.entries, "hermes-file-tols")
@@ -167,8 +167,8 @@ class TestSearch:
         assert [e.name for e in results] == sorted(e.name for e in self.entries)
 
     def test_capability_filter(self):
-        results = search_index(self.entries, "", capability="platform")
-        assert [e.name for e in results] == ["hermes-telegram-business"]
+        results = search_index(self.entries, "", capability="tools")
+        assert [e.name for e in results] == ["hermes-media-studio"]
 
     def test_capability_filter_with_term(self):
         results = search_index(self.entries, "llm", capability="commands")
@@ -292,8 +292,8 @@ class TestResolveName:
         assert entry is not None
 
     def test_unique_partial(self):
-        entry, _ = resolve_name(self.entries, "telegram")
-        assert entry is not None and entry.name == "hermes-telegram-business"
+        entry, _ = resolve_name(self.entries, "media")
+        assert entry is not None and entry.name == "hermes-media-studio"
 
     def test_ambiguous_partial(self):
         entry, candidates = resolve_name(self.entries, "hermes")
@@ -378,7 +378,7 @@ class TestInstallResolution:
         out = capsys.readouterr().out
         assert "ambiguous" in out
         assert "hermes-file-tools" in out
-        assert "hermes-telegram-business" in out
+        assert "hermes-media-studio" in out
 
     def test_install_unknown_name_exits(self, hermes_home, monkeypatch, capsys):
         from hermes_cli import plugins_cmd
@@ -425,12 +425,12 @@ class TestCmdSearch:
         monkeypatch.setattr(
             plugin_index, "load_index", lambda **kw: (_parse_entries(SAMPLE), "seed")
         )
-        plugins_cmd.cmd_search("telegram", json_output=True)
+        plugins_cmd.cmd_search("media", json_output=True)
         payload = json.loads(capsys.readouterr().out)
         assert payload["source"] == "seed"
-        assert payload["query"] == "telegram"
-        assert payload["results"][0]["name"] == "hermes-telegram-business"
-        assert payload["results"][0]["repo"] == "NousResearch/hermes-telegram-business"
+        assert payload["query"] == "media"
+        assert payload["results"][0]["name"] == "hermes-media-studio"
+        assert payload["results"][0]["repo"] == "NousResearch/hermes-media-studio"
         assert payload["results"][0]["ref"] == "f" * 40
         assert "audited" in payload["note"]
 

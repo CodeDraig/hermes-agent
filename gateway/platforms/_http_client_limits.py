@@ -1,8 +1,7 @@
 """Shared HTTP client factory for long-lived platform adapters.
 
-Gateway messaging platforms (QQ Bot, Feishu, WeCom, DingTalk, Signal,
-BlueBubbles, WeCom-callback) keep a persistent ``httpx.AsyncClient``
-alive for the adapter's lifetime.  That amortises TLS/connection setup
+Telegram's HTTP transport keeps a persistent client alive for the adapter's
+lifetime. That amortises TLS/connection setup
 across many API calls, but it also means the process's file-descriptor
 pressure is sensitive to how aggressively the pool recycles idle keep-
 alive connections.
@@ -10,8 +9,7 @@ alive connections.
 httpx's default ``keepalive_expiry`` is 5 seconds.  On macOS behind
 Cloudflare Warp (and other transparent proxies), peer-initiated FIN can
 sit in ``CLOSE_WAIT`` longer than that before the local socket actually
-drains — which, multiplied across 7 long-lived adapters plus the LLM
-client and MCP clients, walks straight into the default 256 fd limit.
+drains — which can contribute to exhausting a low file-descriptor limit.
 See #18451.
 
 ``platform_httpx_limits()`` returns a tighter ``httpx.Limits`` the

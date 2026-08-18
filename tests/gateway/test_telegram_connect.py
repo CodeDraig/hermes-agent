@@ -36,8 +36,8 @@ def _ensure_telegram_mock():
 
 _ensure_telegram_mock()
 
-import plugins.platforms.telegram.adapter as telegram_mod  # noqa: E402
-from plugins.platforms.telegram.adapter import TelegramAdapter  # noqa: E402
+import gateway.platforms.telegram.adapter as telegram_mod  # noqa: E402
+from gateway.platforms.telegram.adapter import TelegramAdapter  # noqa: E402
 
 
 class TestTelegramUnconfiguredNonRetryable:

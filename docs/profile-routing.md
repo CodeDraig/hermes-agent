@@ -9,14 +9,13 @@
 By default a single gateway run uses one profile (memory, persona, tools). **Profile-based
 routing** lets one gateway instance serve **multiple isolated profiles**, selecting which
 profile handles an inbound message based on *where the message came from* — the platform,
-server (`guild_id`), channel (`chat_id`), and/or thread (`thread_id`).
+workspace (`scope_id`), channel (`chat_id`), and/or thread (`thread_id`).
 
 This is the inbound counterpart to multiplexing: instead of running N gateways, run one
 gateway and route per-community / per-channel / per-thread to a dedicated profile. Each
 profile keeps fully isolated state (`MEMORY.md`, `USER.md`, `SOUL.md`, sessions, tools).
 
-Routing is **platform-generic**: it works for Discord, Telegram, Feishu, Slack, and every
-adapter — not just Discord.
+Routing is shared by the retained Telegram and Mattermost adapters.
 
 ## Configuring routes
 
@@ -26,31 +25,31 @@ Routes live under `profile_routes` in `config.yaml`. Both the top-level and the 
 
 ```yaml
 profile_routes:
-  # Route an entire Discord server (guild) to one profile.
-  - name: server-default
-    platform: discord
-    guild_id: "1234567890"
-    profile: server-profile
+  # Route an entire Mattermost workspace to one profile.
+  - name: workspace-default
+    platform: mattermost
+    scope_id: "workspace-id"
+    profile: workspace-profile
 
   # Override a specific channel within that server with a different profile.
   - name: support-channel
-    platform: discord
-    guild_id: "1234567890"
-    chat_id: "9876543210"
+    platform: mattermost
+    scope_id: "workspace-id"
+    chat_id: "channel-id"
     profile: support-profile
 
-  # Pin a Telegram group to a profile (Telegram has no guild_id — chat_id only).
+  # Pin a Telegram group to a profile (Telegram uses chat_id only).
   - name: tg-group
     platform: telegram
     chat_id: "-1001234567890"
     profile: tg-profile
 
-  # Route a single Discord thread.
+  # Route a single Mattermost thread.
   - name: standup-thread
-    platform: discord
-    guild_id: "1234567890"
-    chat_id: "9876543210"
-    thread_id: "1111111111"
+    platform: mattermost
+    scope_id: "workspace-id"
+    chat_id: "channel-id"
+    thread_id: "thread-id"
     profile: standup
 ```
 
@@ -59,9 +58,9 @@ profile_routes:
 | Field | Required | Description |
 |---|---|---|
 | `name` | yes | Human-readable route identifier (used in logs). |
-| `platform` | yes | Adapter platform: `discord`, `telegram`, `feishu`, `slack`, … |
+| `platform` | yes | Adapter platform: `telegram` or `mattermost`. |
 | `profile` | yes | Target profile name (must exist under `~/.hermes/profiles/<name>`). |
-| `guild_id` | no | Server/guild (Discord). |
+| `scope_id` | no | Workspace/server identifier. |
 | `chat_id` | no | Channel/group/DM id. |
 | `thread_id` | no | Thread id within a channel. |
 | `enabled` | no | Default `true`; set `false` to disable a route without removing it. |
@@ -74,11 +73,11 @@ A route matches an inbound source when **every discriminator the route declares 
 - **`platform`** must equal the source platform exactly.
 - **`thread_id`** (if set) must equal the source thread id.
 - **`chat_id`** (if set) must match the source channel **or** its parent — a thread in a
-  channel matches the channel's route (hierarchical match for Discord forums/threads).
-- **`guild_id`** (if set) must equal the source guild.
+  channel matches the channel's route.
+- **`scope_id`** (if set) must equal the source workspace/server.
 
-> A route declaring **both** `guild_id` and `chat_id` requires both to hold. A channel match
-> alone does not satisfy a guild constraint — this is intentional and tested.
+> A route declaring **both** `scope_id` and `chat_id` requires both to hold. A channel match
+> alone does not satisfy a scope constraint.
 
 When multiple routes match, the **most specific** one wins. Specificity is additive:
 
@@ -86,10 +85,10 @@ When multiple routes match, the **most specific** one wins. Specificity is addit
 |---|---|
 | `thread_id` | 8 |
 | `chat_id` | 4 |
-| `guild_id` | 2 |
+| `scope_id` | 2 |
 | (platform only) | 0 |
 
-So a thread route (8) beats a channel route (4) beats a guild route (2) within the same server.
+So a thread route (8) beats a channel route (4) beats a scope route (2).
 If no route matches, the message uses the default/active profile.
 
 ## How it works at runtime
@@ -106,12 +105,12 @@ If no route matches, the message uses the default/active profile.
    each routed community gets isolated memory and conversation state.
 
 Because `gateway_runner` is injected for **all** adapters (declared on `BasePlatformAdapter`),
-every platform goes through this path — not just Discord.
+both retained messaging adapters go through this path.
 
 ## Relationship to multiplexing
 
 `profile_routes` requires `gateway.multiplex_profiles: true`. Multiplexing is what
 activates the per-profile runtime scope (per-profile `HERMES_HOME`, secret scope, and
 profile-namespaced session keys); routing is the decision layer that picks *which*
-profile a given guild/channel/thread lands in. With multiplexing off, `profile_routes`
+profile a given workspace/channel/thread lands in. With multiplexing off, `profile_routes`
 is ignored entirely — behavior is byte-identical to a single-profile gateway.

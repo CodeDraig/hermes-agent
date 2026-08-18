@@ -93,26 +93,13 @@ class TestBuildSessionContextPromptRedaction:
         assert prompt1 == prompt2
 
 
-    def test_discord_ids_not_redacted_even_with_flag(self):
-        """Discord needs real IDs for <@user_id> mentions."""
-        ctx = _make_context(user_id="123456789", platform=Platform.DISCORD)
+    def test_telegram_ids_are_redacted_with_flag(self):
+        ctx = _make_context(user_id="123456789", platform=Platform.TELEGRAM)
         prompt = build_session_context_prompt(ctx, redact_pii=True)
-        assert "123456789" in prompt
-
-    def test_whatsapp_ids_redacted(self):
-        ctx = _make_context(user_id="+15551234567", platform=Platform.WHATSAPP)
-        prompt = build_session_context_prompt(ctx, redact_pii=True)
-        assert "+15551234567" not in prompt
+        assert "123456789" not in prompt
         assert "user_" in prompt
 
-    def test_signal_ids_redacted(self):
-        ctx = _make_context(user_id="+15551234567", platform=Platform.SIGNAL)
-        prompt = build_session_context_prompt(ctx, redact_pii=True)
-        assert "+15551234567" not in prompt
-        assert "user_" in prompt
-
-    def test_slack_ids_not_redacted(self):
-        """Slack may need IDs for mentions too."""
-        ctx = _make_context(user_id="U12345ABC", platform=Platform.SLACK)
+    def test_mattermost_ids_not_redacted(self):
+        ctx = _make_context(user_id="U12345ABC", platform=Platform.MATTERMOST)
         prompt = build_session_context_prompt(ctx, redact_pii=True)
         assert "U12345ABC" in prompt

@@ -1,4 +1,4 @@
-"""Regression: every platform adapter's ``connect()`` must accept the
+"""Regression: every retained platform adapter's ``connect()`` must accept the
 ``is_reconnect`` keyword-only argument.
 
 The gateway reconnect watcher forwards ``is_reconnect=True`` to every
@@ -15,7 +15,7 @@ the operator manually restarts the gateway. This exact bug shipped for
 the QQ channel for hours.
 
 To prevent this class of bug from regressing, we statically parse every
-``adapter.py`` under ``gateway/platforms/`` and ``plugins/platforms/``
+``adapter.py`` under ``gateway/platforms/``
 and assert that its ``connect()`` method accepts an ``is_reconnect``
 keyword. Doing this via AST (rather than importing) avoids pulling every
 platform's optional third-party SDK (aiohttp, slack_sdk, telegram,
@@ -37,7 +37,6 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 # sub-packages that expose one.
 ADAPTER_ROOTS = [
     REPO_ROOT / "gateway" / "platforms",
-    REPO_ROOT / "plugins" / "platforms",
 ]
 
 

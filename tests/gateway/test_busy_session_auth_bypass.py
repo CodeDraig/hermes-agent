@@ -38,7 +38,7 @@ from gateway.platforms.base import (
 # ---------------------------------------------------------------------------
 
 def _make_event(text="hello", chat_id="123", user_id="user1", user_name="TestUser",
-                platform_val="slack", thread_id="thread-abc"):
+                platform_val="mattermost", thread_id="thread-abc"):
     """Build a MessageEvent for a shared thread."""
     source = SessionSource(
         platform=MagicMock(value=platform_val),
@@ -82,7 +82,7 @@ def _make_runner(authorized_users=None):
     return runner, _AGENT_PENDING_SENTINEL
 
 
-def _make_adapter(platform_val="slack"):
+def _make_adapter(platform_val="mattermost"):
     """Build a minimal adapter mock."""
     adapter = MagicMock()
     adapter._pending_messages = {}
@@ -147,7 +147,7 @@ class TestBusySessionAuthBypass:
         runner._draining = True
         runner._queue_during_drain_enabled = lambda: True
         adapter = _make_adapter()
-        runner.adapters[MagicMock(value="slack")] = adapter
+        runner.adapters[MagicMock(value="mattermost")] = adapter
 
         # Make sure adapters lookup works
         intruder_event = _make_event(text="sneak in", user_id="hacker")

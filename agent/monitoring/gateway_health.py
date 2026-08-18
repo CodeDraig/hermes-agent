@@ -140,8 +140,6 @@ def _safe_instance_id(raw: Any) -> str:
 
 
 def subsystem_for_logger(logger_name: str) -> str:
-    if logger_name == "gateway.relay" or logger_name.startswith("gateway.relay."):
-        return "platform.relay"
     if logger_name.startswith("gateway.platforms."):
         parts = logger_name.split(".")
         if len(parts) >= 3 and parts[2]:

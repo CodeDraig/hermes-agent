@@ -35,8 +35,8 @@ def _ensure_telegram_mock():
 
 _ensure_telegram_mock()
 
-from plugins.platforms.telegram import adapter as tg_adapter  # noqa: E402
-from plugins.platforms.telegram.adapter import TelegramAdapter  # noqa: E402
+from gateway.platforms.telegram import adapter as tg_adapter  # noqa: E402
+from gateway.platforms.telegram.adapter import TelegramAdapter  # noqa: E402
 from gateway.run import GatewayRunner  # noqa: E402
 
 
@@ -45,7 +45,7 @@ def _no_auto_discovery(monkeypatch):
     """Disable DoH auto-discovery so connect() uses the plain builder chain."""
     async def _noop():
         return []
-    monkeypatch.setattr("plugins.platforms.telegram.adapter.discover_fallback_ips", _noop)
+    monkeypatch.setattr("gateway.platforms.telegram.adapter.discover_fallback_ips", _noop)
 
 
 def _make_adapter() -> TelegramAdapter:
@@ -482,7 +482,7 @@ async def test_heartbeat_loop_skips_reconnect_if_already_in_progress():
         raise asyncio.TimeoutError()
 
     with patch("asyncio.sleep", side_effect=fast_sleep):
-        with patch("plugins.platforms.telegram.adapter.asyncio.wait_for", side_effect=timeout_wait_for):
+        with patch("gateway.platforms.telegram.adapter.asyncio.wait_for", side_effect=timeout_wait_for):
             await adapter._polling_heartbeat_loop()
 
     # _handle_polling_network_error must NOT have been called — existing task still running.
@@ -610,7 +610,7 @@ async def test_handle_polling_network_error_updater_stop_timeout():
     # Shrink the stop() watchdog bound so the test completes fast instead of
     # waiting the full _UPDATER_STOP_TIMEOUT. Patching the named constant is
     # cleaner than monkeypatching asyncio.wait_for process-wide.
-    import plugins.platforms.telegram.adapter as _mod
+    import gateway.platforms.telegram.adapter as _mod
 
     with patch.object(_mod, "_UPDATER_STOP_TIMEOUT", 0.05):
         await adapter._handle_polling_network_error(OSError("CLOSE-WAIT test"))

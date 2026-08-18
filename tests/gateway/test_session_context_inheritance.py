@@ -45,7 +45,7 @@ SESSION_VARS = list(_VAR_MAP.keys())
 
 MINE = dict(
     session_key="agent:main:discord:thread:MINE:MINE",
-    platform="discord",
+    platform="mattermost",
     chat_id="MINE_CHAT",
     thread_id="MINE_THREAD",
     user_id="MINE_USER",
@@ -54,7 +54,7 @@ MINE = dict(
 )
 FOREIGN = dict(
     session_key="agent:main:discord:thread:FOREIGN:FOREIGN",
-    platform="discord",
+    platform="mattermost",
     chat_id="FOREIGN_CHAT",
     thread_id="FOREIGN_THREAD",
     user_id="FOREIGN_USER",

@@ -34,15 +34,15 @@ class TestSplitPairingDirMigration:
         new = home / "platforms" / "pairing"
         legacy.mkdir(parents=True)
         new.mkdir(parents=True)
-        (new / "feishu-approved.json").write_text(json.dumps({
+        (new / "mattermost-approved.json").write_text(json.dumps({
             "ou_user": {"user_name": "Alice", "approved_at": 123.0}
         }))
 
         with patch("gateway.pairing.PAIRING_DIR", legacy), patch("gateway.pairing.get_hermes_home", return_value=home):
             store = PairingStore()
-            assert store.is_approved("feishu", "ou_user") is True
+            assert store.is_approved("mattermost", "ou_user") is True
 
-        migrated = json.loads((legacy / "feishu-approved.json").read_text())
+        migrated = json.loads((legacy / "mattermost-approved.json").read_text())
         assert "ou_user" in migrated
 
 
@@ -353,32 +353,6 @@ class TestApprovalFlow:
             assert code != next_code
 
 
-    def test_whatsapp_legacy_raw_jid_approval_survives_alias_flip(self, tmp_path, monkeypatch):
-        mapping_dir = tmp_path / "whatsapp" / "session"
-        mapping_dir.mkdir(parents=True, exist_ok=True)
-        (mapping_dir / "lid-mapping-999999999999999.json").write_text(
-            json.dumps("15551234567@s.whatsapp.net"),
-            encoding="utf-8",
-        )
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-
-        approved_path = tmp_path / "whatsapp-approved.json"
-        approved_path.write_text(
-            json.dumps(
-                {
-                    "15551234567@s.whatsapp.net": {
-                        "user_name": "Legacy Alice",
-                        "approved_at": time.time(),
-                    }
-                },
-                indent=2,
-            ),
-            encoding="utf-8",
-        )
-
-        with patch("gateway.pairing.PAIRING_DIR", tmp_path):
-            store = PairingStore()
-            assert store.is_approved("whatsapp", "999999999999999@lid") is True
 
 
 # ---------------------------------------------------------------------------
@@ -572,7 +546,7 @@ class TestProfileScopedStorage:
             store = PairingStore()
         assert store.profile is None
         assert store._dir == tmp_path
-        assert store._approved_path("weixin") == tmp_path / "weixin-approved.json"
+        assert store._approved_path("telegram") == tmp_path / "telegram-approved.json"
 
     def test_profile_store_uses_profiles_subdir(self, tmp_path, monkeypatch):
         """Explicit profile stores use that profile's normal Hermes layout."""
@@ -581,7 +555,7 @@ class TestProfileScopedStorage:
         assert store.profile == "yangyang"
         expected = tmp_path / "profiles" / "yangyang" / "platforms" / "pairing"
         assert store._dir == expected
-        assert store._approved_path("weixin") == expected / "weixin-approved.json"
+        assert store._approved_path("telegram") == expected / "telegram-approved.json"
         # Auto-creates the directory
         assert expected.is_dir()
 
@@ -649,15 +623,15 @@ class TestProfileScopedStorage:
             profile_store = PairingStore(profile="yangyang")
 
         # Approve in the profile store
-        profile_store._approve_user("weixin", "yangyang_user", "杨洋")
+        profile_store._approve_user("telegram", "yangyang_user", "杨洋")
         # And in the global store, a different user
-        global_store._approve_user("weixin", "global_user", "Default")
+        global_store._approve_user("telegram", "global_user", "Default")
 
         # Cross-isolation: each store only sees its own user
-        assert profile_store.is_approved("weixin", "yangyang_user") is True
-        assert profile_store.is_approved("weixin", "global_user") is False
-        assert global_store.is_approved("weixin", "global_user") is True
-        assert global_store.is_approved("weixin", "yangyang_user") is False
+        assert profile_store.is_approved("telegram", "yangyang_user") is True
+        assert profile_store.is_approved("telegram", "global_user") is False
+        assert global_store.is_approved("telegram", "global_user") is True
+        assert global_store.is_approved("telegram", "yangyang_user") is False
 
     def test_profile_uses_distinct_rate_limit_file(self, tmp_path, monkeypatch):
         """Rate-limit state is per-profile, not shared globally — otherwise
@@ -676,5 +650,4 @@ class TestProfileScopedStorage:
             / "pairing"
             / "_rate_limits.json"
         )
-
 

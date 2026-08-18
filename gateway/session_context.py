@@ -80,12 +80,10 @@ _SESSION_THREAD_ID: ContextVar = ContextVar("HERMES_SESSION_THREAD_ID", default=
 _SESSION_USER_ID: ContextVar = ContextVar("HERMES_SESSION_USER_ID", default=_UNSET)
 _SESSION_USER_ID_ALT: ContextVar = ContextVar("HERMES_SESSION_USER_ID_ALT", default=_UNSET)
 _SESSION_USER_NAME: ContextVar = ContextVar("HERMES_SESSION_USER_NAME", default=_UNSET)
-# Platform-neutral scope discriminator (Discord guild / Slack workspace /
-# Matrix server) of the originating chat. Captured at session-bind time so
+# Platform-neutral workspace/server discriminator of the originating chat.
+# Captured at session-bind time so
 # async producers (delegate_task background=True, terminal watchers) can
-# persist a completion's full routing origin — on a relay-fronted deployment
-# the connector's fail-closed egress guard needs scope_id (or a user binding)
-# to resolve the tenant for a scoped reply after a restart.
+# persist a completion's full routing origin after a restart.
 _SESSION_SCOPE_ID: ContextVar = ContextVar("HERMES_SESSION_SCOPE_ID", default=_UNSET)
 _SESSION_KEY: ContextVar = ContextVar("HERMES_SESSION_KEY", default=_UNSET)
 _SESSION_ID: ContextVar = ContextVar("HERMES_SESSION_ID", default=_UNSET)
@@ -106,7 +104,7 @@ _CRON_SESSION: ContextVar = ContextVar("HERMES_CRON_SESSION", default=_UNSET)
 # back to the agent AFTER the current turn ends (i.e. wake a fresh turn).
 #
 # True  — long-lived CLI sessions (in-process completion_queue drain) and the
-#         real gateway platforms (Telegram/Discord/Slack/...), which hold a
+#         real gateway platforms (Telegram and Mattermost), which hold a
 #         persistent outbound channel and run the watcher/drain loops.
 # False — finite runtimes that can end before a detached completion returns:
 #         stateless API-server requests and dispatcher-spawned Kanban workers.
@@ -395,8 +393,8 @@ def get_session_env(name: str, default: str = "") -> str:
 # value (``telegram``) to HERMES_SESSION_PLATFORM, while the CLI binds
 # HERMES_SESSION_SOURCE (``cli``) and leaves
 # the platform empty — so both have to be consulted. ``local``, ``api_server``,
-# ``webhook``, and ``msgraph_webhook`` are real Platform values that reach
-# HERMES_SESSION_PLATFORM but have no attachment channel behind them.
+# ``api_server`` is a real Platform value that reaches
+# HERMES_SESSION_PLATFORM but has no attachment channel behind it.
 # Default-deny: an unrecognized identity counts as messaging so a newly added
 # chat platform is never treated as a private surface before this set is
 # updated when adding a local or programmatic surface.
@@ -409,9 +407,7 @@ NON_MESSAGING_SESSION_SURFACES = frozenset(
         "gateway",
         "kanban",
         "local",
-        "msgraph_webhook",
         "tool",
-        "webhook",
     }
 )
 

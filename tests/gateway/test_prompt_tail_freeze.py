@@ -2,8 +2,8 @@
 
 The composed system prompt used to change bytes nearly every gateway turn:
 the "## Current Session Context" block was re-rendered from live platform
-state per message (thread renames, voice-channel member/speaking state,
-one-shot onboarding and auto-reset notes).  Every byte change re-keys the
+state per message (thread renames, one-shot onboarding and auto-reset notes).
+Every byte change re-keys the
 provider prompt cache AND changes the gateway agent-cache signature, forcing
 a full AIAgent rebuild per message.
 
@@ -22,8 +22,6 @@ import hashlib
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-import pytest
-
 from gateway.config import GatewayConfig, HomeChannel, Platform, PlatformConfig
 from gateway.session import (
     SessionContext,
@@ -41,7 +39,6 @@ def _make_runner(**attrs):
 
     runner = object.__new__(GatewayRunner)
     runner._session_ephemeral_pin = {}
-    runner._session_vc_last = {}
     runner._pending_turn_sidecar_notes = {}
     runner._session_model_overrides = {}
     runner._session_reasoning_overrides = {}
@@ -54,7 +51,7 @@ def _make_runner(**attrs):
 
 def _make_context(
     *,
-    platform: Platform = Platform.DISCORD,
+    platform: Platform = Platform.TELEGRAM,
     chat_id: str = "111222333",
     chat_name: str = "general",
     chat_type: str = "channel",
@@ -82,11 +79,11 @@ def _make_context(
         scope_id=guild_id,
         message_id=message_id,
     )
-    connected = connected if connected is not None else [Platform.DISCORD, Platform.TELEGRAM]
+    connected = connected if connected is not None else [Platform.TELEGRAM, Platform.MATTERMOST]
     if home_channels is None:
         home_channels = {
-            Platform.DISCORD: HomeChannel(
-                platform=Platform.DISCORD, chat_id="111222333", name="general"
+            Platform.TELEGRAM: HomeChannel(
+                platform=Platform.TELEGRAM, chat_id="111222333", name="general"
             ),
         }
     return SessionContext(
@@ -95,14 +92,6 @@ def _make_context(
         home_channels=home_channels,
         shared_multi_user_session=shared_multi_user,
     )
-
-
-@pytest.fixture(autouse=True)
-def _stable_discord_tools(monkeypatch):
-    """Pin the config/env-dependent renderer gates so key<->render parity is
-    evaluated on the same footing in every environment."""
-    monkeypatch.setattr("gateway.session._discord_tools_loaded", lambda: True)
-    monkeypatch.setattr("gateway.session._slack_tools_loaded", lambda: False)
 
 
 def _key(runner, context, redact_pii=False):
@@ -134,14 +123,14 @@ class TestEphemeralChangeKeyParity:
         ("guild_id", dict(guild_id="123123123")),
         ("parent_chat_id", dict(parent_chat_id="999000111")),
         ("chat_id", dict(chat_id="999999999", parent_chat_id="999999999")),
-        ("platform", dict(platform=Platform.TELEGRAM)),
-        ("connected_platforms", dict(connected=[Platform.DISCORD])),
+        ("platform", dict(platform=Platform.MATTERMOST)),
+        ("connected_platforms", dict(connected=[Platform.TELEGRAM])),
         (
             "home_channel_renamed",
             dict(
                 home_channels={
-                    Platform.DISCORD: HomeChannel(
-                        platform=Platform.DISCORD, chat_id="111222333", name="ops-home"
+                    Platform.TELEGRAM: HomeChannel(
+                        platform=Platform.TELEGRAM, chat_id="111222333", name="ops-home"
                     )
                 }
             ),
@@ -150,11 +139,11 @@ class TestEphemeralChangeKeyParity:
             "home_channel_added",
             dict(
                 home_channels={
-                    Platform.DISCORD: HomeChannel(
-                        platform=Platform.DISCORD, chat_id="111222333", name="general"
-                    ),
                     Platform.TELEGRAM: HomeChannel(
-                        platform=Platform.TELEGRAM, chat_id="tg1", name="tg-home"
+                        platform=Platform.TELEGRAM, chat_id="111222333", name="general"
+                    ),
+                    Platform.MATTERMOST: HomeChannel(
+                        platform=Platform.MATTERMOST, chat_id="mm1", name="mm-home"
                     ),
                 }
             ),
@@ -172,24 +161,24 @@ class TestEphemeralChangeKeyParity:
         assert _key(runner, ctx, False) != _key(runner, ctx, True)
 
 
-    def test_slack_note_byte_stable_across_turns_in_one_session(self):
-        """Within one session (gate state constant), the Slack platform note
+    def test_mattermost_note_byte_stable_across_turns_in_one_session(self):
+        """Within one session, the Mattermost platform note
         must be byte-stable turn over turn — the pin returns the identical
         object, so the composed system prompt cannot drift mid-conversation."""
         runner = _make_runner()
 
-        def _slack_ctx():
+        def _mattermost_ctx():
             return _make_context(
-                platform=Platform.SLACK,
+                platform=Platform.MATTERMOST,
                 chat_id="C123",
                 thread_id=None,
                 parent_chat_id=None,
                 guild_id=None,
             )
 
-        t1 = runner._pinned_session_context_prompt(_slack_ctx(), False, "sk-slack")  # noqa: SLF001
-        t2 = runner._pinned_session_context_prompt(_slack_ctx(), False, "sk-slack")  # noqa: SLF001
-        t3 = runner._pinned_session_context_prompt(_slack_ctx(), False, "sk-slack")  # noqa: SLF001
+        t1 = runner._pinned_session_context_prompt(_mattermost_ctx(), False, "sk-mattermost")  # noqa: SLF001
+        t2 = runner._pinned_session_context_prompt(_mattermost_ctx(), False, "sk-mattermost")  # noqa: SLF001
+        t3 = runner._pinned_session_context_prompt(_mattermost_ctx(), False, "sk-mattermost")  # noqa: SLF001
         assert t2 is t1 and t3 is t1
         assert hashlib.sha256(t1.encode()).hexdigest() == hashlib.sha256(t3.encode()).hexdigest()
 
@@ -237,65 +226,7 @@ class TestComposedPromptByteStability:
 
 
 # ---------------------------------------------------------------------------
-# 4. Voice-channel sidecar note: only-when-changed
-# ---------------------------------------------------------------------------
-
-def _source():
-    return SessionSource(
-        platform=Platform.DISCORD, chat_id="c1", chat_type="channel", user_id="u1"
-    )
-
-
-class _VcAdapter:
-    def __init__(self, value):
-        self.value = value
-
-    def get_voice_channel_context(self, guild_id):
-        return self.value
-
-
-def _vc_runner(vc_value):
-    adapter = _VcAdapter(vc_value)
-    runner = _make_runner(adapters={Platform.DISCORD: adapter})
-    return runner, adapter
-
-
-def _vc_event():
-    return SimpleNamespace(raw_message=SimpleNamespace(guild_id="777"))
-
-
-class TestVoiceChannelSidecarNote:
-    def test_first_sighting_injects(self):
-        runner, _ = _vc_runner("**Voice:** dev-vc (2 members)")
-        note = runner._voice_channel_sidecar_note(_vc_event(), _source(), "sk")  # noqa: SLF001
-        assert note == "[Voice channel now: **Voice:** dev-vc (2 members)]"
-
-    def test_unchanged_state_injects_nothing(self):
-        runner, _ = _vc_runner("**Voice:** dev-vc (2 members)")
-        assert runner._voice_channel_sidecar_note(_vc_event(), _source(), "sk")  # noqa: SLF001
-        assert runner._voice_channel_sidecar_note(_vc_event(), _source(), "sk") is None  # noqa: SLF001
-
-    def test_member_change_injects_again(self):
-        runner, adapter = _vc_runner("**Voice:** dev-vc (2 members)")
-        runner._voice_channel_sidecar_note(_vc_event(), _source(), "sk")  # noqa: SLF001
-        adapter.value = "**Voice:** dev-vc (3 members)"
-        note = runner._voice_channel_sidecar_note(_vc_event(), _source(), "sk")  # noqa: SLF001
-        assert note == "[Voice channel now: **Voice:** dev-vc (3 members)]"
-
-    def test_leaving_channel_injects_disconnect_note(self):
-        runner, adapter = _vc_runner("**Voice:** dev-vc (2 members)")
-        runner._voice_channel_sidecar_note(_vc_event(), _source(), "sk")  # noqa: SLF001
-        adapter.value = ""
-        note = runner._voice_channel_sidecar_note(_vc_event(), _source(), "sk")  # noqa: SLF001
-        assert note == "[Voice channel now: not connected to a voice channel]"
-
-    def test_never_in_channel_injects_nothing(self):
-        runner, _ = _vc_runner("")
-        assert runner._voice_channel_sidecar_note(_vc_event(), _source(), "sk") is None  # noqa: SLF001
-
-
-# ---------------------------------------------------------------------------
-# 5. Sidecar note staging: one-shot per turn
+# 4. Sidecar note staging: one-shot per turn
 # ---------------------------------------------------------------------------
 
 class TestSidecarNoteStaging:
@@ -315,12 +246,12 @@ class TestConnectedPlatformsOrder:
         cfg_a = GatewayConfig(
             platforms={
                 Platform.TELEGRAM: PlatformConfig(enabled=True, token="t"),
-                Platform.DISCORD: PlatformConfig(enabled=True, token="d"),
+                Platform.MATTERMOST: PlatformConfig(enabled=True, token="d"),
             }
         )
         cfg_b = GatewayConfig(
             platforms={
-                Platform.DISCORD: PlatformConfig(enabled=True, token="d"),
+                Platform.MATTERMOST: PlatformConfig(enabled=True, token="d"),
                 Platform.TELEGRAM: PlatformConfig(enabled=True, token="t"),
             }
         )

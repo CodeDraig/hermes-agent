@@ -1054,12 +1054,6 @@ def _prepare_deferred_agent_startup() -> None:
 
         _hooks_cfg = load_config()
         register_from_config(_hooks_cfg, accept_hooks=_accept_hooks)
-
-        from agent.outbound_webhooks import (
-            register_from_config as register_outbound_webhooks,
-        )
-
-        register_outbound_webhooks(_hooks_cfg)
     except Exception:
         logger.debug(
             "shell-hook registration failed at deferred CLI startup",
@@ -11150,9 +11144,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
             
             platform_status = {
                 Platform.TELEGRAM: ("Telegram", "TELEGRAM_BOT_TOKEN"),
-                Platform.DISCORD: ("Discord", "DISCORD_BOT_TOKEN"),
-                Platform.SLACK: ("Slack", "SLACK_BOT_TOKEN"),
-                Platform.WHATSAPP: ("WhatsApp", "WHATSAPP_ENABLED"),
+                Platform.MATTERMOST: ("Mattermost", "MATTERMOST_BOT_TOKEN"),
             }
             
             for platform, (name, env_var) in platform_status.items():
@@ -11185,7 +11177,8 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
             print("  To configure the gateway:")
             print("    1. Set environment variables:")
             print("       TELEGRAM_BOT_TOKEN=your_token")
-            print("       DISCORD_BOT_TOKEN=your_token")
+            print("       MATTERMOST_TOKEN=your_token")
+            print("       MATTERMOST_URL=https://mattermost.example.com")
             print(f"    2. Or configure settings in {display_hermes_home()}/config.yaml")
             print()
     

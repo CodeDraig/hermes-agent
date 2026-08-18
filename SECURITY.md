@@ -171,12 +171,9 @@ authorization model, but the rules below apply uniformly.
 
 **Surfaces in Hermes Agent:**
 
-- **Gateway platform adapters.** Most messaging integrations ship as
-  bundled plugins under `plugins/platforms/<name>/` (Telegram, Discord,
-  Slack, email, SMS, etc.). Shared base types and a smaller set of
-  legacy/direct adapters live under `gateway/platforms/`
-  (`base.py`, Signal, API server, webhooks, …), with discovery and
-  deferred loading via `gateway/platform_registry.py`.
+- **Gateway platform adapters.** Telegram, Mattermost, and the
+  OpenAI-compatible API server live under `gateway/platforms/` and are wired
+  directly by the gateway.
 - **Network-exposed HTTP surfaces.** The API server adapter and any plugin
   that binds a listening socket.
 - **Editor / IDE adapters.** The ACP adapter (`acp_adapter/`) and

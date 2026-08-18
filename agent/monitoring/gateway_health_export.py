@@ -307,8 +307,7 @@ def _read_background_work_count() -> int:
     ``hermes.gateway.active_agents`` counts foreground turns + in-flight cron
     jobs + API runs, but deliberately excludes backgrounded ``delegate_task``
     subagents, ``terminal(background=true)`` processes, kanban workers, and the
-    runner's own background tasks (they are tracked only for the scale-to-zero
-    suspend guard, ``_scale_to_zero_has_live_background_work``). Without this
+    runner's own background tasks. Without this
     metric a peer churning through delegated subagents shows ``active_agents=0``
     on the fleet dashboard. Best-effort and content-free: a single integer,
     no job/task identity. Returns 0 if a source can't be imported.

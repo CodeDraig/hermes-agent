@@ -15,10 +15,10 @@ class TestIsSetupHiddenEnv:
     @pytest.mark.parametrize(
         "key",
         [
-            "DISCORD_HOME_CHANNEL",
-            "DISCORD_HOME_CHANNEL_NAME",
-            "DISCORD_ALLOW_ALL_USERS",
-            "DISCORD_REPLY_TO_MODE",
+            "TELEGRAM_HOME_CHANNEL",
+            "TELEGRAM_HOME_CHANNEL_NAME",
+            "TELEGRAM_ALLOW_ALL_USERS",
+            "TELEGRAM_REPLY_TO_MODE",
             "MATTERMOST_REPLY_MODE",
             "TELEGRAM_PROXY",
         ],
@@ -27,82 +27,17 @@ class TestIsSetupHiddenEnv:
         assert is_setup_hidden_env(key)
 
 
-    def test_applies_to_plugin_platforms_nobody_enumerated(self):
-        """Suffix matching is the point — IRC/SimpleX/ntfy get this for free."""
-        for key in (
-            "IRC_ALLOW_ALL_USERS",
-            "SIMPLEX_HOME_CHANNEL",
-            "NTFY_HOME_CHANNEL_NAME",
-            "LINE_ALLOW_ALL_USERS",
-        ):
-            assert is_setup_hidden_env(key), key
-
-
-class TestCliWizard:
-    """`hermes setup gateway` drops the same knobs. Real wizard, scripted
-    stdin, real .env writes under a temp HERMES_HOME."""
-
-    @pytest.fixture
-    def home(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-        return tmp_path
-
-    def _run(self, answers, monkeypatch):
-        import io
-
-        from hermes_cli import gateway as gw
-
-        platform = next(p for p in gw._PLATFORMS if p["key"] == "mattermost")
-        monkeypatch.setattr("sys.stdin", io.StringIO("\n".join(answers) + "\n"))
-        gw._setup_standard_platform(dict(platform))
-
-    def _env(self, home):
-        path = home / ".env"
-        if not path.exists():
-            return {}
-        out = {}
-        for line in path.read_text().splitlines():
-            line = line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                k, v = line.split("=", 1)
-                out[k] = v
-        return out
-
-    def test_wizard_stops_asking_about_hidden_knobs(self, home, monkeypatch, capsys):
-        # Only the three real answers. If the wizard still prompted for the
-        # home channel it would read past them.
-        self._run(
-            ["https://mm.example.com", "tok-abc", "user26charid"], monkeypatch
-        )
-
-        written = self._env(home)
-        assert written.get("MATTERMOST_URL") == "https://mm.example.com"
-        assert written.get("MATTERMOST_TOKEN") == "tok-abc"
-        assert "MATTERMOST_HOME_CHANNEL" not in written
-        assert "MATTERMOST_REPLY_MODE" not in written
-
-        out = capsys.readouterr().out
-        assert "Home channel" not in out
-        assert "Reply mode" not in out
-
-    def test_required_token_still_gates_setup(self, home, monkeypatch):
-        """Proves the token wasn't swept out along with the knobs."""
-        self._run(["https://mm.example.com", ""], monkeypatch)
-
-        assert "MATTERMOST_TOKEN" not in self._env(home)
-
-
 class TestStillConfigurable:
     def test_gateway_still_honors_the_env_vars(self, tmp_path, monkeypatch):
         """Nothing was removed from the product — only from the setup form."""
         monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-        monkeypatch.setenv("DISCORD_BOT_TOKEN", "t")
-        monkeypatch.setenv("DISCORD_HOME_CHANNEL", "999")
-        monkeypatch.setenv("DISCORD_REPLY_TO_MODE", "off")
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123:t")
+        monkeypatch.setenv("TELEGRAM_HOME_CHANNEL", "999")
+        monkeypatch.setenv("TELEGRAM_REPLY_TO_MODE", "off")
 
         from gateway.config import Platform, load_gateway_config
 
-        discord = load_gateway_config().platforms[Platform.DISCORD]
-        assert discord.home_channel is not None
-        assert discord.home_channel.chat_id == "999"
-        assert discord.reply_to_mode == "off"
+        telegram = load_gateway_config().platforms[Platform.TELEGRAM]
+        assert telegram.home_channel is not None
+        assert telegram.home_channel.chat_id == "999"
+        assert telegram.reply_to_mode == "off"

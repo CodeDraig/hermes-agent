@@ -2,9 +2,8 @@
 
 Every messaging platform ships the same handful of knobs that are either set
 for the user later or already correct by default. Listing them on a setup form
-turns "paste your bot token" into a five-field interrogation where none of the
-answers are discoverable — the Discord card asked for a home channel ID you
-need Developer Mode to copy, next to a reply-threading preference.
+turns "paste your bot token" into a five-field interrogation where many
+answers are not discoverable during first-run setup.
 
 Hiding them is a *presentation* decision only. The env vars keep working
 through ``hermes config set``, ``.env``, and ``config.yaml``; the gateway reads
@@ -14,8 +13,8 @@ setup.
 Lives in a small dependency-free module so setup callers can share it.
 """
 
-# Suffix match, so plugin adapters nobody enumerated (IRC, SimpleX, LINE, ntfy)
-# get the same treatment without a code change here.
+# Suffix matching keeps the retained adapters consistent without duplicating
+# each environment-variable spelling.
 #
 #   *_HOME_CHANNEL*        the bot offers /sethome on the first chat
 #   *_ALLOW_ALL_USERS      defaults off; enabling it is a security decision

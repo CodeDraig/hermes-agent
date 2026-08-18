@@ -29,20 +29,20 @@ incoming `MessageEvent` and used for routing, isolation, and context injection.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `platform` | `Platform` | *(required)* | Enum identifying the messaging platform (telegram, discord, slack, signal, whatsapp, matrix, local, etc.). |
+| `platform` | `Platform` | *(required)* | Enum identifying Telegram, Mattermost, API server, or local CLI. |
 | `chat_id` | `str` | *(required)* | Platform-level chat/group/channel identifier. Routed through the adapter's `chat_id_key` transform. |
 | `chat_name` | `Optional[str]` | `None` | Human-readable name of the chat or group. |
 | `chat_type` | `str` | `"dm"` | One of `"dm"`, `"group"`, `"channel"`, `"thread"`. Controls session key generation and isolation. |
 | `user_id` | `Optional[str]` | `None` | Platform-specific user identifier. Used for authorization and per-user session isolation. |
 | `user_name` | `Optional[str]` | `None` | Display name of the message author. Injected into system prompt. |
-| `thread_id` | `Optional[str]` | `None` | Forum topic / Discord thread / Slack thread identifier. Differentiates threaded conversations. |
-| `chat_topic` | `Optional[str]` | `None` | Channel topic or description (Discord channel topic, Slack channel purpose). |
-| `user_id_alt` | `Optional[str]` | `None` | Platform-specific stable alternative ID (Signal UUID, Feishu union_id). Used when `user_id` is ephemeral. |
-| `chat_id_alt` | `Optional[str]` | `None` | Signal group internal ID — maps a Signal group V2 identifier to its canonical form. |
-| `is_bot` | `bool` | `False` | True when the message author is a bot or webhook (Discord bots). |
-| `guild_id` | `Optional[str]` | `None` | Discord guild / Slack workspace / Matrix server scope identifier. |
+| `thread_id` | `Optional[str]` | `None` | Telegram topic or Mattermost thread identifier. |
+| `chat_topic` | `Optional[str]` | `None` | Channel topic or description. |
+| `user_id_alt` | `Optional[str]` | `None` | Optional platform-stable alternative user identifier. |
+| `chat_id_alt` | `Optional[str]` | `None` | Optional alternative chat identifier. |
+| `is_bot` | `bool` | `False` | True when the message author is a bot. |
+| `scope_id` | `Optional[str]` | `None` | Platform-neutral workspace/server identifier. |
 | `parent_chat_id` | `Optional[str]` | `None` | Parent channel when `chat_id` refers to a thread. |
-| `message_id` | `Optional[str]` | `None` | ID of the triggering message. Used for pin/reply/react operations and Discord ID injection. |
+| `message_id` | `Optional[str]` | `None` | ID of the triggering message. Used for reply and reaction operations. |
 | `role_authorized` | `bool` | `False` | True when adapter granted access via a platform role (not individual user ID). |
 
 ### Key Methods
@@ -221,9 +221,8 @@ agent:main:{platform}:{chat_type}[:{chat_id}][:{thread_id}][:{participant_id}]
 |---|---|
 | DM with chat_id | `agent:main:telegram:dm:12345` |
 | DM with chat_id + thread | `agent:main:telegram:dm:12345:thread_678` |
-| DM without chat_id, with participant_id | `agent:main:signal:dm:user_abc` |
+| DM without chat_id, with participant_id | `agent:main:mattermost:dm:user_abc` |
 | DM without chat_id or participant_id | `agent:main:telegram:dm` |
-| WhatsApp DM (canonicalized) | `agent:main:whatsapp:dm:{canonical_number}` |
 
 - DMs always include `chat_id` when present, isolating each private conversation.
 - `thread_id` further differentiates threaded DMs within the same DM chat.
@@ -236,28 +235,17 @@ agent:main:{platform}:{chat_type}[:{chat_id}][:{thread_id}][:{participant_id}]
 |---|---|
 | Group chat | `agent:main:telegram:group:-10012345` |
 | Group chat, per-user isolation | `agent:main:telegram:group:-10012345:user_abc` |
-| Thread in group, shared | `agent:main:discord:group:12345:thread_678` |
-| Thread in group, per-user | `agent:main:discord:group:12345:thread_678:user_abc` |
-| Channel | `agent:main:slack:channel:C12345` |
-| WhatsApp group (canonicalized) | `agent:main:whatsapp:group:{canonical_id}:{participant}` |
+| Thread in group, shared | `agent:main:mattermost:group:12345:thread_678` |
+| Thread in group, per-user | `agent:main:mattermost:group:12345:thread_678:user_abc` |
+| Channel | `agent:main:mattermost:channel:C12345` |
 
 - `chat_id` identifies the parent group/channel.
 - `thread_id` differentiates threads within that parent.
 - **Per-user isolation** (append `participant_id`) is controlled by:
   - `group_sessions_per_user` (default: `True`) — group/channel sessions are isolated.
   - `thread_sessions_per_user` (default: `False`) — threads are **shared** by default
-    (Telegram forum topics, Discord threads, Slack threads all share one session per thread).
+    (Telegram topics and Mattermost threads share one session per thread).
 - `participant_id` = `user_id_alt` or `user_id` (in that priority).
-- WhatsApp identifiers are canonicalized to handle JID/LID alias flips.
-
-### Special Case: WhatApp
-
-WhatsApp phone numbers go through `canonical_whatsapp_identifier()` which strips the
-`@s.whatsapp.net` suffix and normalizes to E.164 format. This prevents session fragmentation
-when the bridge returns different alias forms of the same phone number.
-
----
-
 ## 5. Multi-User Isolation Strategy
 
 Multi-user isolation determines whether multiple users in the same chat share a conversation
@@ -280,7 +268,7 @@ def is_shared_multi_user_session(source, *, group_sessions_per_user, thread_sess
 |---|---|---|
 | DM | Private (never shared) | N/A |
 | Group/Channel | Per-user isolation | `group_sessions_per_user` (default: True) |
-| Thread (forum, discord) | Shared (all participants see same context) | `thread_sessions_per_user` (default: False) |
+| Thread/topic | Shared (all participants see same context) | `thread_sessions_per_user` (default: False) |
 
 ### Impact on System Prompt
 
@@ -322,7 +310,7 @@ if entry.updated_at < today_reset: return "daily"
 
 Reset policies are configurable per platform and session type via `config.get_reset_policy()`.
 This allows different platforms to have different expiry rules (e.g., Telegram DMs reset
-after 24h idle, but Slack groups persist indefinitely).
+after 24h idle, but Mattermost groups persist indefinitely).
 
 ### Exclusions
 
@@ -528,8 +516,7 @@ personally identifiable information before sending to the LLM:
 
 - User IDs → `user_<12hex>` (SHA-256 prefix)
 - Chat IDs → `<platform>:<12hex>` or just `<12hex>`
-- Platforms excluded from redaction: Discord (needs raw IDs for `@mentions`),
-  and any plugin-registered platform not marked `pii_safe`.
+- Platforms outside the PII-safe set keep raw IDs when their mention syntax requires them.
 
 Redaction applies only to the system prompt text. Routing, session keys, and adapter
 operations always use the original values.

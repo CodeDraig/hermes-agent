@@ -41,7 +41,6 @@ def _runner_with_adapter(send_voice_mock):
     runner = object.__new__(GatewayRunner)
     adapter = SimpleNamespace(
         send_voice=send_voice_mock,
-        is_in_voice_channel=lambda *_a, **_k: False,
     )
     runner.adapters = {Platform.TELEGRAM: adapter}
     return runner

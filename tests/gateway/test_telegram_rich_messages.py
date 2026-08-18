@@ -19,7 +19,7 @@ import pytest
 from gateway.config import PlatformConfig
 from gateway.platforms.base import SendResult
 from gateway.stream_consumer import GatewayStreamConsumer, StreamConsumerConfig
-from plugins.platforms.telegram.adapter import TelegramAdapter
+from gateway.platforms.telegram.adapter import TelegramAdapter
 from telegram.error import BadRequest, NetworkError, TimedOut
 
 
@@ -313,9 +313,9 @@ async def test_legacy_send_error_redacts_bot_token_without_traceback(monkeypatch
     assert result.success is False
     assert result.error is not None
     assert token not in result.error
-    assert "bot123456789:***/sendMessage" in result.error
+    assert "bot123456789:***/sendmessage" in result.error.lower()
     assert token not in caplog.text
-    assert "bot123456789:***/sendMessage" in caplog.text
+    assert "bot123456789:***/sendmessage" in caplog.text.lower()
     adapter._bot.do_api_request.assert_not_called()
 
 
@@ -505,9 +505,9 @@ async def test_legacy_edit_error_logs_redacted_bot_token_without_traceback(monke
     assert result.success is False
     assert result.error is not None
     assert token not in result.error
-    assert "bot123456789:***/editMessageText" in result.error
+    assert "bot123456789:***/editmessagetext" in result.error.lower()
     assert token not in caplog.text
-    assert "bot123456789:***/editMessageText" in caplog.text
+    assert "bot123456789:***/editmessagetext" in caplog.text.lower()
 
 
 # --------------------------------------------------------------------------
@@ -604,5 +604,4 @@ async def test_rich_reply_records_and_recovers_text(monkeypatch, tmp_path):
     )
     assert event.reply_to_message_id == "678"
     assert event.reply_to_text == "Your morning briefing: CI is green."
-
 

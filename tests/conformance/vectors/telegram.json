@@ -2,7 +2,7 @@
   "$comment": "GENERATED — do not hand-edit. Regenerate with hermes-agent scripts/generate_conformance_vectors.py; the native renderers are the oracle (executable spec).",
   "oracle": {
     "repo": "NousResearch/hermes-agent",
-    "commit": "40eebc7d70f3d8e95c429c8aa482f31ba6c867f6",
+    "commit": "074790c54237346b70a0cc5e6f7a3ff66d1c00c3",
     "generator": "scripts/generate_conformance_vectors.py",
     "generator_version": 1
   },
@@ -192,28 +192,28 @@
       "native_output": "Array\\[0\\] and dict\\{key\\} and \\(parens\\) live here\\."
     },
     {
-      "id": "slack-bold-conversion",
+      "id": "bold-conversion",
       "category": "scar",
       "expect": "semantic",
       "input": "**important** word",
       "native_output": "*important* word"
     },
     {
-      "id": "slack-link-conversion",
+      "id": "link-conversion",
       "category": "scar",
       "expect": "semantic",
       "input": "[click here](https://example.com)",
       "native_output": "[click here](https://example.com)"
     },
     {
-      "id": "slack-broadcast-mention",
+      "id": "broadcast-mention",
       "category": "scar",
       "expect": "semantic",
       "input": "Hey <!everyone> and <!channel> and <!here>!",
       "native_output": "Hey <\\!everyone\\> and <\\!channel\\> and <\\!here\\>\\!"
     },
     {
-      "id": "fence-lang-tag-slack",
+      "id": "fence-language-tag",
       "category": "scar",
       "expect": "semantic",
       "input": "```text\nliteral first line issue\n```",

@@ -35,6 +35,12 @@ def test_session_store_default_db_uses_runtime_hermes_home(tmp_path, monkeypatch
     fake_home = tmp_path / "alt_hermes_home"
     fake_home.mkdir()
     monkeypatch.setenv("HERMES_HOME", str(fake_home))
+    import hermes_state
+    monkeypatch.setattr(
+        hermes_state, "DEFAULT_DB_PATH", hermes_state._IMPORT_DEFAULT_DB_PATH
+    )
+    from hermes_constants import reset_hermes_home_override, set_hermes_home_override
+    token = set_hermes_home_override(fake_home)
 
     with patch("gateway.session.SessionStore._ensure_loaded"):
         store = SessionStore(sessions_dir=tmp_path / "sessions", config=config)
@@ -45,6 +51,7 @@ def test_session_store_default_db_uses_runtime_hermes_home(tmp_path, monkeypatch
     finally:
         if store._db is not None:
             store._db.close()
+        reset_hermes_home_override(token)
 
 
 def _make_store(tmp_path, max_age_days: int = 90, has_active_processes_fn=None):
@@ -246,8 +253,8 @@ class TestReadmeSentinel:
 
     def test_save_writes_readme_sentinel_first(self, tmp_path):
         store = _make_store(tmp_path)
-        store._entries["agent:main:whatsapp:dm:99"] = _entry(
-            "agent:main:whatsapp:dm:99", age_days=1
+        store._entries["agent:main:mattermost:dm:99"] = _entry(
+            "agent:main:mattermost:dm:99", age_days=1
         )
         store._save()
 
@@ -258,4 +265,3 @@ class TestReadmeSentinel:
         # The note points users at the real store and command.
         assert "state.db" in raw["_README"]
         assert "hermes sessions list" in raw["_README"]
-

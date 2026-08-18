@@ -36,7 +36,7 @@ def store(tmp_path, monkeypatch):
     return s
 
 
-def _dm_source(platform=Platform.SLACK, chat_id="D123", thread_id=None, user_id="U1"):
+def _dm_source(platform=Platform.MATTERMOST, chat_id="D123", thread_id=None, user_id="U1"):
     return SessionSource(
         platform=platform,
         chat_id=chat_id,
@@ -46,7 +46,7 @@ def _dm_source(platform=Platform.SLACK, chat_id="D123", thread_id=None, user_id=
     )
 
 
-def _group_source(platform=Platform.SLACK, chat_id="C456", thread_id=None, user_id="U1"):
+def _group_source(platform=Platform.MATTERMOST, chat_id="C456", thread_id=None, user_id="U1"):
     return SessionSource(
         platform=platform,
         chat_id=chat_id,
@@ -99,7 +99,7 @@ class TestDMThreadIsolationEdgeCases:
 class TestDMThreadIsolationCrossPlatform:
     """Verify thread isolation is consistent across all platforms."""
 
-    @pytest.mark.parametrize("platform", [Platform.SLACK, Platform.TELEGRAM, Platform.DISCORD])
+    @pytest.mark.parametrize("platform", [Platform.MATTERMOST, Platform.TELEGRAM, Platform.TELEGRAM])
     def test_thread_starts_empty_across_platforms(self, store, platform):
         """DM thread sessions start empty regardless of platform."""
         parent_source = _dm_source(platform=platform)

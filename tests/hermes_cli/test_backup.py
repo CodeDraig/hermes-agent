@@ -1114,7 +1114,7 @@ class TestQuickSnapshot:
         (home / ".env").write_text("OPENROUTER_API_KEY=test-key-123\n")
         (home / "auth.json").write_text('{"providers": {}}\n')
         (home / "channel_aliases.json").write_text(
-            '{"whatsapp": {"120363408391911677@g.us": "general"}}\n'
+            '{"telegram": {"120363408391911677@g.us": "general"}}\n'
         )
         (home / "cron").mkdir()
         (home / "cron" / "jobs.json").write_text('{"jobs": []}\n')
@@ -1185,17 +1185,13 @@ class TestQuickSnapshot:
         (hermes_home / "platforms" / "pairing" / "telegram-approved.json").write_text(
             '{"12345": {"user_name": "alice"}}'
         )
-        (hermes_home / "platforms" / "pairing" / "discord-approved.json").write_text(
+        (hermes_home / "platforms" / "pairing" / "mattermost-approved.json").write_text(
             '{"67890": {"user_name": "bob"}}'
         )
         # Legacy pairing store (old location)
         (hermes_home / "pairing").mkdir()
-        (hermes_home / "pairing" / "matrix-approved.json").write_text(
-            '{"@charlie:server": {"user_name": "charlie"}}'
-        )
-        # Feishu's separate JSON
-        (hermes_home / "feishu_comment_pairing.json").write_text(
-            '{"doc_abc": {"allow_from": ["user_xyz"]}}'
+        (hermes_home / "pairing" / "mattermost-approved.json").write_text(
+            '{"user-charlie": {"user_name": "charlie"}}'
         )
 
         snap_id = create_quick_snapshot(hermes_home=hermes_home)
@@ -1203,17 +1199,15 @@ class TestQuickSnapshot:
 
         snap_dir = hermes_home / "state-snapshots" / snap_id
         assert (snap_dir / "platforms" / "pairing" / "telegram-approved.json").exists()
-        assert (snap_dir / "platforms" / "pairing" / "discord-approved.json").exists()
-        assert (snap_dir / "pairing" / "matrix-approved.json").exists()
-        assert (snap_dir / "feishu_comment_pairing.json").exists()
+        assert (snap_dir / "platforms" / "pairing" / "mattermost-approved.json").exists()
+        assert (snap_dir / "pairing" / "mattermost-approved.json").exists()
 
         with open(snap_dir / "manifest.json") as f:
             meta = json.load(f)
         files = meta["files"]
         assert "platforms/pairing/telegram-approved.json" in files
-        assert "platforms/pairing/discord-approved.json" in files
-        assert "pairing/matrix-approved.json" in files
-        assert "feishu_comment_pairing.json" in files
+        assert "platforms/pairing/mattermost-approved.json" in files
+        assert "pairing/mattermost-approved.json" in files
 
 
 
@@ -1663,6 +1657,5 @@ class TestMemoryProviderExternalPaths:
         assert (restored.stat().st_mode & 0o777) == 0o600
         # External state did NOT leak into HERMES_HOME.
         assert not (hermes_home / "_external").exists()
-
 
 

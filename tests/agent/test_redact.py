@@ -419,10 +419,8 @@ class TestJWTTokens:
 
 
 
-class TestDiscordMentions:
-    """Discord mention snowflakes (<@ID> / <@!ID>) are public syntax, not
-    secrets — they must pass through the redactor unchanged so multi-bot
-    @-pings (DISCORD_ALLOW_BOTS=mentions) keep resolving. See issue #35611."""
+class TestAngleBracketMentions:
+    """Public ``<@ID>`` mention syntax is not a secret and remains unchanged."""
 
     def test_normal_mention_passes_through(self):
         text = "Hello <@222589316709220353>"

@@ -111,7 +111,6 @@ def _runner(session_store):
     runner._provider_routing = {}
     runner._fallback_model = None
     runner._draining = False
-    runner._get_proxy_url = lambda: None
     runner._resolve_session_agent_runtime = lambda **_kwargs: (
         "gpt-5.4",
         {"provider": "openai-codex", "api_mode": "codex_responses", "base_url": "https://chatgpt.com/backend-api/codex", "api_key": "token"},
@@ -281,5 +280,4 @@ class _ProviderSwitchAgent(_CompressionThenFailureAgent):
             ],
             "api_calls": 1,
         }
-
 

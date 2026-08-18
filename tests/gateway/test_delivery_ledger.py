@@ -28,11 +28,11 @@ def _fresh_db(tmp_path, monkeypatch):
     yield
 
 
-def _record(oid="ob-1", session_key="agent:main:slack:channel:C1", **kw):
+def _record(oid="ob-1", session_key="agent:main:mattermost:channel:C1", **kw):
     dl.record_obligation(
         obligation_id=oid,
         session_key=session_key,
-        platform=kw.get("platform", "slack"),
+        platform=kw.get("platform", "mattermost"),
         chat_id=kw.get("chat_id", "C1"),
         thread_id=kw.get("thread_id", "171.001"),
         content=kw.get("content", "the final answer"),
@@ -151,7 +151,7 @@ class TestGatewayRedeliverySweep:
         from gateway.run import GatewayRunner
 
         runner = object.__new__(GatewayRunner)
-        runner.adapters = {Platform.SLACK: adapter} if adapter else {}
+        runner.adapters = {Platform.MATTERMOST: adapter} if adapter else {}
         _store = MagicMock()
         _store.clear_resume_pending = AsyncMock()
         _store._store = None
@@ -182,7 +182,7 @@ class TestGatewayRedeliverySweep:
         assert sent["metadata"] == {"thread_id": "171.001"}
         assert _row("ob-1")["state"] == "delivered"
         runner._async_session_store.clear_resume_pending.assert_awaited_once_with(
-            "agent:main:slack:channel:C1"
+            "agent:main:mattermost:channel:C1"
         )
 
     @pytest.mark.asyncio
@@ -241,7 +241,7 @@ class TestAttemptsOnlySpentOnRealSends:
 
         for _ in range(dl.MAX_ATTEMPTS + 2):
             _orphan("ob-1")
-            assert dl.sweep_recoverable(deliverable_platforms={"discord"}) == []
+            assert dl.sweep_recoverable(deliverable_platforms={"mattermost"}) == []
 
         row = dl.debug_rows()
         assert "abandoned" not in row
@@ -257,7 +257,7 @@ class TestAttemptsOnlySpentOnRealSends:
         _record(platform="telegram")
         for _ in range(dl.MAX_ATTEMPTS + 2):
             _orphan("ob-1")
-            dl.sweep_recoverable(deliverable_platforms={"discord"})
+            dl.sweep_recoverable(deliverable_platforms={"mattermost"})
 
         _orphan("ob-1")
         claimed = dl.sweep_recoverable(deliverable_platforms={"telegram"})
@@ -270,11 +270,11 @@ class TestUnconnectedPlatformKeepsItsBudget:
     connect must not consume the row's redelivery budget."""
 
     @staticmethod
-    def _runner_without_slack():
+    def _runner_without_mattermost():
         from gateway.run import GatewayRunner
 
         runner = object.__new__(GatewayRunner)
-        runner.adapters = {}  # slack failed to connect this boot
+        runner.adapters = {}  # Mattermost failed to connect this boot
         _store = MagicMock()
         _store.clear_resume_pending = AsyncMock()
         _store._store = None
@@ -284,12 +284,12 @@ class TestUnconnectedPlatformKeepsItsBudget:
 
     @pytest.mark.asyncio
     async def test_row_survives_boots_where_its_platform_is_down(self):
-        _record(platform="slack")
+        _record(platform="mattermost")
         dl.mark_attempting("ob-1")
 
         for _ in range(dl.MAX_ATTEMPTS + 1):
             _orphan("ob-1")
-            runner = self._runner_without_slack()
+            runner = self._runner_without_mattermost()
             assert await runner._redeliver_pending_obligations() == 0
 
         assert _row("ob-1")["state"] != "abandoned", (

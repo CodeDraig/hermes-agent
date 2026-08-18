@@ -3,8 +3,6 @@ Tests for media download retry logic added in PR #2982.
 
 Covers:
 - gateway/platforms/base.py:       cache_image_from_url
-- gateway/platforms/slack.py:      SlackAdapter._download_slack_file
-                                    SlackAdapter._download_slack_file_bytes
 - gateway/platforms/mattermost.py: MattermostAdapter._send_url_as_file
 
 All async tests use asyncio.run() directly — pytest-asyncio is not installed
@@ -13,7 +11,6 @@ in this environment.
 
 import asyncio
 import socket
-import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -322,156 +319,7 @@ class TestSSRFRedirectGuard:
             asyncio.run(run())
 
 
-# ---------------------------------------------------------------------------
-# Slack mock setup (mirrors existing test_slack.py approach)
-# ---------------------------------------------------------------------------
-
-def _ensure_slack_mock():
-    if "slack_bolt" in sys.modules and hasattr(sys.modules["slack_bolt"], "__file__"):
-        return
-    slack_bolt = MagicMock()
-    slack_bolt.async_app.AsyncApp = MagicMock
-    slack_bolt.adapter.socket_mode.async_handler.AsyncSocketModeHandler = MagicMock
-    slack_sdk = MagicMock()
-    slack_sdk.web.async_client.AsyncWebClient = MagicMock
-    for name, mod in [
-        ("slack_bolt", slack_bolt),
-        ("slack_bolt.async_app", slack_bolt.async_app),
-        ("slack_bolt.adapter", slack_bolt.adapter),
-        ("slack_bolt.adapter.socket_mode", slack_bolt.adapter.socket_mode),
-        ("slack_bolt.adapter.socket_mode.async_handler",
-         slack_bolt.adapter.socket_mode.async_handler),
-        ("slack_sdk", slack_sdk),
-        ("slack_sdk.web", slack_sdk.web),
-        ("slack_sdk.web.async_client", slack_sdk.web.async_client),
-    ]:
-        sys.modules.setdefault(name, mod)
-
-
-_ensure_slack_mock()
-
-import plugins.platforms.slack.adapter as _slack_mod  # noqa: E402
-_slack_mod.SLACK_AVAILABLE = True
-
-from plugins.platforms.slack.adapter import SlackAdapter  # noqa: E402
 from gateway.config import PlatformConfig  # noqa: E402
-
-
-def _make_slack_adapter():
-    config = PlatformConfig(enabled=True, token="***")
-    adapter = SlackAdapter(config)
-    adapter._app = MagicMock()
-    adapter._app.client = AsyncMock()
-    adapter._bot_user_id = "U_BOT"
-    adapter._running = True
-    return adapter
-
-
-# ---------------------------------------------------------------------------
-# SlackAdapter diagnostics helpers
-# ---------------------------------------------------------------------------
-
-class TestSlackAttachmentDiagnostics:
-
-    def test_download_failure_403_returns_permission_notice(self):
-        adapter = _make_slack_adapter()
-        exc = _make_http_status_error(403)
-        detail = adapter._describe_slack_download_failure(exc, file_obj={"name": "report.pdf"})
-        assert "403" in detail
-        assert "permission or scope" in detail
-
-
-# ---------------------------------------------------------------------------
-# SlackAdapter._download_slack_file
-# ---------------------------------------------------------------------------
-
-class TestSlackDownloadSlackFile:
-    """Tests for SlackAdapter._download_slack_file"""
-
-    def test_success_on_first_attempt(self, tmp_path, monkeypatch):
-        """Successful download on first try returns a cached file path."""
-        monkeypatch.setattr("gateway.platforms.base.IMAGE_CACHE_DIR", tmp_path / "img")
-        adapter = _make_slack_adapter()
-
-        fake_response = MagicMock()
-        fake_response.content = b"\x89PNG\r\n\x1a\n fake png"
-        fake_response.raise_for_status = MagicMock()
-        fake_response.headers = {"content-type": "image/png"}
-
-        mock_client = AsyncMock()
-        mock_client.get = AsyncMock(return_value=fake_response)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-
-        async def run():
-            with patch("httpx.AsyncClient", return_value=mock_client):
-                return await adapter._download_slack_file(
-                    "https://files.slack.com/img.jpg", ext=".jpg"
-                )
-
-        path = asyncio.run(run())
-        assert path.endswith(".jpg")
-        mock_client.get.assert_called_once()
-
-    def test_rejects_html_response(self, tmp_path, monkeypatch):
-        """An HTML sign-in page from Slack is rejected, not cached as image."""
-        monkeypatch.setattr("gateway.platforms.base.IMAGE_CACHE_DIR", tmp_path / "img")
-        adapter = _make_slack_adapter()
-
-        fake_response = MagicMock()
-        fake_response.content = b"<!DOCTYPE html><html><title>Slack</title></html>"
-        fake_response.raise_for_status = MagicMock()
-        fake_response.headers = {"content-type": "text/html; charset=utf-8"}
-
-        mock_client = AsyncMock()
-        mock_client.get = AsyncMock(return_value=fake_response)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-
-        async def run():
-            with patch("httpx.AsyncClient", return_value=mock_client):
-                await adapter._download_slack_file(
-                    "https://files.slack.com/img.jpg", ext=".jpg"
-                )
-
-        with pytest.raises(ValueError, match="HTML instead of media"):
-            asyncio.run(run())
-
-        # Verify nothing was cached
-        img_dir = tmp_path / "img"
-        if img_dir.exists():
-            assert list(img_dir.iterdir()) == []
-
-
-# ---------------------------------------------------------------------------
-# SlackAdapter._download_slack_file_bytes
-# ---------------------------------------------------------------------------
-
-class TestSlackDownloadSlackFileBytes:
-    """Tests for SlackAdapter._download_slack_file_bytes"""
-
-    def test_success_returns_bytes(self):
-        """Successful download returns raw bytes."""
-        adapter = _make_slack_adapter()
-
-        fake_response = MagicMock()
-        fake_response.content = b"raw bytes here"
-        fake_response.raise_for_status = MagicMock()
-        fake_response.headers = {"content-type": "application/pdf"}
-
-        mock_client = AsyncMock()
-        mock_client.get = AsyncMock(return_value=fake_response)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-
-        async def run():
-            with patch("httpx.AsyncClient", return_value=mock_client):
-                return await adapter._download_slack_file_bytes(
-                    "https://files.slack.com/file.bin"
-                )
-
-        result = asyncio.run(run())
-        assert result == b"raw bytes here"
 
 
 # ---------------------------------------------------------------------------
@@ -480,7 +328,7 @@ class TestSlackDownloadSlackFileBytes:
 
 def _make_mm_adapter():
     """Build a minimal MattermostAdapter with mocked internals."""
-    from plugins.platforms.mattermost.adapter import MattermostAdapter
+    from gateway.platforms.mattermost import MattermostAdapter
     config = PlatformConfig(
         enabled=True, token="mm-token-fake",
         extra={"url": "https://mm.example.com"},
@@ -556,4 +404,3 @@ class TestMattermostSendUrlAsFile:
         adapter.send.assert_called_once()
         text_arg = adapter.send.call_args[0][1]
         assert "http://cdn.example.com/img.png" in text_arg
-

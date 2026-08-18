@@ -44,7 +44,7 @@ class TestRenderResourceBlock:
     def test_embedded_pdf_blob_is_materialized(self, doc_cache):
         from tools.mcp_tool import _render_mcp_resource_block
 
-        out = _render_mcp_resource_block(_embedded(_blob_resource(PDF_BYTES)), "slack")
+        out = _render_mcp_resource_block(_embedded(_blob_resource(PDF_BYTES)), "mattermost")
         assert "saved to" in out
         assert "application/pdf" in out
         # Extract path and verify bytes round-trip
@@ -150,7 +150,7 @@ class TestToolResultLoopOrdering:
             if tag:
                 parts.append(tag)
                 continue
-            rendered = _render_mcp_resource_block(block, "slack")
+            rendered = _render_mcp_resource_block(block, "mattermost")
             if rendered:
                 parts.append(rendered)
         assert len(parts) == 2

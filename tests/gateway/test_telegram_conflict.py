@@ -34,7 +34,7 @@ def _ensure_telegram_mock():
 
 _ensure_telegram_mock()
 
-from plugins.platforms.telegram.adapter import TelegramAdapter  # noqa: E402
+from gateway.platforms.telegram.adapter import TelegramAdapter  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -42,9 +42,9 @@ def _no_auto_discovery(monkeypatch):
     """Disable DoH auto-discovery so connect() uses the plain builder chain."""
     async def _noop():
         return []
-    monkeypatch.setattr("plugins.platforms.telegram.adapter.discover_fallback_ips", _noop)
+    monkeypatch.setattr("gateway.platforms.telegram.adapter.discover_fallback_ips", _noop)
     # Mock HTTPXRequest so the builder chain doesn't fail
-    monkeypatch.setattr("plugins.platforms.telegram.adapter.HTTPXRequest", lambda **kwargs: MagicMock())
+    monkeypatch.setattr("gateway.platforms.telegram.adapter.HTTPXRequest", lambda **kwargs: MagicMock())
 
 
 async def _cancel_heartbeat(adapter):
@@ -113,7 +113,7 @@ async def test_polling_conflict_retries_before_fatal(monkeypatch):
     builder.request.return_value = builder
     builder.get_updates_request.return_value = builder
     builder.build.return_value = app
-    monkeypatch.setattr("plugins.platforms.telegram.adapter.Application", SimpleNamespace(builder=MagicMock(return_value=builder)))
+    monkeypatch.setattr("gateway.platforms.telegram.adapter.Application", SimpleNamespace(builder=MagicMock(return_value=builder)))
 
     # Speed up retries for testing
     monkeypatch.setattr("asyncio.sleep", AsyncMock())
@@ -269,7 +269,7 @@ async def test_polling_conflict_becomes_fatal_after_retries(monkeypatch):
     builder.request.return_value = builder
     builder.get_updates_request.return_value = builder
     builder.build.return_value = app
-    monkeypatch.setattr("plugins.platforms.telegram.adapter.Application", SimpleNamespace(builder=MagicMock(return_value=builder)))
+    monkeypatch.setattr("gateway.platforms.telegram.adapter.Application", SimpleNamespace(builder=MagicMock(return_value=builder)))
 
     # Speed up retries for testing
     monkeypatch.setattr("asyncio.sleep", AsyncMock())
@@ -351,7 +351,7 @@ async def test_connect_clears_webhook_before_polling(monkeypatch):
     builder.get_updates_request.return_value = builder
     builder.build.return_value = app
     monkeypatch.setattr(
-        "plugins.platforms.telegram.adapter.Application",
+        "gateway.platforms.telegram.adapter.Application",
         SimpleNamespace(builder=MagicMock(return_value=builder)),
     )
 
@@ -419,7 +419,7 @@ async def test_connect_does_not_block_on_post_connect_housekeeping(monkeypatch):
     builder.get_updates_request.return_value = builder
     builder.build.return_value = app
     monkeypatch.setattr(
-        "plugins.platforms.telegram.adapter.Application",
+        "gateway.platforms.telegram.adapter.Application",
         SimpleNamespace(builder=MagicMock(return_value=builder)),
     )
 
@@ -495,7 +495,7 @@ async def test_polling_conflict_reschedule_uses_running_loop(monkeypatch):
     builder.get_updates_request.return_value = builder
     builder.build.return_value = app
     monkeypatch.setattr(
-        "plugins.platforms.telegram.adapter.Application",
+        "gateway.platforms.telegram.adapter.Application",
         SimpleNamespace(builder=MagicMock(return_value=builder)),
     )
     monkeypatch.setattr("asyncio.sleep", AsyncMock())
@@ -557,7 +557,7 @@ def _build_polling_app(monkeypatch, adapter):
     builder.get_updates_request.return_value = builder
     builder.build.return_value = app
     monkeypatch.setattr(
-        "plugins.platforms.telegram.adapter.Application",
+        "gateway.platforms.telegram.adapter.Application",
         SimpleNamespace(builder=MagicMock(return_value=builder)),
     )
     monkeypatch.setattr(
@@ -654,7 +654,7 @@ async def test_conflict_callback_disarms_before_scheduling(monkeypatch):
     builder.get_updates_request.return_value = builder
     builder.build.return_value = app
     monkeypatch.setattr(
-        "plugins.platforms.telegram.adapter.Application",
+        "gateway.platforms.telegram.adapter.Application",
         SimpleNamespace(builder=MagicMock(return_value=builder)),
     )
 

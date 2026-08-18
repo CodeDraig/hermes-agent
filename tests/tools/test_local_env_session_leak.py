@@ -100,7 +100,7 @@ def test_set_session_vars_engages_and_overrides_foreign_global(monkeypatch):
 
     tokens = set_session_vars(
         session_key="agent:main:discord:group:MY_BUGS_ROOT:111",
-        platform="discord",
+        platform="mattermost",
         chat_id="MY_BUGS_ROOT",
     )
     try:
@@ -190,7 +190,7 @@ def test_sanitize_subprocess_env_set_contextvar_wins_when_engaged():
     }
     tokens = set_session_vars(
         session_key="agent:main:discord:group:REAL_BG:222",
-        platform="discord",
+        platform="mattermost",
         chat_id="REAL_BG",
     )
     try:

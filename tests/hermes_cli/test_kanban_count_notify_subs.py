@@ -51,7 +51,7 @@ def test_optional_filters_narrow_count_without_changing_unfiltered_count(kanban_
             thread_id="thread-2",
         )
         kb.add_notify_sub(
-            conn, task_id=tid, platform="slack", chat_id="session-1"
+            conn, task_id=tid, platform="mattermost", chat_id="session-1"
         )
     finally:
         conn.close()

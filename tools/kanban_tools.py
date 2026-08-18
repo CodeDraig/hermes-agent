@@ -1493,7 +1493,7 @@ def _maybe_auto_subscribe(conn: Any, task_id: str) -> bool:
 
     Subscription paths:
 
-    - **Gateway** (telegram/discord/slack/etc): ``HERMES_SESSION_PLATFORM``,
+    - **Gateway** (Telegram/Mattermost): ``HERMES_SESSION_PLATFORM``,
       ``HERMES_SESSION_CHAT_ID``, and ``HERMES_SESSION_CHAT_TYPE`` are set in
       ContextVars by the messaging gateway before agent dispatch. The
       notification poller already keys off these, so we just register a row.

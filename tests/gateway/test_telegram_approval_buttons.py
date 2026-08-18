@@ -46,7 +46,7 @@ def _ensure_telegram_mock():
 
 _ensure_telegram_mock()
 
-from plugins.platforms.telegram.adapter import TelegramAdapter
+from gateway.platforms.telegram.adapter import TelegramAdapter
 from gateway.config import Platform, PlatformConfig
 
 
@@ -112,11 +112,11 @@ class TestTelegramExecApproval:
         adapter._bot.send_message = AsyncMock(return_value=SimpleNamespace(message_id=42))
         buttons = []
         monkeypatch.setattr(
-            "plugins.platforms.telegram.adapter.InlineKeyboardButton",
+            "gateway.platforms.telegram.adapter.InlineKeyboardButton",
             lambda text, callback_data: buttons.append(text) or text,
         )
         monkeypatch.setattr(
-            "plugins.platforms.telegram.adapter.InlineKeyboardMarkup", lambda rows: rows
+            "gateway.platforms.telegram.adapter.InlineKeyboardMarkup", lambda rows: rows
         )
 
         await adapter.send_exec_approval(
@@ -133,11 +133,11 @@ class TestTelegramExecApproval:
         adapter._bot.send_message = AsyncMock(return_value=SimpleNamespace(message_id=42))
         captured_rows = []
         monkeypatch.setattr(
-            "plugins.platforms.telegram.adapter.InlineKeyboardButton",
+            "gateway.platforms.telegram.adapter.InlineKeyboardButton",
             lambda text, callback_data: text,
         )
         monkeypatch.setattr(
-            "plugins.platforms.telegram.adapter.InlineKeyboardMarkup",
+            "gateway.platforms.telegram.adapter.InlineKeyboardMarkup",
             lambda rows: captured_rows.extend(rows) or rows,
         )
 
@@ -158,11 +158,11 @@ class TestTelegramExecApproval:
         adapter._bot.send_message = AsyncMock(return_value=SimpleNamespace(message_id=42))
         captured_rows = []
         monkeypatch.setattr(
-            "plugins.platforms.telegram.adapter.InlineKeyboardButton",
+            "gateway.platforms.telegram.adapter.InlineKeyboardButton",
             lambda text, callback_data: text,
         )
         monkeypatch.setattr(
-            "plugins.platforms.telegram.adapter.InlineKeyboardMarkup",
+            "gateway.platforms.telegram.adapter.InlineKeyboardMarkup",
             lambda rows: captured_rows.extend(rows) or rows,
         )
 

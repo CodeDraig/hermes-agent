@@ -306,7 +306,7 @@ class TestGatewayRuntimeStatus:
         status.write_runtime_status(
             gateway_state="startup_failed",
             exit_reason="stale error",
-            platform="discord",
+            platform="mattermost",
             platform_state="fatal",
             error_code="discord_timeout",
             error_message="stale platform error",
@@ -315,7 +315,7 @@ class TestGatewayRuntimeStatus:
         status.write_runtime_status(
             gateway_state="running",
             exit_reason=None,
-            platform="discord",
+            platform="mattermost",
             platform_state="connected",
             error_code=None,
             error_message=None,
@@ -324,9 +324,9 @@ class TestGatewayRuntimeStatus:
         payload = status.read_runtime_status()
         assert payload["gateway_state"] == "running"
         assert payload["exit_reason"] is None
-        assert payload["platforms"]["discord"]["state"] == "connected"
-        assert payload["platforms"]["discord"]["error_code"] is None
-        assert payload["platforms"]["discord"]["error_message"] is None
+        assert payload["platforms"]["mattermost"]["state"] == "connected"
+        assert payload["platforms"]["mattermost"]["error_code"] is None
+        assert payload["platforms"]["mattermost"]["error_message"] is None
 
 
 class TestGetProcessStartTime:
@@ -495,7 +495,7 @@ class TestScopedLocks:
         monkeypatch.setattr(status, "_looks_like_gateway_process", lambda pid: True)
 
         acquired, existing = status.acquire_scoped_lock(
-            "discord-bot-token", "secret", metadata={"platform": "discord"}
+            "discord-bot-token", "secret", metadata={"platform": "mattermost"}
         )
 
         assert acquired is True
@@ -503,7 +503,7 @@ class TestScopedLocks:
         payload = json.loads(lock_path.read_text())
         assert payload["pid"] == os.getpid()
         assert payload["start_time"] == 987654321
-        assert payload["metadata"]["platform"] == "discord"
+        assert payload["metadata"]["platform"] == "mattermost"
 
     def test_release_scoped_lock_allows_null_disk_start_time(self, tmp_path, monkeypatch):
         """#81468: release must not no-op when disk start_time is null."""
@@ -544,7 +544,7 @@ class TestScopedLocks:
         monkeypatch.setattr(status, "_get_process_start_time", lambda pid: 987654321)
 
         acquired, existing = status.acquire_scoped_lock(
-            "discord-bot-token", "secret", metadata={"platform": "discord"}
+            "discord-bot-token", "secret", metadata={"platform": "mattermost"}
         )
 
         assert acquired is True

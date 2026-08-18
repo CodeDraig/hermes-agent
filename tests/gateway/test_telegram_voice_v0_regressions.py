@@ -15,7 +15,7 @@ if str(ROOT) not in sys.path:
 
 from gateway.config import Platform, PlatformConfig
 from gateway.platforms.base import BasePlatformAdapter, MessageEvent, MessageType, SendResult
-from plugins.platforms.telegram.adapter import TelegramAdapter
+from gateway.platforms.telegram.adapter import TelegramAdapter
 from gateway.run import GatewayRunner
 from gateway.session import SessionSource
 

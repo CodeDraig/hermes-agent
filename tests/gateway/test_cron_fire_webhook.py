@@ -324,11 +324,9 @@ async def test_async_verifier_is_awaited(adapter, monkeypatch):
 async def test_fire_passes_live_adapters_to_provider(adapter, monkeypatch):
     """The fire webhook must hand the gateway's live adapters to fire_due —
     delivery parity with the built-in ticker (gateway/run.py passes
-    runner.adapters). Without them, relay-fronted logical platforms (whose
-    ONLY send path is the live relay adapter — no native credential exists on
-    the box) and E2EE platforms fail every external-provider fire with
-    "platform 'X' not configured/enabled" while the same job delivers fine
-    under the in-process ticker."""
+    runner.adapters). Without them, a configured adapter can fail external-
+    provider delivery while the same job succeeds under the in-process
+    ticker."""
     seen = {}
 
     class _AdapterSpyProvider:
@@ -338,7 +336,7 @@ async def test_fire_passes_live_adapters_to_provider(adapter, monkeypatch):
             seen["loop"] = loop
             return True
 
-    live_adapters = {"relay": object()}
+    live_adapters = {"mattermost": object()}
     runner = SimpleNamespace(
         _draining=False,
         adapters=live_adapters,

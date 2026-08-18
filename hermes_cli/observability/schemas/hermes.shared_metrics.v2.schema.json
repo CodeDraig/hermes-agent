@@ -394,12 +394,10 @@
         "api",
         "batch",
         "cli",
-        "desktop",
         "gateway",
         "other",
         "python",
         "scheduled_task",
-        "tui",
         "unknown"
       ]
     },

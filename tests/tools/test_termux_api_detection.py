@@ -166,6 +166,7 @@ class TestDetectAudioEnvironmentTermuxFallback:
         monkeypatch.delenv("SSH_CLIENT", raising=False)
         monkeypatch.delenv("SSH_TTY", raising=False)
         monkeypatch.delenv("SSH_CONNECTION", raising=False)
+        monkeypatch.setattr("hermes_constants.is_container", lambda: False)
 
         # No sounddevice — we go down the Termux:API branch.
         monkeypatch.setattr(

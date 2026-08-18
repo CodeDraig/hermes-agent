@@ -50,14 +50,12 @@ def hooks_command(args) -> None:
 
 def _cmd_list(_args) -> None:
     from hermes_cli.config import load_config
-    from agent import outbound_webhooks, shell_hooks
+    from agent import shell_hooks
 
     cfg = load_config()
     specs = shell_hooks.iter_configured_hooks(cfg)
-    outbound = outbound_webhooks.iter_configured_targets(cfg)
-
-    if not specs and not outbound:
-        print("No shell hooks or outbound webhooks configured in ~/.hermes/config.yaml.")
+    if not specs:
+        print("No shell hooks configured in ~/.hermes/config.yaml.")
         print("See `hermes hooks --help` for configuration details.")
         return
 
@@ -101,20 +99,6 @@ def _cmd_list(_args) -> None:
                                 f"run `hermes hooks doctor` to re-validate"
                             )
             print()
-
-    if outbound:
-        print(f"Configured outbound webhooks ({len(outbound)} total):\n")
-        for target in outbound:
-            signed = "signed" if target.secret else "UNSIGNED"
-            matcher_part = f" matcher={target.matcher!r}" if target.matcher else ""
-            print(f"  - {target.label}")
-            print(f"      url:     {target.url}")
-            print(
-                f"      events:  {', '.join(target.events)}{matcher_part} "
-                f"(timeout={target.timeout}s, {signed})"
-            )
-        print()
-
 
 # ---------------------------------------------------------------------------
 # test

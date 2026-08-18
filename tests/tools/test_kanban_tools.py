@@ -909,7 +909,7 @@ def test_create_respects_auto_subscribe_on_create_false(monkeypatch, worker_env,
         "kanban:\n  auto_subscribe_on_create: false\n"
     )
     monkeypatch.setenv("HERMES_HOME", str(home))
-    monkeypatch.setenv("HERMES_SESSION_PLATFORM", "discord")
+    monkeypatch.setenv("HERMES_SESSION_PLATFORM", "mattermost")
     monkeypatch.setenv("HERMES_SESSION_CHAT_ID", "channel-1")
 
     from tools import kanban_tools as kt

@@ -124,7 +124,7 @@ class TestShutdownTranscriptSurvivesResumeE2E:
 
         db = SessionDB(db_path=tmp_path / "state.db")
         session_id = "sess-e2e-13121"
-        db.create_session(session_id=session_id, source="discord")
+        db.create_session(session_id=session_id, source="mattermost")
 
         # Simulate a session whose FIRST turn completed and was persisted...
         db.append_message(session_id=session_id, role="user",
@@ -155,7 +155,7 @@ class TestShutdownTranscriptSurvivesResumeE2E:
         agent._session_db = db
         agent._session_db_created = True
         agent.session_id = session_id
-        agent.platform = "discord"
+        agent.platform = "mattermost"
         agent._session_messages = session_messages
         # Model a real agent: turn 1 already flushed, so its message identities
         # are recorded in the dedup set. Only the in-flight turn-2 tail is new.

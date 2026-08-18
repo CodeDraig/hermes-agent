@@ -76,14 +76,14 @@ def _run_scenario(name, chat_id, is_dm, reply_chat_type):
 
     ok = sched._seed_cron_channel_session(
         {"id": "brief-job", "name": "PR review brief"},
-        _Adapter(), "slack", chat_id, BRIEF,
+        _Adapter(), "mattermost", chat_id, BRIEF,
         is_dm=is_dm, user_id="U_HUMAN", chat_name="test",
     )
     assert ok, f"{name}: seeder returned False — session not created/mirrored"
 
     # LEG 1: what session key did the seed create?
     seeded_source = SessionSource(
-        platform=Platform.SLACK, chat_id=chat_id,
+        platform=Platform.MATTERMOST, chat_id=chat_id,
         chat_type="dm" if is_dm else "group",
         user_id="U_HUMAN", thread_id=None,
     )
@@ -92,7 +92,7 @@ def _run_scenario(name, chat_id, is_dm, reply_chat_type):
     # LEG 2: what does a plain inbound reply (reply_in_thread:false → thread None)
     # from the same user resolve to?
     inbound = SessionSource(
-        platform=Platform.SLACK, chat_id=chat_id, chat_type=reply_chat_type,
+        platform=Platform.MATTERMOST, chat_id=chat_id, chat_type=reply_chat_type,
         user_id="U_HUMAN", thread_id=None,
     )
     reply_key = build_session_key(inbound)
@@ -102,7 +102,7 @@ def _run_scenario(name, chat_id, is_dm, reply_chat_type):
 
     # GROUND TRUTH: the brief must actually be in that session's transcript, and
     # discoverable via the same _find_session_id the inbound reply path uses.
-    sid = mirror._find_session_id("slack", chat_id, thread_id=None, user_id="U_HUMAN")
+    sid = mirror._find_session_id("mattermost", chat_id, thread_id=None, user_id="U_HUMAN")
     assert sid, f"{name}: _find_session_id found NO session — the reply would dead-end"
     # Read the session transcript back and confirm the brief text is present.
     idx = mirror._SESSIONS_INDEX

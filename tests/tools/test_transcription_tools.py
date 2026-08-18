@@ -210,7 +210,6 @@ class TestTranscribeLocalCommand:
     def test_command_provider_uses_sanitized_child_env(self, monkeypatch):
         """Salvage of #56332: command STT must not inherit Hermes secrets."""
         monkeypatch.setenv("AUXILIARY_VISION_API_KEY", "sk-vision")
-        monkeypatch.setenv("GATEWAY_RELAY_SECRET", "relay-secret")
         monkeypatch.setenv("OPENAI_API_KEY", "sk-openai")
         monkeypatch.setenv("MY_SAFE_STT_VAR", "keep")
 
@@ -241,7 +240,6 @@ class TestTranscribeLocalCommand:
         assert result.returncode == 0
         env = captured["env"]
         assert "AUXILIARY_VISION_API_KEY" not in env
-        assert "GATEWAY_RELAY_SECRET" not in env
         assert "OPENAI_API_KEY" not in env
         assert env["MY_SAFE_STT_VAR"] == "keep"
 

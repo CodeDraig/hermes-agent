@@ -99,26 +99,9 @@ def _model_switch_skew_guard() -> Optional[str]:
 
 
 def _home_thread_from_source(source) -> Optional[str]:
-    """The thread id /sethome should persist on the home target, or None.
-
-    Slack thread-per-message session keying stamps a top-level message's own
-    id as ``source.thread_id`` (a session KEY, not a durable location).
-    Persisting it would pin the HOME target itself to the ephemeral thread
-    spawned around the /sethome message — every bare-platform delivery
-    (``deliver="slack"``) would then land in that thread forever. Same
-    recognition as cron origin capture: a Slack thread id equal to the
-    message's own id is synthetic. A /sethome run inside a genuine thread
-    (thread id = the parent's id, not this message's own) keeps that thread
-    as the home target.
-    """
+    """Return the thread id that /sethome should persist, if any."""
     thread_id = getattr(source, "thread_id", None)
     if not thread_id:
-        return None
-    if (
-        getattr(source, "platform", None) == Platform.SLACK
-        and getattr(source, "message_id", None)
-        and str(thread_id) == str(source.message_id)
-    ):
         return None
     return str(thread_id)
 
@@ -747,35 +730,12 @@ class GatewaySlashCommandsMixin:
         ])
         if queue_depth:
             lines.append(t("gateway.status.queued", count=queue_depth))
-        if source.platform == Platform.MATRIX:
-            adapter = self.adapters.get(Platform.MATRIX)
-            scope = getattr(adapter, "_matrix_session_scope", os.getenv("MATRIX_SESSION_SCOPE", "auto"))
-            thread = source.thread_id or "none"
-            lines.extend([
-                "",
-                t("gateway.status.matrix_scope_header"),
-                t("gateway.status.matrix_scope_room", room=source.chat_name or source.chat_id),
-                t("gateway.status.matrix_scope_room_id", room_id=source.chat_id),
-                t("gateway.status.matrix_scope_thread", thread_id=thread),
-                t("gateway.status.matrix_scope_mode", scope=scope),
-                t(
-                    "gateway.status.matrix_scope_key",
-                    session_key=self._redact_matrix_session_key(session_key),
-                ),
-            ])
         lines.extend([
             "",
             t("gateway.status.platforms", platforms=', '.join(connected_platforms)),
         ])
 
         return "\n".join(lines)
-
-    @staticmethod
-    def _redact_matrix_session_key(session_key: str) -> str:
-        """Return a stable Matrix session-key fingerprint for shared room status."""
-        text = str(session_key or "")
-        digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
-        return f"sha256:{digest}"
 
     async def _handle_context_command(self, event: MessageEvent) -> str:
         """Handle /context — the dedicated context-window view.
@@ -982,26 +942,8 @@ class GatewaySlashCommandsMixin:
                 return getattr(entry, "origin", None)
         return None
 
-    @staticmethod
-    def _same_matrix_room(current: SessionSource, origin: Optional[SessionSource]) -> bool:
-        return (
-            origin is not None
-            and origin.platform == Platform.MATRIX
-            and current.platform == Platform.MATRIX
-            and origin.chat_id == current.chat_id
-            # thread_id is part of the session key (build_session_key appends it
-            # for every chat type when present), and Matrix scopes the model's
-            # turn to the current room/thread. A live session in another thread
-            # of the SAME room is a DIFFERENT session, so a caller in thread A
-            # must not resume/enumerate a target whose origin is in thread B.
-            # Non-threaded rooms have empty thread_id on both sides ("" == ""),
-            # so room-level sharing is preserved unchanged.
-            and str(getattr(current, "thread_id", "") or "")
-            == str(getattr(origin, "thread_id", "") or "")
-        )
-
     def _same_origin_chat(self, current: SessionSource, origin: Optional[SessionSource]) -> bool:
-        """Platform-agnostic counterpart to ``_same_matrix_room``.
+        """Return whether both sources address the same retained conversation.
 
         True when *origin* shares *current*'s platform and chat, and the same
         participant whenever the session key for this source is per-user. Group
@@ -1036,7 +978,7 @@ class GatewaySlashCommandsMixin:
             # chat_id was already required equal above and, when present, IS the
             # DM session key — so an equal non-empty chat_id is sufficient.
             # build_session_key only falls back to the participant id
-            # (``user_id_alt or user_id`` — Signal/Feishu key on user_id_alt)
+            # (``user_id_alt or user_id``)
             # when there is NO chat_id; mirror that and fail closed on a
             # missing/different participant so two no-chat_id DM origins are
             # never conflated (was: compared user_id only and allowed when
@@ -1057,7 +999,7 @@ class GatewaySlashCommandsMixin:
         if shared:
             return True
         # Per-user key: compare the participant id the key is actually built
-        # from (user_id_alt or user_id — Signal/Feishu key on user_id_alt).
+        # from (user_id_alt or user_id).
         cur_pid = current.user_id_alt or current.user_id
         org_pid = origin.user_id_alt or origin.user_id
         if cur_pid and org_pid:
@@ -1239,15 +1181,6 @@ class GatewaySlashCommandsMixin:
         unless an admin passes ``--all``.
         """
         sid = str(row.get("id") or "")
-        if source.platform == Platform.MATRIX:
-            # Cross-room enumeration is cross-ORIGIN data access: gate the
-            # ``--all`` short-circuit behind a real configured admin, exactly
-            # like the non-Matrix branch below. A non-admin Matrix ``--all``
-            # falls back to same-room scoping rather than exposing every Matrix
-            # titled session.
-            if allow_all and self._resume_caller_is_admin(source):
-                return True
-            return self._same_matrix_room(source, self._gateway_session_origin_for_id(sid))
         if allow_all and self._resume_caller_is_admin(source):
             return True
         return await self._resume_target_allowed(source, sid, allow_override=False)
@@ -1492,8 +1425,8 @@ class GatewaySlashCommandsMixin:
 
         Examples:
             ``/platform list``           — show connected + failed/paused platforms
-            ``/platform pause whatsapp`` — stop the reconnect watcher hammering whatsapp
-            ``/platform resume whatsapp`` — re-queue a paused platform for retry
+            ``/platform pause telegram`` — stop reconnect attempts for Telegram
+            ``/platform resume telegram`` — re-queue Telegram for retry
         """
         text = (getattr(event, "content", "") or "").strip()
         # Strip the leading "/platform" (or "/PLATFORM") token if present
@@ -1616,12 +1549,6 @@ class GatewaySlashCommandsMixin:
                 "chat_id": event.source.chat_id,
                 "chat_type": event.source.chat_type,
             }
-            if event.source.delivered_via_upstream_relay is True:
-                notify_data["delivered_via_upstream_relay"] = True
-                if event.source.user_id:
-                    notify_data["user_id"] = event.source.user_id
-                if event.source.scope_id:
-                    notify_data["scope_id"] = event.source.scope_id
             if event.source.thread_id:
                 notify_data["thread_id"] = event.source.thread_id
             if event.message_id:
@@ -3135,44 +3062,17 @@ class GatewaySlashCommandsMixin:
         if source.platform is None:
             return t("gateway.set_home.save_failed", error="Missing logical platform")
 
-        via_relay = getattr(source, "delivered_via_upstream_relay", False) is True
-        if via_relay:
-            adapter_for_source = getattr(self, "_adapter_for_source", None)
-            relay_adapter = adapter_for_source(source) if callable(adapter_for_source) else None
-            fronts_platform = getattr(relay_adapter, "fronts_platform", None)
-            if (
-                source.platform in {None, Platform.LOCAL, Platform.RELAY}
-                or not getattr(source, "user_id", None)
-                or not callable(fronts_platform)
-                or not fronts_platform(source.platform)
-            ):
-                return t(
-                    "gateway.set_home.save_failed",
-                    error="Relay does not authenticate this logical home target",
-                )
-
         thread_id = _home_thread_from_source(source)
         home = HomeChannel(
             platform=source.platform,
             chat_id=str(chat_id),
             name=chat_name,
             thread_id=str(thread_id) if thread_id else None,
-            user_id=(
-                str(source.user_id)
-                if getattr(source, "user_id", None)
-                else None
-            ),
-            scope_id=(
-                str(source.scope_id)
-                if getattr(source, "scope_id", None)
-                else None
-            ),
         )
 
-        # config.yaml is canonical because it can persist the authenticated
-        # logical-target provenance required by Relay after a restart.
+        # config.yaml is canonical for home-channel routing.
         try:
-            persist_home_channel(home, enabled_if_new=not via_relay)
+            persist_home_channel(home, enabled_if_new=True)
         except Exception as e:
             return t("gateway.set_home.save_failed", error=e)
 
@@ -3190,14 +3090,14 @@ class GatewaySlashCommandsMixin:
         # notification path reads self.config before the process reloads config.
         platform_config = getattr(self, "config").platforms.setdefault(
             source.platform,
-            PlatformConfig(enabled=not via_relay),
+            PlatformConfig(enabled=True),
         )
         platform_config.home_channel = home
 
         return t("gateway.set_home.success", name=chat_name, chat_id=chat_id)
 
     async def _handle_voice_command(self, event: MessageEvent) -> str:
-        """Handle /voice [on|off|tts|channel|leave|status] command."""
+        """Handle /voice [on|off|tts|status] command."""
         args = event.get_command_args().strip().lower()
         chat_id = event.source.chat_id
         platform = event.source.platform
@@ -3223,10 +3123,6 @@ class GatewaySlashCommandsMixin:
             if adapter:
                 self._set_adapter_auto_tts_enabled(adapter, chat_id, enabled=True)
             return t("gateway.voice.tts_enabled")
-        elif args in {"channel", "join"}:
-            return await self._handle_voice_channel_join(event)
-        elif args == "leave":
-            return await self._handle_voice_channel_leave(event)
         elif args == "status":
             mode = self._voice_mode.get(voice_key, "off")
             labels = {
@@ -3234,21 +3130,6 @@ class GatewaySlashCommandsMixin:
                 "voice_only": t("gateway.voice.label_voice_only"),
                 "all": t("gateway.voice.label_all"),
             }
-            # Append voice channel info if connected
-            adapter = self.adapters.get(event.source.platform)
-            guild_id = self._get_guild_id(event)
-            if guild_id and hasattr(adapter, "get_voice_channel_info"):
-                info = adapter.get_voice_channel_info(guild_id)
-                if info:
-                    lines = [
-                        t("gateway.voice.status_mode", label=labels.get(mode, mode)),
-                        t("gateway.voice.status_channel", channel=info['channel_name']),
-                        t("gateway.voice.status_participants", count=info['member_count']),
-                    ]
-                    for m in info["members"]:
-                        status = t("gateway.voice.speaking") if m.get("is_speaking") else ""
-                        lines.append(t("gateway.voice.status_member", name=m['display_name'], status=status))
-                    return "\n".join(lines)
             return t("gateway.voice.status_mode", label=labels.get(mode, mode))
         else:
             # Toggle: off → on, on/all → off
@@ -3266,16 +3147,9 @@ class GatewaySlashCommandsMixin:
                     self._set_adapter_auto_tts_disabled(adapter, chat_id, disabled=True)
                 toggle_line = t("gateway.voice.disabled_short")
             # Bare /voice still toggles, but append an explainer so users
-            # discover the on/off/tts/status subcommands (and, on Discord,
-            # live voice-channel join/leave). The toggle result is shown
-            # first via the {toggle} placeholder.
-            supports_voice_channels = adapter is not None and hasattr(
-                adapter, "join_voice_channel"
-            )
-            channels = (
-                t("gateway.voice.help_channels") if supports_voice_channels else ""
-            )
-            return t("gateway.voice.help", toggle=toggle_line, channels=channels)
+            # discover the on/off/tts/status subcommands. The toggle result is
+            # shown first via the {toggle} placeholder.
+            return t("gateway.voice.help", toggle=toggle_line, channels="")
 
     async def _handle_rollback_command(self, event: MessageEvent) -> str:
         """Handle /rollback command — list or restore filesystem checkpoints."""
@@ -4772,16 +4646,10 @@ class GatewaySlashCommandsMixin:
                     if await self._resume_row_visible(source, s, allow_all)
                 ]
                 if not titled:
-                    if source.platform == Platform.MATRIX and not allow_all:
-                        return t("gateway.resume.matrix_no_named_sessions")
                     return t("gateway.resume.no_named_sessions")
                 lines = [t("gateway.resume.list_header")]
                 for idx, s in enumerate(titled[:10], start=1):
                     title = s["title"]
-                    if source.platform == Platform.MATRIX and allow_all:
-                        origin = self._gateway_session_origin_for_id(str(s.get("id") or ""))
-                        if origin:
-                            title = f"{title} — {origin.chat_name or origin.chat_id}"
                     preview = s.get("preview", "")[:40]
                     preview_part = t("gateway.resume.list_preview_suffix", preview=preview) if preview else ""
                     lines.append(t("gateway.resume.list_item_numbered", index=idx, title=title, preview_part=preview_part))
@@ -4825,17 +4693,7 @@ class GatewaySlashCommandsMixin:
         except Exception as e:
             logger.debug("Failed to resolve resume continuation for %s: %s", target_id, e)
 
-        if source.platform == Platform.MATRIX:
-            target_origin = self._gateway_session_origin_for_id(target_id)
-            if not self._same_matrix_room(source, target_origin) and not allow_cross_room:
-                if target_origin is None:
-                    return t("gateway.resume.matrix_blocked_no_origin", name=name)
-                return t(
-                    "gateway.resume.matrix_blocked_other_room",
-                    room=target_origin.chat_name or target_origin.chat_id,
-                    name=name,
-                )
-        elif not await self._resume_target_allowed(
+        if not await self._resume_target_allowed(
             source, target_id, allow_override=(allow_all or allow_cross_room)
         ):
             # IDOR guard: a session id/title is a routing handle, not authority.
@@ -4879,13 +4737,6 @@ class GatewaySlashCommandsMixin:
         msg_count = len([m for m in history if m.get("role") == "user"]) if history else 0
         msg_part = f" ({msg_count} message{'s' if msg_count != 1 else ''})" if msg_count else ""
 
-        if source.platform == Platform.MATRIX and allow_cross_room:
-            return t(
-                "gateway.resume.matrix_cross_room_success",
-                title=title,
-                room=source.chat_name or source.chat_id,
-                msg_part=msg_part,
-            )
         if not msg_count:
             return t("gateway.resume.resumed_no_count", title=title)
         if msg_count == 1:
@@ -5836,18 +5687,11 @@ class GatewaySlashCommandsMixin:
         import subprocess
         from datetime import datetime
 
-        # Block non-messaging platforms (API server, webhooks, ACP)
+        # Block non-messaging platforms (API server and ACP)
         platform = event.source.platform
         _allowed = self._UPDATE_ALLOWED_PLATFORMS
-        # Plugin platforms with allow_update_command=True are also allowed
         if platform not in _allowed:
-            try:
-                from gateway.platform_registry import platform_registry
-                entry = platform_registry.get(platform.value)
-                if not entry or not entry.allow_update_command:
-                    return t("gateway.update.platform_not_messaging")
-            except Exception:
-                return t("gateway.update.platform_not_messaging")
+            return t("gateway.update.platform_not_messaging")
 
         project_root = Path(__file__).parent.parent.resolve()
         git_dir = project_root / '.git'

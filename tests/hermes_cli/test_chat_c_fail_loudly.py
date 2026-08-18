@@ -127,7 +127,7 @@ class TestChatCFailLoudlyOnStderr:
         )()
 
         with pytest.raises(_Exit) as ei:
-            main_mod._resolve_continue_arg(args, use_tui=False)
+            main_mod._resolve_continue_arg(args)
 
         assert ei.value.args[0] == 1
         assert any("No session found matching 'Bot Chat'" in l for l in stderr_lines)
@@ -147,7 +147,7 @@ class TestChatCFailLoudlyOnStderr:
             },
         )()
 
-        main_mod._resolve_continue_arg(args, use_tui=False)
+        main_mod._resolve_continue_arg(args)
 
         assert args.resume, "resume should be set to the new session id"
         from hermes_state import SessionDB

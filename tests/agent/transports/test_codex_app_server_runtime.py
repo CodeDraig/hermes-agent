@@ -271,9 +271,9 @@ class TestSpawnEnvSecretStripping:
 
     codex is a model-driving CLI executor: it legitimately needs LLM provider
     credentials to authenticate, but it must NOT inherit Tier-1 Hermes secrets
-    (gateway bot tokens, GitHub/infra auth, dashboard session token) or the
-    dynamic-internal secrets (AUXILIARY_*_API_KEY / _BASE_URL side-LLM keys,
-    GATEWAY_RELAY_* relay-auth) — a coding subprocess has no use for those and
+    (gateway bot tokens or GitHub/infra auth) or the dynamic-internal secrets
+    (AUXILIARY_*_API_KEY / _BASE_URL side-LLM keys) — a coding subprocess has
+    no use for those and
     a model-controlled action could exfiltrate them. This closes the #29157
     sibling spawn-site gap (copilot_acp_client already routes through the
     helper; codex app-server predated it).
@@ -318,9 +318,6 @@ class TestSpawnEnvSecretStripping:
             "TELEGRAM_BOT_TOKEN": "bot-secret",
             "MODAL_TOKEN_SECRET": "modal-secret",
             "AUXILIARY_VISION_API_KEY": "aux-secret",
-            "GATEWAY_RELAY_SECRET": "relay-secret",
-            "GATEWAY_RELAY_ID": "relay-id",
-            "GATEWAY_RELAY_DELIVERY_KEY": "relay-delivery",
         }.items():
             monkeypatch.setenv(var, val)
 
@@ -328,7 +325,6 @@ class TestSpawnEnvSecretStripping:
         for var in (
             "GH_TOKEN", "TELEGRAM_BOT_TOKEN", "MODAL_TOKEN_SECRET",
             "AUXILIARY_VISION_API_KEY",
-            "GATEWAY_RELAY_SECRET", "GATEWAY_RELAY_ID", "GATEWAY_RELAY_DELIVERY_KEY",
         ):
             assert var not in env, f"{var} leaked into codex app-server spawn env"
 

@@ -118,10 +118,10 @@ def test_clear_session_env_restores_previous_state(monkeypatch):
 
 def test_get_session_env_falls_back_to_os_environ(monkeypatch):
     """get_session_env should fall back to os.environ when contextvar is unset."""
-    monkeypatch.setenv("HERMES_SESSION_PLATFORM", "discord")
+    monkeypatch.setenv("HERMES_SESSION_PLATFORM", "mattermost")
 
     # No contextvar set — should read from os.environ
-    assert get_session_env("HERMES_SESSION_PLATFORM") == "discord"
+    assert get_session_env("HERMES_SESSION_PLATFORM") == "mattermost"
 
     # Now set a contextvar — should prefer it
     tokens = set_session_vars(platform="telegram")

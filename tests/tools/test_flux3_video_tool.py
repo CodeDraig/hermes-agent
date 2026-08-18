@@ -744,7 +744,7 @@ class TestPollTransport:
         assert parsed["result"].startswith(f"Saved to {tmp_path / 'flux3-clip.mp4'}.")
         assert "MEDIA:" not in parsed["result"]
 
-    @pytest.mark.parametrize("platform", ["api_server", "webhook", "msgraph_webhook", "local"])
+    @pytest.mark.parametrize("platform", ["api_server", "local"])
     def test_platforms_without_an_attachment_channel_are_offered_no_tag(self, tmp_path, monkeypatch, platform):
         # These carry a real platform value but no way to attach a file. The
         # API server in particular only inlines *images* as data URLs and

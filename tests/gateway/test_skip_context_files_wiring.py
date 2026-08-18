@@ -69,12 +69,12 @@ class TestSkipContextFilesConfigResolution:
             ({"gateway": {}}, "telegram", False),
             ({}, "telegram", False),
             # Set on a DIFFERENT platform — must not leak.
-            ({"gateway": {"platforms": {"discord": {"skip_context_files": True}}}}, "telegram", False),
+            ({"gateway": {"platforms": {"mattermost": {"skip_context_files": True}}}}, "telegram", False),
             # Truthy non-bool values coerce.
             ({"gateway": {"platforms": {"telegram": {"skip_context_files": 1}}}}, "telegram", True),
             # ``hermes gateway setup`` writes platforms as a LIST of enabled
             # platform names — must not crash and must default to False (#83185).
-            ({"gateway": {"platforms": ["telegram", "discord"]}}, "telegram", False),
+            ({"gateway": {"platforms": ["telegram", "mattermost"]}}, "telegram", False),
             ({"gateway": {"platforms": []}}, "telegram", False),
         ],
     )

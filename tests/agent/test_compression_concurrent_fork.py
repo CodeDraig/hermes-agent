@@ -499,7 +499,7 @@ def test_concurrent_compression_does_not_fork_session(tmp_path: Path) -> None:
     db = SessionDB(db_path=tmp_path / "state.db")
 
     parent_sid = "PARENT_TEST_SESSION"
-    db.create_session(parent_sid, source="discord")
+    db.create_session(parent_sid, source="mattermost")
 
     # Two agents on the same session_id, both wired to the same db —
     # mirrors the parent-turn agent + the background-review fork right
@@ -987,7 +987,7 @@ def test_post_compress_exception_stops_lock_refresher(tmp_path: Path, monkeypatc
 
     db = SessionDB(db_path=tmp_path / "state.db")
     parent_sid = "REFRESH_EXCEPTION_TEST"
-    db.create_session(parent_sid, source="discord")
+    db.create_session(parent_sid, source="mattermost")
 
     agent = _build_agent_with_db(db, parent_sid)
     agent._compression_lock_ttl_seconds = 0.15
@@ -1032,7 +1032,7 @@ def test_signature_introspection_exception_releases_lock_and_refresher(
 
     db = SessionDB(db_path=tmp_path / "state.db")
     parent_sid = "SIGNATURE_EXCEPTION_TEST"
-    db.create_session(parent_sid, source="discord")
+    db.create_session(parent_sid, source="mattermost")
 
     agent = _build_agent_with_db(db, parent_sid)
     agent._compression_lock_refresh_interval = 0.1
@@ -1168,7 +1168,7 @@ def test_real_lock_api_internal_errors_fail_closed_skips_compression(
     """
     db = SessionDB(db_path=tmp_path / "state.db")
     parent_sid = "ERRORING_LOCK_TEST"
-    db.create_session(parent_sid, source="discord")
+    db.create_session(parent_sid, source="mattermost")
 
     def _fail_lock_write(_fn):
         raise error
@@ -1226,7 +1226,7 @@ def test_review_fork_disables_compression_to_prevent_stale_parent_fork(tmp_path:
     parent_sid = "REVIEW_FORK_FLAG_TEST"
 
     db = SessionDB(db_path=tmp_path / "state.db")
-    db.create_session(parent_sid, source="discord")
+    db.create_session(parent_sid, source="mattermost")
     parent = _build_agent_with_db(db, parent_sid)
 
     # The worker does a local ``from run_agent import AIAgent``; patching

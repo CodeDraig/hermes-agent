@@ -62,14 +62,14 @@ def main() -> None:
 
     write_runtime_status(gateway_state="starting", active_agents=0)
     write_runtime_status(gateway_state="running", active_agents=2)
-    write_runtime_status(platform="slack", platform_state="running")
+    write_runtime_status(platform="mattermost", platform_state="running")
     write_runtime_status(
-        platform="slack",
+        platform="mattermost",
         platform_state="fatal",
         error_code="auth_failed",
         error_message="Bearer *** rejected for smoke@example.com",
     )
-    logging.getLogger("gateway.platforms.slack").warning("Slack token *** rejected for smoke@example.com")
+    logging.getLogger("gateway.platforms.mattermost").warning("Mattermost token *** rejected for smoke@example.com")
     emitter.get_emitter().flush(timeout=2.0)
     time.sleep(args.wait)
     write_runtime_status(gateway_state="stopped", active_agents=0)

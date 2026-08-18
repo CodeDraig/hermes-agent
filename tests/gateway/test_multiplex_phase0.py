@@ -38,10 +38,10 @@ class TestSessionKeyByteIdenticalWhenOff:
 
     @pytest.mark.parametrize("profile", [None, "default"])
     def test_group_per_user(self, profile):
-        s = _src(platform=Platform.DISCORD, chat_id="g1", chat_type="group", user_id="alice")
+        s = _src(platform=Platform.TELEGRAM, chat_id="g1", chat_type="group", user_id="alice")
         assert (
             build_session_key(s, profile=profile)
-            == "agent:main:discord:group:g1:alice"
+            == "agent:main:telegram:group:g1:alice"
         )
 
 
@@ -50,10 +50,10 @@ class TestSessionKeyNamespacedWhenOn:
 
 
     def test_named_profile_group_per_user(self):
-        s = _src(platform=Platform.DISCORD, chat_id="g1", chat_type="group", user_id="alice")
+        s = _src(platform=Platform.TELEGRAM, chat_id="g1", chat_type="group", user_id="alice")
         assert (
             build_session_key(s, profile="coder")
-            == "agent:coder:discord:group:g1:alice"
+            == "agent:coder:telegram:group:g1:alice"
         )
 
     def test_two_profiles_same_chat_do_not_collide(self):

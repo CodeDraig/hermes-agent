@@ -30,7 +30,7 @@ migrate onto in later phases:
   daemon ``threading.Timer`` (generalizing the proven telegram-adapter
   primitive) and abandons cancellation-shielded tasks instead of waiting for
   cancellation to complete.  The telegram adapter's private copy
-  (``plugins/platforms/telegram/adapter.py:_await_with_thread_deadline``)
+  (``gateway/platforms/telegram/adapter.py:_await_with_thread_deadline``)
   migrates onto this in Phase 2 of #85125 — do not let the two drift in the
   meantime; fix bugs here first.
 
@@ -249,7 +249,7 @@ def resolve_timeout(
 # ---------------------------------------------------------------------------
 # Bounded execution — async flavor.
 #
-# Generalizes plugins/platforms/telegram/adapter.py:_await_with_thread_deadline
+# Generalizes gateway/platforms/telegram/adapter.py:_await_with_thread_deadline
 # (the #63309 fix): the deadline is driven by a daemon threading.Timer so a
 # blocked event loop cannot disable it, and a second timer dumps all thread
 # stacks when the loop provably failed to process the expiry — the one piece

@@ -1,8 +1,7 @@
 """
 Base platform adapter interface.
 
-All platform adapters (Telegram, Discord, WhatsApp, Weixin, and more) inherit from this
-and implement the required methods.
+Telegram, Mattermost, and the API server inherit from this interface.
 """
 
 import asyncio
@@ -64,8 +63,7 @@ _TELEGRAM_AUDIO_ATTACHMENT_EXTS = frozenset({'.mp3', '.m4a'})
 _TELEGRAM_VOICE_EXTS = frozenset({'.ogg', '.opus'})
 _POST_DELIVERY_CALLBACK_TIMEOUT_SECONDS = 30.0
 # Delivery-time history is best-effort dedup metadata, not canonical state.
-# Keep this comfortably below the Discord heartbeat watchdog window and fail
-# open rather than withholding a legitimate attachment.
+# Keep this bounded and fail open rather than withholding a legitimate attachment.
 _HISTORY_MEDIA_LOOKUP_TIMEOUT_SECONDS = 5.0
 # Timed-out reads cannot be cancelled while SQLite/Python code is already
 # running. Isolate and cap them so wedged best-effort dedup work cannot consume
@@ -104,14 +102,6 @@ def _thread_metadata_for_source(source, reply_to_message_id: str | None = None) 
     """
     thread_id = getattr(source, "thread_id", None)
     metadata = {"thread_id": thread_id} if thread_id is not None else {}
-    # Slack workspace identity is durable routing state, not ephemeral event
-    # metadata. Carry it on every outbound path (including unthreaded sends)
-    # so a multi-workspace Socket Mode gateway never falls back to its primary
-    # WebClient after an async, stream, or recovery boundary.
-    if _platform_name(getattr(source, "platform", None)) == "slack":
-        scope_id = getattr(source, "scope_id", None)
-        if scope_id:
-            metadata["slack_team_id"] = str(scope_id)
     if not metadata:
         return None
     if _platform_name(getattr(source, "platform", None)) == "telegram" and getattr(source, "chat_type", None) == "dm":
@@ -144,26 +134,12 @@ def _reply_anchor_for_event(event) -> str | None:
     source = getattr(event, "source", None)
     platform = _platform_name(getattr(source, "platform", None))
     thread_id = getattr(source, "thread_id", None)
-    raw_message = getattr(event, "raw_message", None)
-    if (
-        platform == "slack"
-        and isinstance(raw_message, dict)
-        and raw_message.get("_hermes_no_thread_response")
-    ):
-        # Slack reaction handoffs into a configured target channel are meant
-        # to create a new top-level message there. Returning the synthetic
-        # event's message_id as reply_to would make
-        # SlackAdapter._resolve_thread_ts() treat it as a thread anchor and
-        # reply in a (nonexistent) thread anyway.
-        return None
     if platform == "telegram" and thread_id and getattr(source, "chat_type", None) == "dm":
         # Reply to the triggering user message. Replying to Telegram's earlier
         # topic seed/anchor can render the bot response outside the active lane.
         return getattr(event, "message_id", None) or getattr(event, "reply_to_message_id", None)
     if platform == "telegram" and thread_id:
         return None
-    if platform == "feishu" and thread_id and getattr(event, "reply_to_message_id", None):
-        return getattr(event, "reply_to_message_id", None)
     return getattr(event, "message_id", None)
 
 
@@ -439,7 +415,7 @@ def resolve_proxy_url(
     """Return a proxy URL from env vars, or macOS system proxy.
 
     Check order:
-      0. *platform_env_var* (e.g. ``DISCORD_PROXY``) — highest priority
+      0. *platform_env_var* (e.g. ``TELEGRAM_PROXY``) — highest priority
       1. HTTPS_PROXY / HTTP_PROXY / ALL_PROXY (and lowercase variants)
       2. macOS system proxy via ``scutil --proxy`` (auto-detect)
 
@@ -465,36 +441,6 @@ def resolve_proxy_url(
     return detected
 
 
-def proxy_kwargs_for_bot(proxy_url: str | None) -> dict:
-    """Build kwargs for ``commands.Bot()`` / ``discord.Client()`` with proxy.
-
-    Returns:
-      - SOCKS URL  → ``{"connector": ProxyConnector(..., rdns=True)}``
-      - HTTP URL   → ``{"proxy": url}``
-      - *None*     → ``{}``
-
-    ``rdns=True`` forces remote DNS resolution through the proxy — required
-    by many SOCKS implementations (Shadowrocket, Clash) and essential for
-    bypassing DNS pollution behind the GFW.
-    """
-    if not proxy_url:
-        return {}
-    if proxy_url.lower().startswith("socks"):
-        try:
-            from aiohttp_socks import ProxyConnector
-
-            connector = ProxyConnector.from_url(proxy_url, rdns=True)
-            return {"connector": connector}
-        except ImportError:
-            logger.warning(
-                "aiohttp_socks not installed — SOCKS proxy %s ignored. "
-                "Run: pip install aiohttp-socks",
-                proxy_url,
-            )
-            return {}
-    return {"proxy": proxy_url}
-
-
 def proxy_kwargs_for_aiohttp(proxy_url: str | None) -> tuple[dict, dict]:
     """Build kwargs for standalone ``aiohttp.ClientSession`` with proxy.
 
@@ -504,9 +450,8 @@ def proxy_kwargs_for_aiohttp(proxy_url: str | None) -> tuple[dict, dict]:
       - HTTP without aiohttp-socks → ``({}, {"proxy": url})``.
       - None → ``({}, {})``.
 
-    Prefer the connector path: it works transparently with libraries
-    (like mautrix) that call ``session.request()`` without forwarding
-    per-request ``proxy=`` kwargs.
+    Prefer the connector path because it applies uniformly to every request
+    issued by the retained adapter session.
 
     Usage::
 
@@ -1392,8 +1337,6 @@ def _media_delivery_denied_paths() -> List[Path]:
         "google_token.json",
         "google_oauth_pending.json",
         os.path.join("auth", "google_oauth.json"),
-        # Webhook subscription HMAC secrets.
-        "webhook_subscriptions.json",
         # Bitwarden Secrets Manager plaintext and encrypted disk caches.
         os.path.join("cache", "bws_cache.json"),
         os.path.join("cache", "bws_cache.enc.json"),
@@ -2344,21 +2287,10 @@ class MessageEvent:
     reply_to_author_name: Optional[str] = None
     reply_to_is_own_message: bool = False  # True when the user replied to this bot/assistant's message
 
-    # Structured interactive-prompt reply (relay Phase 3). Present when this
-    # event is the user answering a native interactive prompt rendered by the
-    # relay connector (Discord component / Telegram inline keyboard / Slack
-    # Block Kit / WhatsApp button-list). Shape mirrors the wire contract:
-    # {prompt_id, option_id, label?, prompt_message_id?}. The RelayAdapter
-    # consumes it in _on_inbound (routing to the approval/slash-confirm/
-    # clarify resolvers) BEFORE normal dispatch; native adapters never set it
-    # (their button callbacks resolve in-process).
-    prompt_response: Optional[Dict[str, Any]] = None
-    
-    # Auto-loaded skill(s) for topic/channel bindings (e.g., Telegram DM Topics,
-    # Discord channel_skill_bindings).  A single name or ordered list.
+    # Auto-loaded skill(s) for topic/channel bindings. A single name or ordered list.
     auto_skill: Optional[str | list[str]] = None
 
-    # Per-channel ephemeral system prompt (e.g. Discord channel_prompts).
+    # Per-channel ephemeral system prompt.
     # Applied at API call time and never persisted to transcript history.
     channel_prompt: Optional[str] = None
 
@@ -3131,12 +3063,7 @@ class BasePlatformAdapter(ABC):
     def max_message_length_for_chat(self, chat_id: str) -> int:
         """Per-chat max message length, in ``message_len_fn_for_chat`` units.
 
-        Default: the adapter-scalar ``MAX_MESSAGE_LENGTH`` (4096 when absent) —
-        for a native adapter every chat lives on the same platform so the
-        scalar is already correct. The relay adapter overrides this: one relay
-        adapter fronts N platforms with different caps (Discord 2000 vs
-        Telegram 4096 vs Slack 39000), and the right cap depends on which
-        platform the chat's inbound arrived from.
+        Defaults to the adapter-wide ``MAX_MESSAGE_LENGTH``.
         """
         try:
             return int(getattr(self, "MAX_MESSAGE_LENGTH", 4096) or 4096)
@@ -3146,9 +3073,7 @@ class BasePlatformAdapter(ABC):
     def message_len_fn_for_chat(self, chat_id: str) -> Callable[[str], int]:
         """Per-chat length function (companion to max_message_length_for_chat).
 
-        Default: the adapter-wide ``message_len_fn``. The relay adapter
-        overrides it so a Telegram-fronted chat measures UTF-16 units while a
-        Discord-fronted chat on the same adapter measures codepoints.
+        Defaults to the adapter-wide ``message_len_fn``.
         """
         return self.message_len_fn
 
@@ -3156,59 +3081,8 @@ class BasePlatformAdapter(ABC):
     def enforces_own_access_policy(self) -> bool:
         """Whether this adapter gates inbound access before dispatch.
 
-        Some adapters (WeCom, Weixin, Yuanbao, QQBot, WhatsApp) implement a
-        documented config-driven access surface — ``dm_policy`` / ``group_policy`` /
-        ``allow_from`` / ``group_allow_from`` in ``PlatformConfig.extra`` — and
-        enforce it at intake: a message is dropped inside the adapter and never
-        reaches the gateway unless it already passed that policy.
-
-        The gateway's env-based allowlist check runs *after* the adapter. When
-        no env allowlist is configured, the gateway consults this flag so it can
-        honor a config-only ``dm_policy: allowlist`` / ``allow_from`` (which the
-        adapter already enforced) instead of double-denying it. Crucially, the
-        flag alone is NOT "already authorized": these adapters default
-        ``dm_policy`` / ``group_policy`` to ``"open"``, which forwards every
-        sender, so the gateway trusts the adapter only when its effective policy
-        for the chat type is an actual ``"allowlist"`` restriction — never for
-        ``"open"`` (that would be the network-exposed fail-open SECURITY.md §2.6
-        forbids). Open access still requires an explicit
-        ``{PLATFORM}_ALLOW_ALL_USERS`` / ``GATEWAY_ALLOW_ALL_USERS`` opt-in.
-
-        Adapters that own their access policy override this to return ``True``.
-        Adapters that delegate access control to the gateway leave it ``False``
-        (the default).
-        """
-        return False
-
-    @property
-    def authorization_is_upstream(self) -> bool:
-        """Whether inbound on this adapter was already authorized UPSTREAM.
-
-        Distinct from ``enforces_own_access_policy``: that flag describes an
-        adapter that enforces a LOCAL, config-driven access surface
-        (``dm_policy: allowlist`` / ``allow_from``) the gateway can mirror. This
-        flag describes an adapter whose authorization is performed by a TRUSTED
-        UPSTREAM over an authenticated transport — there is no local policy to
-        consult, and the env allowlist (``{PLATFORM}_ALLOWED_USERS``) does not
-        apply because the sender identity isn't a platform account the operator
-        configures here.
-
-        The relay adapter is the sole user: it fronts the Team Gateway
-        connector over a per-instance-authenticated WebSocket, and the connector
-        performs owner-only author-binding resolution BEFORE delivering — a
-        message only reaches this gateway because the connector resolved it to
-        THIS instance's bound user (``user_instance_binding``). The author id is
-        read off the event the connector observed, never gateway-asserted. So an
-        inbound relay event carries an authorization decision already made by a
-        trusted, authenticated upstream; default-denying it (no env allowlist ⇒
-        deny) is incorrect.
-
-        This is NOT a fail-open: it is authorization DELEGATED to a trusted
-        upstream that authenticated the transport (the relay WS secret) and
-        enforced owner-only binding, as opposed to authorization being ABSENT.
-        It only takes effect for an adapter that explicitly overrides this to
-        ``True``; every network-exposed direct adapter leaves it ``False`` and
-        the env-allowlist default-deny continues to apply unchanged.
+        Adapters that own access policy may override this. Retained adapters
+        delegate access control to the gateway.
         """
         return False
 
@@ -7057,17 +6931,14 @@ class BasePlatformAdapter(ABC):
         chat_id_alt: Optional[str] = None,
         is_bot: bool = False,
         scope_id: Optional[str] = None,
-        guild_id: Optional[str] = None,
         parent_chat_id: Optional[str] = None,
         message_id: Optional[str] = None,
         role_authorized: bool = False,
-        auto_thread_created: bool = False,
-        auto_thread_initial_name: Optional[str] = None,
     ) -> SessionSource:
         """Helper to build a SessionSource for this platform.
 
         When ``gateway.profile_routes`` is configured, the routing engine
-        resolves the matching profile from guild/chat/thread and stamps it on
+        resolves the matching profile from scope/chat/thread and stamps it on
         ``source.profile``. Downstream code (``_resolve_profile_home_for_source``
         in run.py) reads that field to enter ``_profile_runtime_scope`` for
         per-profile HERMES_HOME isolation.
@@ -7098,7 +6969,6 @@ class BasePlatformAdapter(ABC):
                         chat_id_alt=chat_id_alt,
                         is_bot=is_bot,
                         scope_id=str(scope_id) if scope_id else None,
-                        guild_id=str(guild_id) if guild_id else None,
                         parent_chat_id=str(parent_chat_id) if parent_chat_id else None,
                         message_id=str(message_id) if message_id else None,
                     )
@@ -7124,13 +6994,10 @@ class BasePlatformAdapter(ABC):
             chat_id_alt=chat_id_alt,
             is_bot=is_bot,
             scope_id=str(scope_id) if scope_id else None,
-            guild_id=str(guild_id) if guild_id else None,
             parent_chat_id=str(parent_chat_id) if parent_chat_id else None,
             message_id=str(message_id) if message_id else None,
             profile=profile,
             role_authorized=role_authorized,
-            auto_thread_created=auto_thread_created,
-            auto_thread_initial_name=auto_thread_initial_name,
         )
         # In-process transport provenance is deliberately not serialized by
         # SessionSource.to_dict(). The live receiving adapter is authoritative
@@ -7154,32 +7021,12 @@ class BasePlatformAdapter(ABC):
         """
         pass
 
-    def toolsets_for_source(self, source: "SessionSource") -> Optional[List[str]]:
-        """Per-source toolset override for agent runs triggered by this adapter.
-
-        Return a list of configurable toolset keys (e.g. ``["terminal",
-        "file", "web"]``) to REPLACE the platform-level toolset resolution
-        for this specific source, or ``None`` to use the normal
-        ``platform_toolsets.<platform>`` resolution (the default).
-
-        The gateway validates the returned list through the same
-        ``_get_platform_tools`` path as platform-level config, so unknown or
-        platform-restricted toolset names are dropped rather than trusted.
-
-        Currently used by the webhook adapter so individual routes can pin
-        their own toolsets (a trusted local monitoring route can get
-        ``terminal`` without widening every webhook route's default-safe
-        toolset). See ``platforms.webhook.extra.routes.<name>.toolsets`` and
-        the ``toolsets`` key in ``webhook_subscriptions.json``.
-        """
-        return None
-    
     def format_message(self, content: str) -> str:
         """
         Format a message for this platform.
         
         Override in subclasses to handle platform-specific formatting
-        (e.g., Telegram MarkdownV2, Discord markdown).
+        (e.g., Telegram MarkdownV2).
         
         Default implementation returns content as-is.
         """

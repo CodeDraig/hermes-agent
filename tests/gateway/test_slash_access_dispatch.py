@@ -31,7 +31,7 @@ from gateway.session import SessionEntry, SessionSource, build_session_key
 
 def _make_source(
     *,
-    platform: Platform = Platform.DISCORD,
+    platform: Platform = Platform.TELEGRAM,
     user_id: str = "user1",
     chat_type: str = "dm",
     chat_id: str = "c1",
@@ -50,7 +50,7 @@ def _make_event(text: str, source: SessionSource) -> MessageEvent:
 
 
 def _make_runner(*, platform_extra: dict | None = None,
-                 platform: Platform = Platform.DISCORD):
+                 platform: Platform = Platform.TELEGRAM):
     from gateway.run import GatewayRunner
 
     runner = object.__new__(GatewayRunner)
@@ -303,7 +303,7 @@ async def test_gating_isolated_per_platform():
     runner = object.__new__(GatewayRunner)
     runner.config = GatewayConfig(
         platforms={
-            Platform.DISCORD: PlatformConfig(
+            Platform.TELEGRAM: PlatformConfig(
                 enabled=True,
                 token="***",
                 extra={
@@ -317,7 +317,7 @@ async def test_gating_isolated_per_platform():
         }
     )
     runner.adapters = {
-        Platform.DISCORD: MagicMock(send=AsyncMock()),
+        Platform.TELEGRAM: MagicMock(send=AsyncMock()),
         Platform.TELEGRAM: MagicMock(send=AsyncMock()),
     }
     runner._voice_mode = {}

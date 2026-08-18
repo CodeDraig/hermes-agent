@@ -3,18 +3,6 @@
   "generated_at": "2026-08-12T00:00:00Z",
   "plugins": [
     {
-      "name": "hermes-telegram-business",
-      "description": "Observe-with-approval Telegram Business Mode (secretary bot) plugin — every drafted reply requires owner approval before it reaches the customer.",
-      "author": "NousResearch",
-      "tags": ["telegram", "gateway", "approvals", "messaging"],
-      "repo": "NousResearch/hermes-telegram-business",
-      "ref": "e905f3bc5eeaa5a9dab9bc5155601b3ebec75757",
-      "homepage": "https://github.com/NousResearch/hermes-telegram-business",
-      "capabilities": ["platform"],
-      "api_version": 1,
-      "added_at": "2026-08-12"
-    },
-    {
       "name": "plugin-llm-example",
       "description": "Reference plugin showing host-owned structured LLM access via ctx.llm.complete_structured(). Registers a /receipt-extract slash command.",
       "author": "NousResearch",

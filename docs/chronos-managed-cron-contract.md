@@ -130,12 +130,11 @@ This is the agent endpoint NAS calls in Endpoint 3 step 3:
 
 1. **Gateway `APIServerAdapter`** (`gateway/platforms/api_server.py`, default
    port 8642) — verifies the JWT and runs
-   the job with the gateway's **live platform adapters**, which is what makes
-   delivery work for relay-fronted logical platforms and E2EE rooms (the
-   standalone send path can serve neither).
+   the job with the gateway's **live platform adapters**, preserving Telegram
+   topics and Mattermost threads/uploads.
 
-When the gateway is unavailable (scale-to-zero wake still booting, restart
-window, or api_server disabled), NAS receives a non-2xx response and retries;
+When the gateway is unavailable (restart window or API server disabled), NAS
+receives a non-2xx response and retries;
 the store CAS de-dupes the eventual double fire. The verifier is
 `plugins/cron/chronos/verify.py`.
 

@@ -4,8 +4,8 @@ Root cause class (#57048, #54589, #57213, #58845, #14841, #45557, #57049):
 several TTS backends silently write MP3/WAV bytes into a ``.ogg`` output
 path (Edge only emits MP3; Piper writes WAV; xAI writes MP3; some
 OpenAI-compatible servers ignore ``response_format="opus"``). Platforms
-that require real Ogg/Opus for native voice bubbles (Telegram, Matrix,
-Feishu, WhatsApp, Signal) then render a broken 0-second bubble.
+that require real Ogg/Opus for native voice bubbles (Telegram) then render a
+broken 0-second bubble.
 
 Instead of per-provider fixes, ``text_to_speech_tool`` sniffs the magic
 bytes once after synthesis and repairs the container centrally.
@@ -87,8 +87,7 @@ class TestOpusPlatformSet:
     def test_opus_platforms_cover_voice_bubble_platforms(self):
         # Behavior contract: the platforms whose adapters deliver native
         # voice bubbles only for Ogg/Opus must be recognized.
-        for platform in ("telegram", "matrix", "feishu", "whatsapp", "signal"):
-            assert platform in OPUS_VOICE_PLATFORMS
+        assert OPUS_VOICE_PLATFORMS == {"telegram"}
 
     def test_cli_not_included(self):
         assert "" not in OPUS_VOICE_PLATFORMS

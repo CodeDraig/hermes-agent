@@ -438,7 +438,7 @@ def test_classify_lost_and_found_row_sentinels() -> None:
     )
     assert (
         classify_lost_and_found_row(
-            52, ("20260101_010101_aaa001", "discord") + (None,) * 50
+            52, ("20260101_010101_aaa001", "mattermost") + (None,) * 50
         )
         == "sessions"
     )

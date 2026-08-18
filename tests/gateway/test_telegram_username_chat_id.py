@@ -14,7 +14,7 @@ from types import SimpleNamespace
 import pytest
 
 from gateway.config import PlatformConfig, Platform
-from plugins.platforms.telegram.telegram_ids import (
+from gateway.platforms.telegram.telegram_ids import (
     looks_like_telegram_username,
     normalize_telegram_chat_id,
     parse_telegram_username_target,
@@ -115,7 +115,7 @@ def _inject_fake_telegram(monkeypatch):
 
 
 def _make_adapter():
-    from plugins.platforms.telegram.adapter import TelegramAdapter
+    from gateway.platforms.telegram.adapter import TelegramAdapter
 
     config = PlatformConfig(enabled=True, token="fake-token")
     adapter = object.__new__(TelegramAdapter)

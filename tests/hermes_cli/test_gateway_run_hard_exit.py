@@ -23,7 +23,6 @@ def _prepare(monkeypatch):
     import hermes_cli.gateway as gateway_cli
     import gateway.run as gateway_run
 
-    monkeypatch.setattr(gateway_cli, "_guard_official_docker_root_gateway", lambda: None)
     monkeypatch.setattr(gateway_cli, "_guard_named_profile_under_multiplexer", lambda force=False: None)
     monkeypatch.setattr(gateway_cli, "_guard_supervised_gateway_conflict", lambda force=False: None)
     monkeypatch.setattr(gateway_cli, "_guard_existing_gateway_process_conflict", lambda replace=False: None)

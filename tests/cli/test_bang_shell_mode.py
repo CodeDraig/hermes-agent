@@ -76,7 +76,7 @@ class TestBangContextGating:
     @pytest.mark.parametrize("var,value", [
         ("HERMES_GATEWAY_SESSION", "1"),
         ("HERMES_CRON_SESSION", "true"),
-        ("HERMES_SESSION_PLATFORM", "discord"),
+        ("HERMES_SESSION_PLATFORM", "mattermost"),
     ])
     def test_disabled_in_non_cli_contexts(self, monkeypatch, var, value):
         for v in ("HERMES_GATEWAY_SESSION", "HERMES_CRON_SESSION",

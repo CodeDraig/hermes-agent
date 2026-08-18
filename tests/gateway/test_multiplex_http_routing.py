@@ -1,4 +1,4 @@
-"""Phase 1: HTTP-inbound /p/<profile>/ routing for the webhook adapter."""
+"""HTTP-inbound /p/<profile>/ routing for the retained API adapter."""
 import pytest
 
 from gateway.config import GatewayConfig, Platform
@@ -8,16 +8,16 @@ from gateway.session import SessionSource, build_session_key
 class TestSessionSourceProfileField:
     def test_profile_roundtrips(self):
         s = SessionSource(
-            platform=Platform.WEBHOOK if hasattr(Platform, "WEBHOOK") else Platform.TELEGRAM,
+            platform=Platform.API_SERVER,
             chat_id="c1",
-            chat_type="webhook",
+            chat_type="api",
             profile="coder",
         )
         restored = SessionSource.from_dict(s.to_dict())
         assert restored.profile == "coder"
 
 
-class TestWebhookProfileResolution:
+class TestAPIProfileResolution:
     """_resolve_request_profile validates the /p/<profile>/ prefix."""
 
     def _adapter(
@@ -26,7 +26,7 @@ class TestWebhookProfileResolution:
         served=("default", "coder"),
         allowlist=None,
     ):
-        from gateway.platforms.webhook import WebhookAdapter, _PROFILE_REJECTED
+        from gateway.platforms.api_server import APIServerAdapter, _PROFILE_REJECTED
 
         class _FakeReq:
             def __init__(self, profile):
@@ -41,7 +41,7 @@ class TestWebhookProfileResolution:
             config = cfg
 
         # Construct minimally; we only call _resolve_request_profile.
-        adapter = WebhookAdapter.__new__(WebhookAdapter)
+        adapter = APIServerAdapter.__new__(APIServerAdapter)
         adapter.gateway_runner = _Runner()
         return adapter, _FakeReq, _PROFILE_REJECTED, served
 
@@ -64,5 +64,3 @@ class TestWebhookProfileResolution:
 
         assert adapter._resolve_request_profile(Req("worker")) == "worker"
         assert adapter._resolve_request_profile(Req("restricted")) is rejected
-
-

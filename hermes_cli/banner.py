@@ -860,8 +860,8 @@ def compute_toolset_availability(enabled_toolsets: List[str] = None) -> Dict[str
     enabled_toolsets = enabled_toolsets or []
     _, unavailable_toolsets = check_tool_availability(quiet=True)
     # The availability check walks the GLOBAL toolset registry, so it includes
-    # toolsets that aren't part of this agent's platform set at all (e.g.
-    # `discord`, `feishu_doc` on a CLI session). Those must never surface in the
+    # toolsets that aren't part of this agent's platform set at all. Those must
+    # never surface in the
     # banner's "Available Tools" — they aren't exposed to the agent. Restrict to
     # toolsets actually enabled for this agent; a toolset that's enabled but
     # currently has unmet deps legitimately shows as disabled/lazy below.

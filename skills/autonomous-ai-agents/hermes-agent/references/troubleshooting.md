@@ -38,8 +38,6 @@ Common gateway problems:
 - **Gateway crash loop**: Reset the failed state: `systemctl --user reset-failed hermes-gateway`
 
 ### Platform-specific issues
-- **Discord bot silent**: Must enable **Message Content Intent** in Bot → Privileged Gateway Intents.
-- **Slack bot only works in DMs**: Must subscribe to `message.channels` event. Without it, the bot ignores public channels.
 - **Windows-specific issues** (`Alt+Enter` newline, WinError 10106, UTF-8 BOM config, line endings): see `references/windows-quirks.md`.
 
 ### Auxiliary models not working
@@ -51,4 +49,3 @@ hermes config set auxiliary.vision.model <model_name>
 
 ### "Reset permissions" / auto-approving everything
 See `references/security-privacy.md` — wipe the "Always allow" stores, don't touch yolo mode.
-

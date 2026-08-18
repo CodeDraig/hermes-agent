@@ -1,37 +1,23 @@
 """Shared mime↔extension dispatch for inbound (downloaded) platform media.
 
-Historically every gateway adapter hand-rolled its own mime→extension map
-before handing downloaded bytes to the cache primitives in
+Gateway adapters hand downloaded bytes to the cache primitives in
 ``gateway.platforms.base`` (``cache_image_from_bytes``,
-``cache_audio_from_bytes``, ``cache_document_from_bytes``).  Those maps
-*disagree* with each other on purpose — e.g. BlueBubbles coerces
-``image/heic`` to ``.jpg`` because downstream vision tools can't read HEIC,
-while WhatsApp Cloud pins ``audio/ogg`` to ``.ogg`` (not the RFC-correct
-``.oga`` Python's ``mimetypes`` returns) because the STT pipeline whitelists
-extensions.
+``cache_audio_from_bytes``, ``cache_document_from_bytes``). This module keeps
+their MIME and extension decisions consistent.
 
 This module owns:
 
 * ``DEFAULT_MIME_TO_EXT`` — the union table of entries the adapters already
   agree on (plus a few uncontroversial document types).
-* ``DEFAULT_EXT_TO_MIME`` — the canonical inverse (used by Signal to map a
-  sniffed extension back to a content type).
+* ``DEFAULT_EXT_TO_MIME`` — the canonical inverse.
 * ``ext_for_mime`` / ``mime_for_ext`` — lookup helpers that accept
-  per-adapter ``overrides`` so each adapter's historical (divergent)
-  behavior is preserved byte-for-byte.
+  per-adapter ``overrides``.
 * ``cache_media_bytes`` — one-call dispatch: classify the mime, resolve the
   extension, and write to the right cache (image / audio / document).
 
-Behavior-preservation contract: adapters that had divergent maps pass them
-as ``overrides`` (and, where their historical code never consulted
-``mimetypes`` or a shared table, disable those fallbacks via
-``use_defaults`` / ``use_mimetypes``).  The parity tests in
-``tests/gateway/test_media_cache.py`` hardcode the historical outputs as
-the contract.
-
-NOTE: ``gateway/platforms/weixin.py`` also has a private mime map
-(``_mime_from_filename``) but is intentionally NOT migrated here — another
-in-flight branch edits that file.  Follow-up: fold it in once that lands.
+Adapters can pass ``overrides`` or disable fallbacks via ``use_defaults`` and
+``use_mimetypes``. Tests in ``tests/gateway/test_media_cache.py`` define the
+contract.
 """
 
 from __future__ import annotations
@@ -50,22 +36,22 @@ from typing import Mapping, Optional
 # RFC-correct one (``audio/ogg`` → ``.ogg``, not ``.oga``) because the
 # downstream STT/vision pipelines whitelist real-world extensions.
 DEFAULT_MIME_TO_EXT: dict[str, str] = {
-    # --- images (bluebubbles + whatsapp_cloud agree; matches mimetypes) ---
+    # --- images ---
     "image/jpeg": ".jpg",
     "image/png": ".png",
     "image/gif": ".gif",
     "image/webp": ".webp",
     # --- audio ---
-    "audio/ogg": ".ogg",          # bluebubbles + whatsapp_cloud agree
-    "audio/x-opus+ogg": ".ogg",   # whatsapp voice notes (opus-in-ogg)
-    "audio/opus": ".ogg",         # whatsapp voice notes (opus-in-ogg)
+    "audio/ogg": ".ogg",
+    "audio/x-opus+ogg": ".ogg",
+    "audio/opus": ".ogg",
     "audio/mpeg": ".mp3",
     "audio/mp3": ".mp3",          # non-standard but seen in the wild
     "audio/wav": ".wav",
-    "audio/mp4": ".m4a",          # bluebubbles + whatsapp_cloud agree
+    "audio/mp4": ".m4a",
     "audio/x-m4a": ".m4a",
     "audio/aac": ".aac",
-    # --- video / documents (from signal's inverse table) ---
+    # --- video / documents ---
     "video/mp4": ".mp4",
     "application/pdf": ".pdf",
     "application/zip": ".zip",
@@ -74,7 +60,7 @@ DEFAULT_MIME_TO_EXT: dict[str, str] = {
 # Canonical inverse.  Kept explicit (rather than mechanically inverted)
 # because the forward table is many-to-one — e.g. both ``audio/mpeg`` and
 # ``audio/mp3`` map to ``.mp3`` and the inverse must pick the canonical
-# mime.  This is byte-identical to Signal's historical ``_EXT_TO_MIME``.
+# MIME.
 DEFAULT_EXT_TO_MIME: dict[str, str] = {
     ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
     ".gif": "image/gif", ".webp": "image/webp",

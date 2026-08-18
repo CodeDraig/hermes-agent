@@ -401,7 +401,7 @@ class TestAgentCacheBoundedGrowth:
 
         config = GatewayConfig()
         # Give Telegram a 'none' policy via the per-platform override; leave the
-        # default policy finite ('both') for the Discord case.
+        # default policy finite ('both') for the Mattermost case.
         config.default_reset_policy = SessionResetPolicy(mode="both")
         config.reset_by_platform[Platform.TELEGRAM] = SessionResetPolicy(mode="none")
 
@@ -412,7 +412,7 @@ class TestAgentCacheBoundedGrowth:
         # mode='none' → never finalized by the watcher.
         assert store.is_session_finalizable(_entry_for(Platform.TELEGRAM)) is False
         # default 'both' → finite, will eventually expire.
-        assert store.is_session_finalizable(_entry_for(Platform.DISCORD)) is True
+        assert store.is_session_finalizable(_entry_for(Platform.MATTERMOST)) is True
 
     def test_plain_dict_cache_is_tolerated(self):
         """Test fixtures using plain {} don't crash _enforce_agent_cache_cap."""
@@ -1061,4 +1061,3 @@ class TestCrossProcessInvalidationDefersCleanup:
         # Stale entry was popped, hard-teardown path never used.
         assert "telegram:s1" not in runner._agent_cache
         runner._cleanup_agent_resources.assert_not_called()
-

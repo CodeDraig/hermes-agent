@@ -297,17 +297,15 @@ class TestTerminalIntegration:
 
     def test_passthrough_cannot_override_internal_dynamic_secret(self):
         """A skill must NOT be able to register dynamically-named Hermes
-        secrets (AUXILIARY_*_API_KEY / _BASE_URL, GATEWAY_RELAY_* auth) as
-        passthrough — they aren't in the static blocklist, so this is the
-        defense-in-depth layer that keeps env_passthrough consistent with the
-        unconditional strip in the sanitizers."""
+        secrets (AUXILIARY_*_API_KEY / _BASE_URL) as passthrough — they aren't
+        in the static blocklist, so this is the defense-in-depth layer that
+        keeps env_passthrough consistent with the unconditional strip in the
+        sanitizers."""
         from tools.environments.local import _sanitize_subprocess_env
 
         for var in (
             "AUXILIARY_VISION_API_KEY",
             "AUXILIARY_VISION_BASE_URL",
-            "GATEWAY_RELAY_SECRET",
-            "GATEWAY_RELAY_DELIVERY_KEY",
         ):
             register_env_passthrough([var])
             assert not is_env_passthrough(var), (
@@ -318,16 +316,13 @@ class TestTerminalIntegration:
             assert "PATH" in result
 
     def test_passthrough_allows_auxiliary_non_secret_routing(self):
-        """AUXILIARY_*_PROVIDER / _MODEL and GATEWAY_RELAY routing hints are not
-        secrets, so a skill may still register them (they're not protected)."""
+        """AUXILIARY_*_PROVIDER / _MODEL hints may be passed through."""
         register_env_passthrough([
             "AUXILIARY_VISION_PROVIDER",
             "AUXILIARY_VISION_MODEL",
-            "GATEWAY_RELAY_URL",
         ])
         assert is_env_passthrough("AUXILIARY_VISION_PROVIDER")
         assert is_env_passthrough("AUXILIARY_VISION_MODEL")
-        assert is_env_passthrough("GATEWAY_RELAY_URL")
 
     def test_make_run_env_blocklist_override_rejected(self):
         """_make_run_env must NOT expose a blocklisted var to subprocess env

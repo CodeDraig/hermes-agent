@@ -98,7 +98,7 @@ class TestScanSkillCommands:
             platform = os.getenv("HERMES_PLATFORM")
             if platform == "telegram":
                 return {"telegram-only"}
-            if platform == "discord":
+            if platform == "mattermost":
                 return {"discord-only"}
             return set()
 
@@ -119,7 +119,7 @@ class TestScanSkillCommands:
             assert "/discord-only" in telegram_commands
             assert "/telegram-only" not in telegram_commands
 
-            with patch.dict(os.environ, {"HERMES_PLATFORM": "discord"}):
+            with patch.dict(os.environ, {"HERMES_PLATFORM": "mattermost"}):
                 discord_commands = dict(get_skill_commands())
 
             assert "/shared" in discord_commands
@@ -162,7 +162,7 @@ class TestScanSkillCommands:
             )
             if platform == "telegram":
                 return {"telegram-only"}
-            if platform == "discord":
+            if platform == "mattermost":
                 return {"discord-only"}
             return set()
 
@@ -190,7 +190,7 @@ class TestScanSkillCommands:
             # Second simulated gateway request: discord handler. The cache
             # was just populated for telegram; the rescan trigger must fire
             # off the ContextVar change, not just an env-var change.
-            tokens = set_session_vars(platform="discord")
+            tokens = set_session_vars(platform="mattermost")
             try:
                 discord_commands = dict(get_skill_commands())
             finally:

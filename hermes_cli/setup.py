@@ -5,7 +5,7 @@ Modular wizard with independently-runnable sections:
   1. Model & Provider — choose your AI provider and model
   2. Terminal Backend — where your agent runs commands
   3. Agent Settings — iterations, compression, session reset
-  4. Messaging Platforms — connect Telegram, Discord, etc.
+  4. Messaging Platforms — connect Telegram or Mattermost
   5. Tools — configure TTS, web search, image generation, etc.
 
 Config files are stored in ~/.hermes/ for easy access.
@@ -601,10 +601,6 @@ def _print_setup_summary(config: dict, hermes_home):
             tool_status.append(("Modal Execution", False, "run 'hermes setup terminal'"))
     elif managed_nous_tools_enabled() and subscription_features.nous_auth_present:
         tool_status.append(("Modal Execution (optional via Nous subscription)", True, None))
-
-    # Home Assistant
-    if get_env_value("HASS_TOKEN"):
-        tool_status.append(("Smart Home (Home Assistant)", True, None))
 
     # Spotify (OAuth via hermes auth spotify — check auth.json, not env vars)
     try:
@@ -1760,7 +1756,7 @@ def setup_agent_settings(config: dict):
     # ── Session Reset Policy ──
     print_header("Session Reset Policy")
     print_info(
-        "Messaging sessions (Telegram, Discord, etc.) accumulate context over time."
+        "Messaging sessions (Telegram and Mattermost) accumulate context over time."
     )
     print_info(
         "Each message adds to the conversation history, which means growing API costs."
@@ -2018,135 +2014,6 @@ def _setup_telegram():
         home_channel = prompt("Home channel ID (leave empty to set later)")
         if home_channel:
             save_env_value("TELEGRAM_HOME_CHANNEL", home_channel)
-
-
-# _setup_slack and _write_slack_manifest_and_instruct moved to the slack
-# plugin: plugins/platforms/slack/adapter.py::interactive_setup (registered
-# via setup_fn and dispatched through the plugin path). #41112 / #3823.
-
-
-# _setup_matrix moved to plugins/platforms/matrix/adapter.py::interactive_setup
-# (registered via setup_fn, dispatched through the plugin path). #41112.
-
-
-def _setup_bluebubbles():
-    """Configure BlueBubbles iMessage gateway."""
-    print_header("BlueBubbles (iMessage)")
-    existing = get_env_value("BLUEBUBBLES_SERVER_URL")
-    if existing:
-        print_info("BlueBubbles: already configured")
-        if not prompt_yes_no("Reconfigure BlueBubbles?", False):
-            return
-
-    print_info("Connects Hermes to iMessage via BlueBubbles — a free, open-source")
-    print_info("macOS server that bridges iMessage to any device.")
-    print_info("   Requires a Mac running BlueBubbles Server v1.0.0+")
-    print_info("   Download: https://bluebubbles.app/")
-    print()
-    print_info("In BlueBubbles Server → Settings → API, note your Server URL and Password.")
-    print()
-
-    server_url = prompt("BlueBubbles server URL (e.g. http://192.168.1.10:1234)")
-    if not server_url:
-        print_warning("Server URL is required — skipping BlueBubbles setup")
-        return
-    save_env_value("BLUEBUBBLES_SERVER_URL", server_url.rstrip("/"))
-
-    password = prompt("BlueBubbles server password", password=True)
-    if not password:
-        print_warning("Password is required — skipping BlueBubbles setup")
-        return
-    save_env_value("BLUEBUBBLES_PASSWORD", password)
-    print_success("BlueBubbles credentials saved")
-
-    print()
-    print_info("🔒 Security: Restrict who can message your bot")
-    print_info("   Use iMessage addresses: email (user@icloud.com) or phone (+15551234567)")
-    print()
-    allowed_users = prompt("Allowed iMessage addresses (comma-separated, leave empty for open access)")
-    if allowed_users:
-        save_env_value("BLUEBUBBLES_ALLOWED_USERS", allowed_users.replace(" ", ""))
-        print_success("BlueBubbles allowlist configured")
-    else:
-        print_info("⚠️  No allowlist set — anyone who can iMessage you can use the bot!")
-
-    print()
-    print_info("📬 Home Channel: phone or email for cron job delivery and notifications.")
-    print_info("   You can also set this later with /set-home in your iMessage chat.")
-    home_channel = prompt("Home channel address (leave empty to set later)")
-    if home_channel:
-        save_env_value("BLUEBUBBLES_HOME_CHANNEL", home_channel)
-
-    print()
-    print_info("Advanced settings (defaults are fine for most setups):")
-    if prompt_yes_no("Configure webhook listener settings?", False):
-        webhook_port = prompt("Webhook listener port (default: 8645)")
-        if webhook_port:
-            try:
-                save_env_value("BLUEBUBBLES_WEBHOOK_PORT", str(int(webhook_port)))
-                print_success(f"Webhook port set to {webhook_port}")
-            except ValueError:
-                print_warning("Invalid port number, using default 8645")
-
-    print()
-    print_info("Requires the BlueBubbles Private API helper for typing indicators,")
-    print_info("read receipts, and tapback reactions. Basic messaging works without it.")
-    print_info("   Install: https://docs.bluebubbles.app/helper-bundle/installation")
-
-
-def _setup_qqbot():
-    """Configure QQ Bot (Official API v2) via gateway setup."""
-    from hermes_cli.gateway import _setup_qqbot as _gateway_setup_qqbot
-    _gateway_setup_qqbot()
-
-
-def _setup_webhooks():
-    """Configure webhook integration."""
-    print_header("Webhooks")
-    existing = get_env_value("WEBHOOK_ENABLED")
-    if existing:
-        print_info("Webhooks: already configured")
-        if not prompt_yes_no("Reconfigure webhooks?", False):
-            return
-
-    print()
-    print_warning("⚠  Webhook and SMS platforms require exposing gateway ports to the")
-    print_warning("   internet. For security, run the gateway in a sandboxed environment")
-    print_warning("   (Docker, VM, etc.) to limit blast radius from prompt injection.")
-    print()
-    print_info("   Full guide: https://github.com/NousResearch/hermes-agent")
-    print()
-
-    port = prompt("Webhook port (default 8644)")
-    if port:
-        try:
-            save_env_value("WEBHOOK_PORT", str(int(port)))
-            print_success(f"Webhook port set to {port}")
-        except ValueError:
-            print_warning("Invalid port number, using default 8644")
-
-    secret = prompt("Global HMAC secret (shared across all routes)", password=True)
-    if secret:
-        save_env_value("WEBHOOK_SECRET", secret)
-        print_success("Webhook secret saved")
-    else:
-        print_warning("No secret set — you must configure per-route secrets in config.yaml")
-
-    save_env_value("WEBHOOK_ENABLED", "true")
-    print()
-    print_success("Webhooks enabled! Next steps:")
-    from hermes_constants import display_hermes_home as _dhh
-    print_info(f"   1. Define webhook routes in {_dhh()}/config.yaml")
-    print_info("   2. Point your service (GitHub, GitLab, etc.) at:")
-    print_info("      http://your-server:8644/webhooks/<route-name>")
-    print()
-    print_info("   Route configuration guide:")
-    print_info("   https://github.com/NousResearch/hermes-agent")
-    print()
-    print_info("   Open config in your editor:  hermes config edit")
-    print_info("   Open config in your editor:  hermes config edit")
-
-
 def setup_gateway(config: dict):
     """Configure messaging platform integrations."""
     from hermes_cli.gateway import _all_platforms, _platform_status, _configure_platform
@@ -2176,9 +2043,7 @@ def setup_gateway(config: dict):
             _configure_platform(platforms[idx])
 
     # ── Gateway Service Setup ──
-    # Count any platform (built-in or plugin) the user configured during this
-    # setup pass — reuses ``_platform_status`` so plugin platforms like IRC
-    # are picked up without another hard-coded env-var list.
+    # Count any retained platform configured during this setup pass.
     def _is_progress(status: str) -> bool:
         s = status.lower()
         return not (
@@ -2201,18 +2066,10 @@ def setup_gateway(config: dict):
             "TELEGRAM_HOME_CHANNEL"
         ):
             missing_home.append("Telegram")
-        if get_env_value("DISCORD_BOT_TOKEN") and not get_env_value(
-            "DISCORD_HOME_CHANNEL"
+        if get_env_value("MATTERMOST_TOKEN") and not get_env_value(
+            "MATTERMOST_HOME_CHANNEL"
         ):
-            missing_home.append("Discord")
-        if get_env_value("SLACK_BOT_TOKEN") and not get_env_value("SLACK_HOME_CHANNEL"):
-            missing_home.append("Slack")
-        if get_env_value("BLUEBUBBLES_SERVER_URL") and not get_env_value("BLUEBUBBLES_HOME_CHANNEL"):
-            missing_home.append("BlueBubbles")
-        if get_env_value("QQ_APP_ID") and not (
-            get_env_value("QQBOT_HOME_CHANNEL") or get_env_value("QQ_HOME_CHANNEL")
-        ):
-            missing_home.append("QQBot")
+            missing_home.append("Mattermost")
 
         if missing_home:
             print()
@@ -2703,7 +2560,7 @@ def _run_first_time_quick_setup(config: dict, hermes_home, is_existing: bool):
     # Step 4: Offer messaging gateway setup
     print()
     gateway_choice = prompt_choice(
-        "Connect a messaging platform? (Telegram, Discord, etc.)",
+        "Connect a messaging platform? (Telegram or Mattermost)",
         [
             "Set up messaging now (recommended)",
             "Skip — set up later with 'hermes setup gateway'",
@@ -2726,7 +2583,7 @@ def _run_first_time_quick_setup(config: dict, hermes_home, is_existing: bool):
     print()
     print_info("  Configure all settings:    hermes setup")
     if gateway_choice != 0:
-        print_info("  Connect Telegram/Discord:  hermes setup gateway")
+        print_info("  Connect Telegram/Mattermost:  hermes setup gateway")
     print()
 
     _print_setup_summary(config, hermes_home)
@@ -2952,7 +2809,7 @@ def _blank_slate_walkthrough(config: dict, hermes_home):
 
     # ── Optional messaging gateway ──
     print()
-    if prompt_yes_no("Connect a messaging platform (Telegram, Discord, …)?", default=False):
+    if prompt_yes_no("Connect a messaging platform (Telegram or Mattermost)?", default=False):
         setup_gateway(config)
 
     save_config(config)
@@ -3071,10 +2928,8 @@ def _run_quick_setup(config: dict, hermes_home):
             name = var["name"]
             if "TELEGRAM" in name:
                 plat = "Telegram"
-            elif "DISCORD" in name:
-                plat = "Discord"
-            elif "SLACK" in name:
-                plat = "Slack"
+            elif "MATTERMOST" in name:
+                plat = "Mattermost"
             else:
                 continue
             if plat not in platforms:
@@ -3082,11 +2937,7 @@ def _run_quick_setup(config: dict, hermes_home):
             platforms.setdefault(plat, []).append(var)
 
         platform_labels = [
-            {
-                "Telegram": "📱 Telegram",
-                "Discord": "💬 Discord",
-                "Slack": "💼 Slack",
-            }.get(p, p)
+            {"Telegram": "📱 Telegram", "Mattermost": "💬 Mattermost"}.get(p, p)
             for p in platform_order
         ]
 
@@ -3098,7 +2949,7 @@ def _run_quick_setup(config: dict, hermes_home):
         for idx in selected_indices:
             plat = platform_order[idx]
             vars_list = platforms[plat]
-            emoji = {"Telegram": "📱", "Discord": "💬", "Slack": "💼"}.get(plat, "")
+            emoji = {"Telegram": "📱", "Mattermost": "💬"}.get(plat, "")
             print()
             print(color(f"  ─── {emoji} {plat} ───", Colors.CYAN))
             print()

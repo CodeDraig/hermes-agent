@@ -59,7 +59,7 @@ class MoAQuietReferenceOutputTests(unittest.TestCase):
         )
 
     def test_gateway_delivers_even_when_progress_mode_is_off(self) -> None:
-        agent, calls = self._agent(platform="discord", tool_progress_mode="off")
+        agent, calls = self._agent(platform="mattermost", tool_progress_mode="off")
         _relay_moa_reference_event(
             agent,
             "moa.aggregating",

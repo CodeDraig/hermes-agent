@@ -109,7 +109,7 @@ A well-built third-party-product plugin can clear automated review and still be 
 | **Git** | With the `git-lfs` extension installed |
 | **Python 3.11–3.13** | uv will install it if missing |
 | **uv** | Fast Python package manager ([install](https://docs.astral.sh/uv/)) |
-| **Node.js 20+** | Optional — needed for browser tools and the WhatsApp bridge |
+| **Node.js 20+** | Optional — needed for browser tools |
 
 ### Install with the standard installer
 
@@ -258,13 +258,12 @@ hermes-agent/
 │   ├── run.py                    # GatewayRunner — platform lifecycle, message routing, cron
 │   ├── config.py                 # Platform configuration resolution
 │   ├── session.py                # Session store, context prompts, reset policies
-│   └── platforms/                # Platform adapters
-│       ├── telegram.py, discord_adapter.py, slack.py, whatsapp.py
+│   └── platforms/                # Retained transport adapters
+│       ├── telegram/, mattermost.py, api_server.py
 │
-├── scripts/                  # Installer and bridge scripts
+├── scripts/                  # Installer and maintenance scripts
 │   ├── install.sh                # Linux/macOS installer
 │   ├── install.ps1               # Windows PowerShell installer
-│   └── whatsapp-bridge/          # Node.js WhatsApp bridge (Baileys)
 │
 ├── skills/                   # Bundled skills (copied to ~/.hermes/skills/ on install)
 ├── tests/                    # Test suite
@@ -284,7 +283,6 @@ hermes-agent/
 | `~/.hermes/state.db` | SQLite session database |
 | `~/.hermes/sessions/` | Gateway routing index (`sessions.json`), request-dump breadcrumbs, gateway `*.jsonl` transcripts, and (optionally) per-session JSON snapshots when `sessions.write_json_snapshots: true` is set. The per-session snapshots are off by default; state.db is canonical. |
 | `~/.hermes/cron/` | Scheduled job data |
-| `~/.hermes/whatsapp/session/` | WhatsApp bridge credentials |
 
 ---
 
@@ -949,12 +947,12 @@ We use [Conventional Commits](https://www.conventionalcommits.org/):
 | `refactor` | Code restructuring (no behavior change) |
 | `chore` | Build, CI, dependency updates |
 
-Scopes: `cli`, `gateway`, `tools`, `skills`, `agent`, `install`, `whatsapp`, `security`, etc.
+Scopes: `cli`, `gateway`, `tools`, `skills`, `agent`, `install`, `security`, etc.
 
 Examples:
 ```
 fix(cli): prevent crash in save_config_value when model is a string
-feat(gateway): add WhatsApp multi-user session isolation
+feat(gateway): add Mattermost thread routing
 fix(security): prevent shell injection in sudo password piping
 test(tools): add unit tests for file_operations
 ```

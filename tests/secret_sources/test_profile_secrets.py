@@ -65,25 +65,25 @@ PROFILE_HOME = Path("/home/u/.hermes/profiles/milla")
 
 def test_preserve_existing_beats_override():
     report, env = _apply(
-        {"FEISHU_APP_SECRET": "shared", "OPENAI_API_KEY": "fresh"},
-        cfg_extra={"preserve_existing": ["FEISHU_APP_SECRET"]},
-        env={"FEISHU_APP_SECRET": "profile-local", "OPENAI_API_KEY": "stale"},
+        {"MATTERMOST_TOKEN": "shared", "OPENAI_API_KEY": "fresh"},
+        cfg_extra={"preserve_existing": ["MATTERMOST_TOKEN"]},
+        env={"MATTERMOST_TOKEN": "profile-local", "OPENAI_API_KEY": "stale"},
     )
-    assert env["FEISHU_APP_SECRET"] == "profile-local"   # preserved
+    assert env["MATTERMOST_TOKEN"] == "profile-local"   # preserved
     assert env["OPENAI_API_KEY"] == "fresh"              # override still works
     sr = report.sources[0]
-    assert "FEISHU_APP_SECRET" in sr.skipped_existing
+    assert "MATTERMOST_TOKEN" in sr.skipped_existing
     assert "OPENAI_API_KEY" in sr.applied
 
 
 def test_preserve_existing_only_guards_set_vars():
     """A preserve-listed var with NO existing value still gets applied."""
     _, env = _apply(
-        {"FEISHU_APP_SECRET": "shared"},
-        cfg_extra={"preserve_existing": ["FEISHU_APP_SECRET"]},
+        {"MATTERMOST_TOKEN": "shared"},
+        cfg_extra={"preserve_existing": ["MATTERMOST_TOKEN"]},
         env={},
     )
-    assert env["FEISHU_APP_SECRET"] == "shared"
+    assert env["MATTERMOST_TOKEN"] == "shared"
 
 
 
@@ -117,10 +117,10 @@ def test_profile_suffixed_var_hydrates_canonical():
 
 def test_hyphenated_profile_name_matches_underscore_suffix():
     _, env = _apply(
-        {"SLACK_APP_TOKEN_MY_BOT": "xapp-1"},
+        {"TELEGRAM_BOT_TOKEN_MY_BOT": "123:profile"},
         home=Path("/home/u/.hermes/profiles/my-bot"),
     )
-    assert env["SLACK_APP_TOKEN"] == "xapp-1"
+    assert env["TELEGRAM_BOT_TOKEN"] == "123:profile"
 
 
 def test_source_fetch_reads_injected_environment_without_global_mutation(
@@ -171,7 +171,6 @@ def test_empty_injected_environment_does_not_fall_back_to_process(monkeypatch, t
     registry.apply_all(
         {"canary": {"enabled": True}}, tmp_path, environ={}
     )
-
 
 
 

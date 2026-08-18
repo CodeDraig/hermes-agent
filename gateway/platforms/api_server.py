@@ -109,9 +109,7 @@ def _get_scoped_secret(name, default=None):
     profile's value). The DEFAULT profile's adapter constructs and sends
     *unscoped* under multiplexing, where a bare ``get_secret`` would raise
     ``UnscopedSecretError`` and crash this path; there ``os.environ`` is that
-    profile's own value, so fall back to it. Same pattern as the Slack
-    ``SLACK_APP_TOKEN`` read (#59739) and
-    ``gateway/platforms/whatsapp_common.py::_get_wsecret``.
+    profile's own value, so fall back to it.
     """
     try:
         val = _scoped_get_secret(name, default)
@@ -1468,8 +1466,7 @@ class APIServerAdapter(BasePlatformAdapter):
         # id() can never be recycled while it is still registered.
         self._shutdown_interruptible_agents: Dict[int, Any] = {}
         # Back-reference to the owning GatewayRunner (set by gateway/run.py)
-        # so /api/platforms/{platform}/events can resolve sibling adapters.
-        # BasePlatformAdapter declares the class-level default of None.
+        # for shared gateway lifecycle, sessions, and cron operations.
         self.gateway_runner: Optional[Any] = None
         # Requests admitted before their handler reaches agent bookkeeping.
         # Shutdown counts this reservation so the request cannot slip through
@@ -1832,131 +1829,6 @@ class APIServerAdapter(BasePlatformAdapter):
             status=401,
         )
 
-    @staticmethod
-    def _normalize_callback_platform(value: str) -> str:
-        normalized = (value or "").strip().lower().replace("-", "_")
-        if not re.fullmatch(r"[a-z0-9_]+", normalized):
-            return ""
-        return normalized
-
-    def _get_platform_callback_adapter(
-        self,
-        request: "web.Request",
-        platform_name: str,
-    ) -> Optional[Any]:
-        injected = request.app.get("platform_event_adapters")
-        if isinstance(injected, dict):
-            adapter = injected.get(platform_name)
-            if adapter is not None:
-                return adapter
-
-        adapter = request.app.get(f"{platform_name}_adapter")
-        if adapter is not None:
-            return adapter
-
-        runner = self.gateway_runner or request.app.get("gateway_runner")
-        adapters = getattr(runner, "adapters", None)
-        if not adapters:
-            return None
-
-        try:
-            from gateway.config import Platform as _Platform
-            return adapters.get(_Platform(platform_name))
-        except Exception:
-            for platform, candidate in adapters.items():
-                if getattr(platform, "value", platform) == platform_name:
-                    return candidate
-        return None
-
-    async def _handle_platform_event_callback(self, request: "web.Request") -> "web.Response":
-        platform_name = self._normalize_callback_platform(
-            request.match_info.get("platform", "")
-        )
-        if not platform_name:
-            return web.json_response(
-                _openai_error(
-                    "Invalid platform name",
-                    code="invalid_platform",
-                ),
-                status=400,
-            )
-
-        adapter = self._get_platform_callback_adapter(request, platform_name)
-        if adapter is None:
-            return web.json_response(
-                _openai_error(
-                    "Platform adapter is not connected",
-                    code="platform_unavailable",
-                ),
-                status=503,
-            )
-
-        verifier = getattr(adapter, "verify_http_event_request", None)
-        dispatcher = getattr(adapter, "dispatch_http_event", None)
-        if verifier is None or dispatcher is None:
-            return web.json_response(
-                _openai_error(
-                    "Platform adapter does not support HTTP events",
-                    code="platform_http_events_unsupported",
-                ),
-                status=503,
-            )
-
-        auth_header = request.headers.get("Authorization", "")
-        try:
-            if asyncio.iscoroutinefunction(verifier):
-                ok, code = await verifier(auth_header)
-            else:
-                # Platform verifiers may do blocking network I/O (e.g. Google
-                # signing-cert fetches) — keep that off the event loop.
-                ok, code = await asyncio.to_thread(verifier, auth_header)
-        except Exception:
-            # Fail closed: a crashing verifier must never admit the event.
-            logger.exception(
-                "Platform HTTP event verifier failed for %s", platform_name
-            )
-            ok, code = False, "platform_event_verifier_error"
-        if not ok:
-            return web.json_response(
-                _openai_error(
-                    "Invalid platform event authorization",
-                    code=code or "invalid_platform_event_authorization",
-                ),
-                status=401,
-            )
-
-        try:
-            payload = await request.json()
-        except Exception:
-            return web.json_response(
-                _openai_error("Invalid JSON in platform event", code="invalid_json"),
-                status=400,
-            )
-
-        if not isinstance(payload, dict):
-            return web.json_response(
-                _openai_error(
-                    "Platform event must be a JSON object",
-                    code="invalid_request",
-                ),
-                status=400,
-            )
-
-        try:
-            result = await dispatcher(payload)
-        except Exception:
-            logger.exception("Platform HTTP event dispatch failed for %s", platform_name)
-            return web.json_response(
-                _openai_error(
-                    "Platform event dispatch failed",
-                    err_type="server_error",
-                    code="platform_event_dispatch_failed",
-                ),
-                status=500,
-            )
-
-        return web.json_response(result if isinstance(result, dict) else {})
-
     # ------------------------------------------------------------------
     # Multi-profile multiplexing (/p/<profile>/…)
     # ------------------------------------------------------------------
@@ -2077,10 +1949,6 @@ class APIServerAdapter(BasePlatformAdapter):
             ("POST", "/v1/responses", self._handle_responses),
             ("GET", "/v1/responses/{response_id}", self._handle_get_response),
             ("DELETE", "/v1/responses/{response_id}", self._handle_delete_response),
-            # Generic platform HTTP event callback ingress. Authenticated by
-            # the target adapter's own verifier (platform-signed bearer), NOT
-            # API_SERVER_KEY — external platforms hold no API server key.
-            ("POST", "/api/platforms/{platform}/events", self._handle_platform_event_callback),
             ("GET", "/api/jobs", self._handle_list_jobs),
             ("POST", "/api/jobs", self._handle_create_job),
             ("GET", "/api/jobs/{job_id}", self._handle_get_job),
@@ -2539,7 +2407,7 @@ class APIServerAdapter(BasePlatformAdapter):
     @staticmethod
     def _normalize_session_source(value: Any) -> str:
         text = str(value or "").strip().lower()
-        allowed = {"api_server", "hermes_browser", "browser", "cli", "telegram", "discord", "slack"}
+        allowed = {"api_server", "hermes_browser", "browser", "cli", "telegram", "mattermost"}
         if text in allowed:
             return "hermes_browser" if text == "browser" else text
         return "api_server"
@@ -5949,14 +5817,7 @@ class APIServerAdapter(BasePlatformAdapter):
             provider = resolve_cron_scheduler()
 
             loop = asyncio.get_running_loop()
-            # Live adapters for delivery parity with the built-in ticker
-            # (gateway/run.py passes runner.adapters to the in-process
-            # scheduler). Without them, _deliver_result cannot resolve a live
-            # transport, so E2EE platforms and relay-fronted logical platforms
-            # (whose only send path IS the live relay adapter — no native
-            # credential exists) fail with "platform 'X' not
-            # configured/enabled" on every external-provider fire even though
-            # the same job delivers fine under the built-in ticker.
+            # Live adapters preserve delivery parity with the built-in ticker.
             runner = self.gateway_runner or request.app.get("gateway_runner")
             if runner is None:
                 try:
@@ -7437,10 +7298,7 @@ class APIServerAdapter(BasePlatformAdapter):
             for method, path, handler in self._http_route_table():
                 self._app.router.add_route(method, path, handler)
                 self._app.router.add_route(method, f"/p/{{profile}}{path}", handler)
-            # Store the adapter after native routes are registered. Local Hermes-Relay
-            # bootstrap shims use this key as a feature-detection hook; registering
-            # native routes first lets those shims no-op instead of shadowing the
-            # upstream session-control handlers.
+            # Store the adapter after native routes are registered.
             self._app["api_server_adapter"] = self
             if self.gateway_runner is not None:
                 self._app["gateway_runner"] = self.gateway_runner

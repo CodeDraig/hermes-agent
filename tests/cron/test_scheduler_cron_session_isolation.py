@@ -140,7 +140,7 @@ def test_run_job_cron_execute_code_deny_does_not_pollute_later_gateway_execute_c
     session_key = "cron-isolation-session"
     key_token = approval_module.set_current_session_key(session_key)
     session_tokens = set_session_vars(
-        platform="discord",
+        platform="mattermost",
         chat_id="123",
         session_key=session_key,
         cron_session="",

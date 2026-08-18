@@ -31,7 +31,7 @@ class _Adapter(BasePlatformAdapter):  # type: ignore[misc]
     """Minimal concrete adapter driving the real base-class pipeline."""
 
     def __init__(self):
-        super().__init__(PlatformConfig(enabled=True), Platform.SLACK)
+        super().__init__(PlatformConfig(enabled=True), Platform.MATTERMOST)
         self.sent = []
 
     async def connect(self, *, is_reconnect: bool = False):  # pragma: no cover
@@ -53,7 +53,7 @@ def _event(text="hello agent"):
         text=text,
         message_type=MessageType.TEXT,
         source=SessionSource(
-            platform=Platform.SLACK, chat_id="C1", chat_type="channel"
+            platform=Platform.MATTERMOST, chat_id="C1", chat_type="channel"
         ),
         message_id="msg-42",
     )

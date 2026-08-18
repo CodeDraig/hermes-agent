@@ -68,10 +68,10 @@ def sample_sessions():
                 "chat_topic": None,
             },
         },
-        "agent:main:discord:group:789:456": {
-            "session_key": "agent:main:discord:group:789:456",
+        "agent:main:mattermost:group:789:456": {
+            "session_key": "agent:main:mattermost:group:789:456",
             "session_id": "20260329_100000_def456",
-            "platform": "discord",
+            "platform": "mattermost",
             "chat_type": "group",
             "display_name": "Bob",
             "created_at": "2026-03-29T10:00:00",
@@ -80,7 +80,7 @@ def sample_sessions():
             "output_tokens": 1000,
             "total_tokens": 31000,
             "origin": {
-                "platform": "discord",
+                "platform": "mattermost",
                 "chat_id": "789",
                 "chat_name": "#general",
                 "chat_type": "group",
@@ -90,10 +90,10 @@ def sample_sessions():
                 "chat_topic": None,
             },
         },
-        "agent:main:slack:group:C1234:U5678": {
-            "session_key": "agent:main:slack:group:C1234:U5678",
+        "agent:main:telegram:group:C1234:U5678": {
+            "session_key": "agent:main:telegram:group:C1234:U5678",
             "session_id": "20260328_090000_ghi789",
-            "platform": "slack",
+            "platform": "telegram",
             "chat_type": "group",
             "display_name": "Carol",
             "created_at": "2026-03-28T09:00:00",
@@ -102,7 +102,7 @@ def sample_sessions():
             "output_tokens": 500,
             "total_tokens": 10500,
             "origin": {
-                "platform": "slack",
+                "platform": "telegram",
                 "chat_id": "C1234",
                 "chat_name": "#engineering",
                 "chat_type": "group",
@@ -571,27 +571,27 @@ class TestE2EConversationsList:
         result = _run_tool(server, "conversations_list")
         assert result["count"] == 3
         platforms = {c["platform"] for c in result["conversations"]}
-        assert platforms == {"telegram", "discord", "slack"}
+        assert platforms == {"telegram", "mattermost"}
 
     def test_list_sorted_by_updated(self, mcp_server_e2e, _event_loop):
         server, _ = mcp_server_e2e
         result = _run_tool(server, "conversations_list")
         keys = [c["session_key"] for c in result["conversations"]]
-        # Telegram (14:30) > Discord (13:00) > Slack (11:00)
+        # Telegram (14:30) > Mattermost (13:00) > Telegram (11:00)
         assert keys[0] == "agent:main:telegram:dm:123456"
-        assert keys[1] == "agent:main:discord:group:789:456"
-        assert keys[2] == "agent:main:slack:group:C1234:U5678"
+        assert keys[1] == "agent:main:mattermost:group:789:456"
+        assert keys[2] == "agent:main:telegram:group:C1234:U5678"
 
     def test_filter_by_platform(self, mcp_server_e2e, _event_loop):
         server, _ = mcp_server_e2e
-        result = _run_tool(server, "conversations_list", {"platform": "discord"})
+        result = _run_tool(server, "conversations_list", {"platform": "mattermost"})
         assert result["count"] == 1
-        assert result["conversations"][0]["platform"] == "discord"
+        assert result["conversations"][0]["platform"] == "mattermost"
 
     def test_filter_by_platform_case_insensitive(self, mcp_server_e2e, _event_loop):
         server, _ = mcp_server_e2e
         result = _run_tool(server, "conversations_list", {"platform": "TELEGRAM"})
-        assert result["count"] == 1
+        assert result["count"] == 2
 
     def test_search_by_name(self, mcp_server_e2e, _event_loop):
         server, _ = mcp_server_e2e
@@ -856,14 +856,17 @@ class TestE2EChannelsList:
         assert result["count"] == 3
         targets = {c["target"] for c in result["channels"]}
         assert "telegram:123456" in targets
-        assert "discord:789" in targets
-        assert "slack:C1234" in targets
+        assert "mattermost:789" in targets
+        assert "telegram:C1234" in targets
 
     def test_channels_platform_filter(self, mcp_server_e2e, _event_loop):
         server, _ = mcp_server_e2e
-        result = _run_tool(server, "channels_list", {"platform": "slack"})
-        assert result["count"] == 1
-        assert result["channels"][0]["target"] == "slack:C1234"
+        result = _run_tool(server, "channels_list", {"platform": "telegram"})
+        assert result["count"] == 2
+        assert {item["target"] for item in result["channels"]} == {
+            "telegram:123456",
+            "telegram:C1234",
+        }
 
     def test_channels_with_directory(self, mcp_server_e2e, _event_loop, monkeypatch):
         """Populated channel_directory.json should be unwrapped via the 'platforms' key.
@@ -880,7 +883,7 @@ class TestE2EChannelsList:
                     {"id": "123456", "name": "Alice", "type": "dm"},
                     {"id": "-100999", "name": "Dev Group", "type": "group"},
                 ],
-                "discord": [
+                "mattermost": [
                     {"id": "789", "name": "general", "type": "text"},
                 ],
             },
@@ -889,7 +892,7 @@ class TestE2EChannelsList:
         result = _run_tool(server, "channels_list")
         assert result["count"] == 3
         targets = {c["target"] for c in result["channels"]}
-        assert targets == {"telegram:123456", "telegram:-100999", "discord:789"}
+        assert targets == {"telegram:123456", "telegram:-100999", "mattermost:789"}
 
     def test_channels_with_directory_platform_filter(self, mcp_server_e2e, _event_loop, monkeypatch):
         """Platform filter should work against the wrapped 'platforms' payload."""
@@ -898,13 +901,13 @@ class TestE2EChannelsList:
             "updated_at": "2026-05-07T12:00:00",
             "platforms": {
                 "telegram": [{"id": "123456", "name": "Alice", "type": "dm"}],
-                "discord": [{"id": "789", "name": "general", "type": "text"}],
+                "mattermost": [{"id": "789", "name": "general", "type": "text"}],
             },
         })
         server, _ = mcp_server_e2e
-        result = _run_tool(server, "channels_list", {"platform": "discord"})
+        result = _run_tool(server, "channels_list", {"platform": "mattermost"})
         assert result["count"] == 1
-        assert result["channels"][0]["target"] == "discord:789"
+        assert result["channels"][0]["target"] == "mattermost:789"
 
 
 class TestE2EPermissions:

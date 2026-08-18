@@ -19,7 +19,7 @@ from gateway.config import Platform, PlatformConfig
 
 
 def _make_adapter():
-    from plugins.platforms.telegram.adapter import TelegramAdapter
+    from gateway.platforms.telegram.adapter import TelegramAdapter
 
     adapter = object.__new__(TelegramAdapter)
     adapter.platform = Platform.TELEGRAM

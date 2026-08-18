@@ -204,12 +204,8 @@ class TestProviderEnvBlocklist:
         leaked_vars = {
             "TELEGRAM_BOT_TOKEN": "bot-token",
             "TELEGRAM_HOME_CHANNEL": "12345",
-            "DISCORD_HOME_CHANNEL": "67890",
-            "SLACK_APP_TOKEN": "xapp-secret",
-            "WHATSAPP_ALLOWED_USERS": "+15555550123",
-            "SIGNAL_ACCOUNT": "+15555550124",
-            "HASS_TOKEN": "ha-secret",
-            "EMAIL_PASSWORD": "email-secret",
+            "MATTERMOST_TOKEN": "mm-secret",
+            "MATTERMOST_HOME_CHANNEL": "67890",
             "FIRECRAWL_API_KEY": "fc-secret",
             "BROWSERBASE_PROJECT_ID": "bb-project",
             "ELEVENLABS_API_KEY": "el-secret",
@@ -1225,32 +1221,9 @@ class TestBlocklistCoverage:
         extras = {
             "TELEGRAM_HOME_CHANNEL",
             "TELEGRAM_HOME_CHANNEL_NAME",
-            "DISCORD_HOME_CHANNEL",
-            "DISCORD_HOME_CHANNEL_NAME",
-            "DISCORD_REQUIRE_MENTION",
-            "DISCORD_FREE_RESPONSE_CHANNELS",
-            "DISCORD_AUTO_THREAD",
-            "SLACK_HOME_CHANNEL",
-            "SLACK_HOME_CHANNEL_NAME",
-            "SLACK_ALLOWED_USERS",
-            "WHATSAPP_ENABLED",
-            "WHATSAPP_MODE",
-            "WHATSAPP_ALLOWED_USERS",
-            "SIGNAL_HTTP_URL",
-            "SIGNAL_ACCOUNT",
-            "SIGNAL_ALLOWED_USERS",
-            "SIGNAL_GROUP_ALLOWED_USERS",
-            "SIGNAL_HOME_CHANNEL",
-            "SIGNAL_HOME_CHANNEL_NAME",
-            "SIGNAL_IGNORE_STORIES",
-            "HASS_TOKEN",
-            "HASS_URL",
-            "EMAIL_ADDRESS",
-            "EMAIL_PASSWORD",
-            "EMAIL_IMAP_HOST",
-            "EMAIL_SMTP_HOST",
-            "EMAIL_HOME_ADDRESS",
-            "EMAIL_HOME_ADDRESS_NAME",
+            "MATTERMOST_TOKEN",
+            "MATTERMOST_HOME_CHANNEL",
+            "MATTERMOST_HOME_CHANNEL_NAME",
             "GATEWAY_ALLOWED_USERS",
             "GH_TOKEN",
             "GITHUB_APP_ID",
@@ -1406,9 +1379,6 @@ class TestHermesInternalDynamicSecrets:
     - ``AUXILIARY_<TASK>_API_KEY`` / ``AUXILIARY_<TASK>_BASE_URL`` — per-task
       side-LLM credentials bridged from ``config.yaml[auxiliary]`` by
       ``gateway/run.py`` and ``cli.py``.
-    - ``GATEWAY_RELAY_*_SECRET`` / ``_KEY`` / ``_TOKEN`` — relay-auth material
-      provisioned by ``gateway/relay``.
-
     ``_is_hermes_internal_secret`` is the single source of truth; every spawn
     path (``_sanitize_subprocess_env``, ``_make_run_env``,
     ``hermes_subprocess_env``, Docker forward filter, ``env_passthrough``)
@@ -1428,21 +1398,11 @@ class TestHermesInternalDynamicSecrets:
         assert _is_hermes_internal_secret("AUXILIARY_VISION_BASE_URL")
         assert _is_hermes_internal_secret("AUXILIARY_COMPRESSION_BASE_URL")
 
-    def test_predicate_matches_gateway_relay_auth(self):
-        from tools.environments.local import _is_hermes_internal_secret
-        assert _is_hermes_internal_secret("GATEWAY_RELAY_SECRET")
-        assert _is_hermes_internal_secret("GATEWAY_RELAY_DELIVERY_KEY")
-        assert _is_hermes_internal_secret("GATEWAY_RELAY_SESSION_TOKEN")
-
     def test_predicate_allows_auxiliary_non_secrets(self):
-        """AUXILIARY_*_PROVIDER / _MODEL and GATEWAY_RELAY_* routing hints are
-        NOT secrets and must remain visible so tooling that reads them works."""
+        """AUXILIARY_*_PROVIDER / _MODEL routing hints are not secrets."""
         from tools.environments.local import _is_hermes_internal_secret
         assert not _is_hermes_internal_secret("AUXILIARY_VISION_PROVIDER")
         assert not _is_hermes_internal_secret("AUXILIARY_VISION_MODEL")
-        assert not _is_hermes_internal_secret("GATEWAY_RELAY_URL")
-        assert not _is_hermes_internal_secret("GATEWAY_RELAY_PLATFORMS")
-        assert not _is_hermes_internal_secret("GATEWAY_RELAY_ID")  # not a secret suffix
         # unrelated vars pass through
         assert not _is_hermes_internal_secret("PATH")
         assert not _is_hermes_internal_secret("MY_APP_KEY")
@@ -1464,17 +1424,6 @@ class TestHermesInternalDynamicSecrets:
         assert result_env.get("AUXILIARY_VISION_PROVIDER") == "openai"
         assert result_env.get("AUXILIARY_VISION_MODEL") == "gpt-4o"
 
-    def test_gateway_relay_secret_stripped_from_subprocess(self):
-        result_env = _run_with_env(extra_os_env={
-            "GATEWAY_RELAY_SECRET": "relay-signing-secret",
-            "GATEWAY_RELAY_DELIVERY_KEY": "relay-delivery-key",
-            "GATEWAY_RELAY_URL": "https://relay.example.com",
-        })
-        assert "GATEWAY_RELAY_SECRET" not in result_env
-        assert "GATEWAY_RELAY_DELIVERY_KEY" not in result_env
-        # Non-secret routing hint stays visible.
-        assert result_env.get("GATEWAY_RELAY_URL") == "https://relay.example.com"
-
     def test_auxiliary_secret_stripped_even_when_passthrough_registered(self):
         """A skill registering AUXILIARY_*_API_KEY as env_passthrough must NOT
         be able to tunnel it into a subprocess — the strip is unconditional."""
@@ -1493,17 +1442,8 @@ class TestHermesInternalDynamicSecrets:
         with patch.dict(os.environ, {
             "PATH": "/usr/bin:/bin",
             "AUXILIARY_VISION_API_KEY": "sk-secret",
-            "GATEWAY_RELAY_SECRET": "relay-secret",
             "AUXILIARY_VISION_PROVIDER": "openai",
         }, clear=True):
             run_env = _make_run_env({})
         assert "AUXILIARY_VISION_API_KEY" not in run_env
-        assert "GATEWAY_RELAY_SECRET" not in run_env
         assert run_env.get("AUXILIARY_VISION_PROVIDER") == "openai"
-
-    def test_gateway_relay_static_names_in_blocklist(self):
-        """The static relay names are also added to the name-based blocklist so
-        the exact-match path catches them independently of the predicate."""
-        assert "GATEWAY_RELAY_SECRET" in _HERMES_PROVIDER_ENV_BLOCKLIST
-        assert "GATEWAY_RELAY_DELIVERY_KEY" in _HERMES_PROVIDER_ENV_BLOCKLIST
-        assert "GATEWAY_RELAY_ID" in _HERMES_PROVIDER_ENV_BLOCKLIST

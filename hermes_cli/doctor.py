@@ -243,7 +243,6 @@ def _termux_browser_setup_steps(node_installed: bool) -> list[str]:
 def _termux_install_all_fallback_notes() -> list[str]:
     return [
         "Termux install profile: use .[termux-all] for broad compatibility (installer default on Termux).",
-        "Matrix E2EE extra is excluded on Termux (python-olm currently fails to build).",
         "Local faster-whisper extra is excluded on Termux (ctranslate2/av build path unavailable).",
         "STT fallback: use Groq Whisper (set GROQ_API_KEY) or OpenAI Whisper (set VOICE_TOOLS_OPENAI_KEY).",
     ]
@@ -467,8 +466,6 @@ _DEPRECATED_ENV_VARS: tuple[tuple[str, str], ...] = (
     ("HERMES_TOOL_PROGRESS_MODE", "display.tool_progress in config.yaml"),
     ("TERMINAL_CWD", "terminal.cwd in config.yaml"),
     ("MESSAGING_CWD", "terminal.cwd in config.yaml"),
-    ("QQ_HOME_CHANNEL", "QQBOT_HOME_CHANNEL"),
-    ("QQ_HOME_CHANNEL_NAME", "QQBOT_HOME_CHANNEL_NAME"),
 )
 
 
@@ -1046,7 +1043,6 @@ def run_doctor(args):
     optional_packages = [
         ("croniter", "Croniter (cron expressions)"),
         ("telegram", "python-telegram-bot"),
-        ("discord", "discord.py"),
     ]
     
     for module, name in required_packages:
@@ -2173,84 +2169,6 @@ def run_doctor(args):
     else:
         check_warn("Node.js not found", "(optional, needed for browser tools)")
     
-    # Audit the independently packaged WhatsApp bridge when installed.
-    _npm_bin = _safe_which("npm")
-    if _npm_bin:
-        # The WhatsApp bridge may live under a writable HERMES_HOME mirror
-        # instead of the (possibly read-only) install tree in Docker — resolve
-        # it through the shared helper so we audit the dir that actually holds
-        # node_modules. See #49561.
-        try:
-            from gateway.platforms.whatsapp_common import resolve_whatsapp_bridge_dir
-            _whatsapp_bridge_dir = resolve_whatsapp_bridge_dir()
-        except Exception:
-            _whatsapp_bridge_dir = PROJECT_ROOT / "scripts" / "whatsapp-bridge"
-        npm_audit_targets = [(_whatsapp_bridge_dir, "WhatsApp bridge", [])]
-        for npm_dir, label, audit_extra in npm_audit_targets:
-            # For workspace-scoped audits run from PROJECT_ROOT the
-            # node_modules check must use the workspace root; standalone dirs
-            # (whatsapp-bridge) check their own node_modules.
-            check_dir = PROJECT_ROOT if audit_extra else npm_dir
-            if not (check_dir / "node_modules").exists():
-                continue
-            try:
-                # Use resolved absolute path so Windows can execute
-                # npm.cmd (CreateProcessW can't run bare .cmd names).
-                audit_result = subprocess.run(
-                    [_npm_bin, "audit", "--json", *audit_extra],
-                    cwd=str(npm_dir),
-                    capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=30,
-                )
-                import json as _json
-                audit_data = _json.loads(audit_result.stdout) if audit_result.stdout.strip() else {}
-                vuln_count = audit_data.get("metadata", {}).get("vulnerabilities", {})
-                critical = vuln_count.get("critical", 0)
-                high = vuln_count.get("high", 0)
-                moderate = vuln_count.get("moderate", 0)
-                total = critical + high + moderate
-                # Determine a scoped fix command for the remediation hint.
-                if audit_extra and audit_extra[0] == "--workspace":
-                    # Detection (`npm audit --workspace <name>`) is read-only and
-                    # safe, but `npm audit fix --workspace <name>` crashes on
-                    # current npm with "Cannot read properties of null (reading
-                    # 'edgesOut')" — an arborist bug with workspace-filtered
-                    # audit fix. The root-level `npm audit fix` can crash on the
-                    # same tree with "isDescendantOf", so do not hand the user a
-                    # manual fix command for these build-tool advisories.
-                    fix_cmd = None
-                elif audit_extra == ["--workspaces=false"]:
-                    fix_cmd = f"cd {npm_dir} && npm audit fix --workspaces=false"
-                else:
-                    fix_cmd = f"cd {npm_dir} && npm audit fix"
-                if total == 0:
-                    check_ok(f"{label} deps", "(no known vulnerabilities)")
-                elif critical > 0 or high > 0:
-                    if fix_cmd:
-                        vuln_detail = (
-                            f"{critical} critical, {high} high, {moderate} moderate — run: {fix_cmd}"
-                        )
-                    else:
-                        vuln_detail = (
-                            f"{critical} critical, {high} high, {moderate} moderate — "
-                            "build-tool advisory; clears via lockfile bump"
-                        )
-                    check_warn(
-                        f"{label} deps",
-                        f"({vuln_detail})"
-                    )
-                    issues.append(
-                        f"{label} has {total} npm "
-                        f"{'vulnerability' if total == 1 else 'vulnerabilities'}"
-                    )
-                else:
-                    check_ok(
-                        f"{label} deps",
-                        f"({moderate} moderate "
-                        f"{'vulnerability' if moderate == 1 else 'vulnerabilities'})",
-                    )
-            except Exception:
-                pass
-
     if _is_termux():
         check_info("Termux compatibility fallbacks:")
         for note in _termux_install_all_fallback_notes():

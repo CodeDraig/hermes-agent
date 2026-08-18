@@ -118,17 +118,17 @@ async def test_different_platform_bypasses_dedup(tmp_path, monkeypatch):
     runner, _adapter = make_restart_runner()
     runner.request_restart = MagicMock(return_value=True)
 
-    # /restart from Discord — not a redelivery candidate
-    discord_source = SessionSource(
-        platform=Platform.DISCORD,
-        chat_id="discord-chan",
+    # /restart from Mattermost — not a Telegram redelivery candidate
+    mattermost_source = SessionSource(
+        platform=Platform.MATTERMOST,
+        chat_id="mattermost-chan",
         chat_type="dm",
         user_id="u1",
     )
     event = MessageEvent(
         text="/restart",
         message_type=MessageType.TEXT,
-        source=discord_source,
+        source=mattermost_source,
         message_id="m1",
         platform_update_id=12345,
     )
@@ -162,5 +162,4 @@ async def test_marker_missing_but_booted_from_restart_ignores_redelivery(tmp_pat
     runner.request_restart.assert_not_called()
     # One-shot: the flag is consumed so a later legitimate /restart is honored.
     assert runner._booted_from_restart is False
-
 

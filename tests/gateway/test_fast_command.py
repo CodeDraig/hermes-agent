@@ -89,7 +89,7 @@ def _make_source() -> SessionSource:
 
 def _make_discord_auto_thread_source() -> SessionSource:
     return SessionSource(
-        platform=Platform.DISCORD,
+        platform=Platform.TELEGRAM,
         chat_id="999",
         chat_type="thread",
         user_id="user-1",

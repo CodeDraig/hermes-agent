@@ -618,21 +618,11 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
         )
 
     platform_key = (agent.platform or "").lower().strip()
-    # Resolve the built-in/plugin default hint for this platform, then apply
+    # Resolve the built-in default hint for this platform, then apply
     # any per-platform override from config (platform_hints.<platform>).
     _default_hint = ""
     if platform_key in PLATFORM_HINTS:
         _default_hint = PLATFORM_HINTS[platform_key]
-    elif platform_key:
-        # Check plugin registry for platform-specific LLM guidance
-        try:
-            from gateway.platform_registry import platform_registry
-            _entry = platform_registry.get(platform_key)
-            if _entry and _entry.platform_hint:
-                _default_hint = _entry.platform_hint
-        except Exception:
-            pass
-
     # For Telegram: append the rich-messages extension only when the user has
     # opted in to ``gateway.platforms.telegram.extra.rich_messages: true``
     # (the canonical location the adapter reads from).  Merge with the

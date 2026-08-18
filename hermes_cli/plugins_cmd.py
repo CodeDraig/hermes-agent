@@ -1760,10 +1760,8 @@ def _is_portable_plugin_dir(dir_path) -> bool:
         return False
 
 
-# Manifest kinds that are active-by-default when bundled: backends auto-load,
-# platforms register lazily but are available out of the box, model providers
-# run through providers/ discovery (see PluginManager.discover_and_load).
-_BUNDLED_DEFAULT_ON_KINDS = frozenset({"backend", "platform", "model-provider"})
+# Manifest kinds that are active by default when bundled.
+_BUNDLED_DEFAULT_ON_KINDS = frozenset({"backend", "model-provider"})
 
 
 def _bundled_default_on(dir_path) -> bool:

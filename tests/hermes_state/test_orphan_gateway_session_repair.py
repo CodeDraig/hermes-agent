@@ -236,7 +236,7 @@ class TestDetection:
         stale, _ = _incident(db)
         with db._lock:
             db._conn.execute(
-                "UPDATE sessions SET source = 'discord' WHERE id = ?", (stale,)
+                "UPDATE sessions SET source = 'mattermost' WHERE id = ?", (stale,)
             )
             db._conn.commit()
         record = db.find_orphaned_gateway_sessions()[0]
@@ -296,7 +296,7 @@ class TestAdoption:
         stale, orphan = _incident(db)
         with db._lock:
             db._conn.execute(
-                "UPDATE sessions SET source = 'discord' WHERE id = ?", (orphan,)
+                "UPDATE sessions SET source = 'mattermost' WHERE id = ?", (orphan,)
             )
             db._conn.commit()
         assert db.adopt_orphaned_gateway_session(orphan, stale) is False

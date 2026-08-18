@@ -67,7 +67,7 @@ never hardcode `~/.hermes`. For custom/local-only tools, write a plugin in
 2. Add handler in `cli.py` → `process_command()`
 3. (Optional) Add gateway handler in `gateway/run.py`
 
-All consumers (help text, autocomplete, Telegram menu, Slack mapping) derive from the central registry automatically.
+All consumers (help text, autocomplete, and the Telegram menu) derive from the central registry automatically.
 
 ### Agent Loop (High Level)
 

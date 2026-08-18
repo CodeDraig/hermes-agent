@@ -3,7 +3,7 @@
 Two delivery strategies, selected by the target adapter's
 ``supports_async_delivery`` capability flag:
 
-* Push-capable adapters (telegram, discord, plugin platforms, ...): inject a
+* Push-capable adapters (Telegram and Mattermost): inject a
   synthetic ``MessageEvent(internal=True)`` through ``adapter.handle_message``
   — the pre-existing wake path, preserved exactly.
 

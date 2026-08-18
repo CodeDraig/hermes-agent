@@ -279,32 +279,10 @@ def _build_provider_env_blocklist() -> frozenset:
         "FIRECRAWL_API_URL",
         "TELEGRAM_HOME_CHANNEL",
         "TELEGRAM_HOME_CHANNEL_NAME",
-        "DISCORD_HOME_CHANNEL",
-        "DISCORD_HOME_CHANNEL_NAME",
-        "DISCORD_REQUIRE_MENTION",
-        "DISCORD_FREE_RESPONSE_CHANNELS",
-        "DISCORD_AUTO_THREAD",
-        "SLACK_HOME_CHANNEL",
-        "SLACK_HOME_CHANNEL_NAME",
-        "SLACK_ALLOWED_USERS",
-        "WHATSAPP_ENABLED",
-        "WHATSAPP_MODE",
-        "WHATSAPP_ALLOWED_USERS",
-        "SIGNAL_HTTP_URL",
-        "SIGNAL_ACCOUNT",
-        "SIGNAL_ALLOWED_USERS",
-        "SIGNAL_GROUP_ALLOWED_USERS",
-        "SIGNAL_HOME_CHANNEL",
-        "SIGNAL_HOME_CHANNEL_NAME",
-        "SIGNAL_IGNORE_STORIES",
-        "HASS_TOKEN",
-        "HASS_URL",
-        "EMAIL_ADDRESS",
-        "EMAIL_PASSWORD",
-        "EMAIL_IMAP_HOST",
-        "EMAIL_SMTP_HOST",
-        "EMAIL_HOME_ADDRESS",
-        "EMAIL_HOME_ADDRESS_NAME",
+        "MATTERMOST_TOKEN",
+        "MATTERMOST_URL",
+        "MATTERMOST_HOME_CHANNEL",
+        "MATTERMOST_HOME_CHANNEL_NAME",
         "GATEWAY_ALLOWED_USERS",
         "GH_TOKEN",
         "GITHUB_APP_ID",
@@ -313,9 +291,6 @@ def _build_provider_env_blocklist() -> frozenset:
         "MODAL_TOKEN_ID",
         "MODAL_TOKEN_SECRET",
         "DAYTONA_API_KEY",
-        "GATEWAY_RELAY_ID",
-        "GATEWAY_RELAY_SECRET",
-        "GATEWAY_RELAY_DELIVERY_KEY",
         "VERCEL_OIDC_TOKEN",
         "VERCEL_TOKEN",
         "VERCEL_PROJECT_ID",
@@ -375,14 +350,6 @@ def _is_hermes_internal_secret(key: str) -> bool:
       compression, and any plugin-registered auxiliary task). These are
       separate, often higher-spend API keys plus base URLs that may point at
       private endpoints; a model-authored shell command must never see them.
-    - ``GATEWAY_RELAY_*_SECRET`` / ``GATEWAY_RELAY_*_KEY`` /
-      ``GATEWAY_RELAY_*_TOKEN`` — relay-auth material provisioned by the
-      gateway (``GATEWAY_RELAY_SECRET``, ``GATEWAY_RELAY_DELIVERY_KEY``).
-      These are Tier-1 gateway secrets, like the messaging bot tokens in
-      ``_ALWAYS_STRIP_KEYS``. Non-secret ``GATEWAY_RELAY_*`` routing hints
-      (``GATEWAY_RELAY_URL``, ``GATEWAY_RELAY_PLATFORMS``, …) are NOT matched
-      and remain visible.
-
     ``code_execution_tool.py`` already catches these via substring matching on
     ``KEY`` / ``SECRET`` / ``TOKEN``; the terminal backend's narrower name-based
     blocklist did not, which is the leak this predicate closes.
@@ -398,10 +365,6 @@ def _is_hermes_internal_secret(key: str) -> bool:
     upper = key.upper()
     if upper.startswith("AUXILIARY_") and (
         upper.endswith("_API_KEY") or upper.endswith("_BASE_URL")
-    ):
-        return True
-    if upper.startswith("GATEWAY_RELAY_") and (
-        upper.endswith("_SECRET") or upper.endswith("_KEY") or upper.endswith("_TOKEN")
     ):
         return True
     return False
@@ -561,24 +524,9 @@ _ALWAYS_STRIP_KEYS: frozenset[str] = frozenset({
     "GITHUB_APP_INSTALLATION_ID",
     # Gateway / messaging bot tokens and access control
     "TELEGRAM_BOT_TOKEN",
-    "DISCORD_BOT_TOKEN",
-    "SLACK_BOT_TOKEN",
-    "SLACK_APP_TOKEN",
-    "SLACK_SIGNING_SECRET",
+    "MATTERMOST_TOKEN",
     "GATEWAY_ALLOWED_USERS",
     "GATEWAY_ALLOW_ALL_USERS",
-    # Gateway relay auth — the ID/secret/delivery-key triplet the gateway
-    # provisions and persists to the 0600 .env. Stripped unconditionally on
-    # EVERY spawn surface (terminal + model-driving CLIs) so it can't drift
-    # between paths: _SECRET / _DELIVERY_KEY are also matched by
-    # _is_hermes_internal_secret, but _ID has no secret suffix, so it must be
-    # enumerated here to stay stripped on the inherit_credentials=True path
-    # (codex / copilot), which skips the Tier-2 blocklist.
-    "GATEWAY_RELAY_ID",
-    "GATEWAY_RELAY_SECRET",
-    "GATEWAY_RELAY_DELIVERY_KEY",
-    "HASS_TOKEN",
-    "EMAIL_PASSWORD",
     # Remote-compute / infrastructure secrets
     "MODAL_TOKEN_ID",
     "MODAL_TOKEN_SECRET",
@@ -609,7 +557,7 @@ def hermes_subprocess_env(*, inherit_credentials: bool = False) -> dict[str, str
 
     Pass ``inherit_credentials=True`` **only** when the child legitimately
     needs LLM provider credentials — a user-blessed ``claude`` / ``codex`` /
-    ``gemini`` CLI executor, or the TUI Node host that makes model calls.  The
+    ``gemini`` CLI executor. The
     flag is grep-able for audit: ``grep -rn 'inherit_credentials=True'`` lists
     every spawn site that still receives provider credentials.
 
@@ -624,8 +572,8 @@ def hermes_subprocess_env(*, inherit_credentials: bool = False) -> dict[str, str
     for key in _ALWAYS_STRIP_KEYS:
         env.pop(key, None)
     # Internal routing hints and Hermes-internal dynamic secrets
-    # (``AUXILIARY_<TASK>_API_KEY`` / ``_BASE_URL`` side-LLM credentials,
-    # ``GATEWAY_RELAY_*`` relay-auth material) must never reach a child,
+    # (``AUXILIARY_<TASK>_API_KEY`` / ``_BASE_URL`` side-LLM credentials)
+    # must never reach a child,
     # regardless of ``inherit_credentials`` — a model-driving CLI has no
     # legitimate use for them. See :func:`_is_hermes_internal_secret`.
     for key in list(env):

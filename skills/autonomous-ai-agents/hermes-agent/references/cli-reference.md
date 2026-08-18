@@ -78,7 +78,7 @@ Details (transport, tool discovery, catalog): `references/native-mcp.md`.
 hermes gateway run|install|start|stop|restart|status|setup
 ```
 
-20+ platforms: Telegram, Discord, Slack, WhatsApp (Baileys + Business Cloud API), iMessage (Photon — `hermes photon setup`), Signal, Email, SMS, Matrix, Mattermost, Teams, LINE, SimpleX, ntfy, Google Chat, Home Assistant, DingTalk, Feishu, WeCom, Weixin, API Server, Webhooks. Open WebUI connects via the API Server adapter. Most adapters ship under `plugins/platforms/`.
+Retained gateway transports: Telegram, Mattermost, and the OpenAI-compatible API server. Open WebUI connects via the API server adapter.
 Docs: https://github.com/NousResearch/hermes-agent
 
 ### Sessions
@@ -87,14 +87,12 @@ Docs: https://github.com/NousResearch/hermes-agent
 hermes sessions list|browse|rename ID TITLE|delete ID|export OUT|prune|stats
 ```
 
-### Cron / Webhooks
+### Cron
 
 ```
 hermes cron list|create SCHED|edit ID|pause|resume|run ID|remove|status
     Schedules: '30m', 'every 2h', '0 9 * * *', ISO timestamp
-hermes webhook subscribe NAME|list|remove NAME|test NAME
 ```
-Webhook payloads/routes: `references/webhooks.md`.
 
 ### Profiles
 

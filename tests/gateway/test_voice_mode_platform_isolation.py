@@ -1,9 +1,9 @@
 """Tests for voice mode platform isolation (bug #12542).
 
 Voice mode state stored as {chat_id: mode} without a platform namespace
-caused collisions: Telegram chat '123' and Slack chat '123' shared the
+caused collisions: Telegram chat '123' and Mattermost chat '123' shared the
 same key. The fix prefixes keys with platform value: 'telegram:123' vs
-'slack:123'.
+'mattermost:123'.
 """
 
 import json
@@ -24,35 +24,32 @@ class TestVoiceKeyHelper:
         """Same chat_id on different platforms yields different keys."""
         runner = _make_runner()
         key_telegram = runner._voice_key(Platform.TELEGRAM, "123")
-        key_slack = runner._voice_key(Platform.SLACK, "123")
-        key_discord = runner._voice_key(Platform.DISCORD, "123")
-        assert key_telegram != key_slack
-        assert key_slack != key_discord
+        key_mattermost = runner._voice_key(Platform.MATTERMOST, "123")
+        assert key_telegram != key_mattermost
         assert key_telegram == "telegram:123"
-        assert key_slack == "slack:123"
-        assert key_discord == "discord:123"
+        assert key_mattermost == "mattermost:123"
 
 
 class TestVoiceModePlatformIsolation:
     """Test that voice mode state is isolated by platform."""
 
-    def test_telegram_and_slack_voice_mode_independent(self):
-        """Setting voice mode for Telegram chat '123' does not affect Slack chat '123'."""
+    def test_telegram_and_mattermost_voice_mode_independent(self):
+        """Telegram and Mattermost chats with the same ID stay independent."""
         runner = _make_runner()
 
         # Enable voice mode for Telegram chat '123'
         runner._voice_mode[runner._voice_key(Platform.TELEGRAM, "123")] = "all"
-        # Enable voice mode for Slack chat '123' to a different mode
-        runner._voice_mode[runner._voice_key(Platform.SLACK, "123")] = "voice_only"
+        # Enable voice mode for Mattermost chat '123' to a different mode
+        runner._voice_mode[runner._voice_key(Platform.MATTERMOST, "123")] = "voice_only"
 
         # Verify they are independent
         assert runner._voice_mode.get(runner._voice_key(Platform.TELEGRAM, "123")) == "all"
-        assert runner._voice_mode.get(runner._voice_key(Platform.SLACK, "123")) == "voice_only"
+        assert runner._voice_mode.get(runner._voice_key(Platform.MATTERMOST, "123")) == "voice_only"
 
-        # Disabling Telegram should not affect Slack
+        # Disabling Telegram should not affect Mattermost
         runner._voice_mode[runner._voice_key(Platform.TELEGRAM, "123")] = "off"
         assert runner._voice_mode.get(runner._voice_key(Platform.TELEGRAM, "123")) == "off"
-        assert runner._voice_mode.get(runner._voice_key(Platform.SLACK, "123")) == "voice_only"
+        assert runner._voice_mode.get(runner._voice_key(Platform.MATTERMOST, "123")) == "voice_only"
 
 
 class TestLegacyKeyMigration:
@@ -100,8 +97,7 @@ class TestSyncVoiceModeStateToAdapter:
         runner._voice_mode = {
             "telegram:123": "off",      # Should sync
             "telegram:456": "all",       # Should NOT sync (mode is not "off")
-            "slack:123": "off",          # Should NOT sync (different platform)
-            "discord:789": "off",        # Should NOT sync (different platform)
+            "mattermost:123": "off",     # Should NOT sync (different platform)
         }
 
         # Create a mock Telegram adapter

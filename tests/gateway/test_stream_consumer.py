@@ -136,14 +136,8 @@ class TestEditMessageFinalizeSignature:
     @pytest.mark.parametrize(
         "module_path,class_name",
         [
-            ("plugins.platforms.telegram.adapter", "TelegramAdapter"),
-            ("plugins.platforms.discord.adapter", "DiscordAdapter"),
-            ("plugins.platforms.slack.adapter", "SlackAdapter"),
-            ("plugins.platforms.matrix.adapter", "MatrixAdapter"),
-            ("plugins.platforms.mattermost.adapter", "MattermostAdapter"),
-            ("plugins.platforms.feishu.adapter", "FeishuAdapter"),
-            ("plugins.platforms.whatsapp.adapter", "WhatsAppAdapter"),
-            ("plugins.platforms.dingtalk.adapter", "DingTalkAdapter"),
+            ("gateway.platforms.telegram.adapter", "TelegramAdapter"),
+            ("gateway.platforms.mattermost", "MattermostAdapter"),
         ],
     )
     def test_edit_message_accepts_finalize(self, module_path, class_name):
@@ -1487,4 +1481,3 @@ class TestFlushPendingSync:
 
         consumer.finish()
         await task
-

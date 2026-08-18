@@ -37,9 +37,9 @@ _ensure_telegram_mock()
 # Force reimport so the adapter binds to whatever sys.modules now holds
 # (the shared mock, or the real library when it is installed) rather than a
 # stub an earlier test file may have bound it to.
-sys.modules.pop("plugins.platforms.telegram.adapter", None)
+sys.modules.pop("gateway.platforms.telegram.adapter", None)
 
-from plugins.platforms.telegram.adapter import TelegramAdapter  # noqa: E402
+from gateway.platforms.telegram.adapter import TelegramAdapter  # noqa: E402
 
 
 def _make_adapter(dm_topics_config=None, group_topics_config=None):

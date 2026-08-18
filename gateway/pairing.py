@@ -29,10 +29,6 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from gateway.whatsapp_identity import (
-    expand_whatsapp_aliases,
-    normalize_whatsapp_identifier,
-)
 from hermes_constants import (
     get_default_hermes_root,
     get_hermes_dir,
@@ -68,62 +64,23 @@ PAIRING_DIR = get_hermes_dir("platforms/pairing", "pairing")
 # pairing store as the sole grant record, honored by the authz union.
 _PLATFORM_ALLOWLIST_ENV = {
     "telegram": "TELEGRAM_ALLOWED_USERS",
-    "discord": "DISCORD_ALLOWED_USERS",
-    "whatsapp": "WHATSAPP_ALLOWED_USERS",
-    "whatsapp_cloud": "WHATSAPP_CLOUD_ALLOWED_USERS",
-    "slack": "SLACK_ALLOWED_USERS",
-    "signal": "SIGNAL_ALLOWED_USERS",
-    "email": "EMAIL_ALLOWED_USERS",
-    "sms": "SMS_ALLOWED_USERS",
     "mattermost": "MATTERMOST_ALLOWED_USERS",
-    "matrix": "MATRIX_ALLOWED_USERS",
-    "dingtalk": "DINGTALK_ALLOWED_USERS",
-    "feishu": "FEISHU_ALLOWED_USERS",
-    "wecom": "WECOM_ALLOWED_USERS",
-    "wecom_callback": "WECOM_CALLBACK_ALLOWED_USERS",
-    "weixin": "WEIXIN_ALLOWED_USERS",
-    "bluebubbles": "BLUEBUBBLES_ALLOWED_USERS",
-    "qqbot": "QQ_ALLOWED_USERS",
-    "yuanbao": "YUANBAO_ALLOWED_USERS",
 }
 
 
 def _allowlist_env_for_platform(platform: str) -> Optional[str]:
-    """Return the per-platform allowlist env var name, or None.
-
-    Falls back to the platform registry for plugin platforms so a plugin's
-    own ``allowed_users_env`` is honored too.
-    """
+    """Return the per-platform allowlist env var name, or None."""
     platform = (platform or "").lower().strip()
-    env_var = _PLATFORM_ALLOWLIST_ENV.get(platform)
-    if env_var:
-        return env_var
-    try:
-        from gateway.platform_registry import platform_registry
-
-        entry = platform_registry.get(platform)
-        if entry and entry.allowed_users_env:
-            return entry.allowed_users_env
-    except Exception:
-        pass
-    return None
+    return _PLATFORM_ALLOWLIST_ENV.get(platform)
 
 
 def _split_allowlist(raw: str) -> list:
     return [uid.strip() for uid in raw.split(",") if uid.strip()]
 
 
-def _platform_uses_whatsapp_identity(platform: str) -> bool:
-    """True for Baileys WhatsApp and Meta Cloud — same phone/JID identity rules."""
-    return (platform or "").strip().lower() in {"whatsapp", "whatsapp_cloud"}
-
-
 def _normalize_user_id(platform: str, user_id: str) -> str:
-    """Normalize platform-specific user IDs before persisting / comparing them."""
-    raw_user_id = str(user_id or "").strip()
-    if _platform_uses_whatsapp_identity(platform):
-        return normalize_whatsapp_identifier(raw_user_id) or raw_user_id
-    return raw_user_id
+    """Normalize user IDs before persisting or comparing them."""
+    return str(user_id or "").strip()
 
 
 def _user_id_aliases(platform: str, user_id: str) -> set[str]:
@@ -133,8 +90,6 @@ def _user_id_aliases(platform: str, user_id: str) -> set[str]:
         return set()
 
     aliases = {raw_user_id, _normalize_user_id(platform, raw_user_id)}
-    if _platform_uses_whatsapp_identity(platform):
-        aliases.update(expand_whatsapp_aliases(raw_user_id))
     aliases.discard("")
     return aliases
 
@@ -259,13 +214,7 @@ def _purge_allowlist_entries(entries, platform: str, user_id: str):
 
 
 def _sync_live_adapter_allowlist_remove(platform: str, user_id: str) -> None:
-    """Clear revoked principals from in-process adapter allowlist snapshots.
-
-    ``WhatsAppAdapter`` (and Cloud) snapshot ``_allow_from`` at construction.
-    Pairing revoke updates ``WHATSAPP_ALLOWED_USERS`` / cloud env, but when the
-    revoked principal was the sole entry the env key is removed entirely.
-    Intake must not keep authorizing from the stale snapshot until restart.
-    """
+    """Clear revoked principals from in-process adapter allowlist snapshots."""
     platform_name = (platform or "").strip().lower()
     if not platform_name or not str(user_id or "").strip():
         return
@@ -290,12 +239,7 @@ def _sync_live_adapter_allowlist_remove(platform: str, user_id: str) -> None:
 
 
 def _sync_allowlist_remove(platform: str, user_id: str) -> None:
-    """Remove ``user_id`` (and WhatsApp alias equivalents) from the allowlist.
-
-    Matching must mirror PairingStore / authz WhatsApp alias rules: approve
-    mirrors a normalized phone into ``WHATSAPP_ALLOWED_USERS``, while revoke
-    is often invoked with a JID or device-suffix form. Exact-string delete
-    would leave the allowlist entry and keep the sender authorized.
+    """Remove ``user_id`` from the allowlist.
 
     Also clears matching entries from any in-process platform adapter
     ``_allow_from`` snapshot so sole-entry revocation is effective without a
@@ -343,7 +287,7 @@ def _merge_pairing_dir(active_dir: Path, alternate_dir: Path) -> None:
     Older installs use ``{HERMES_HOME}/pairing`` while newer code/docs may
     write ``{HERMES_HOME}/platforms/pairing``. If both directories exist, the
     gateway must not silently ignore approved users sitting in the inactive
-    location; otherwise already-paired Feishu users get asked for a fresh code.
+    location; otherwise already-paired users get asked for a fresh code.
     """
     if not alternate_dir.exists() or active_dir.resolve() == alternate_dir.resolve():
         return

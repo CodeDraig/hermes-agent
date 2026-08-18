@@ -36,5 +36,5 @@ Or set the env var: `HERMES_KANBAN_DISPATCH_IN_GATEWAY=false`
 | writer, admin, coder, etc. | false | yes, when the profile has subscriptions | no | that gateway's owned profiles |
 
 Non-dispatch gateways still deliver messages for their own platform adapters
-(Telegram, Discord, etc.). They do not dispatch tasks, and they skip boards
+(Telegram or Mattermost). They do not dispatch tasks, and they skip boards
 that have no subscriptions owned by their profiles.

@@ -8,14 +8,14 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 import gateway.run as gateway_run
-from gateway.config import GatewayConfig, Platform, PlatformConfig
+from gateway.config import GatewayConfig, HomeChannel, Platform, PlatformConfig
 from gateway.platforms.base import BasePlatformAdapter, MessageEvent, ProcessingOutcome, SendResult
 from gateway.session import SessionEntry, SessionSource, build_session_key
 
 
-class CaptureSlackAdapter(BasePlatformAdapter):
+class CaptureMattermostAdapter(BasePlatformAdapter):
     def __init__(self):
-        super().__init__(PlatformConfig(enabled=True, token="fake-token"), Platform.SLACK)
+        super().__init__(PlatformConfig(enabled=True, token="fake-token"), Platform.MATTERMOST)
         self.sent = []
         self.processing_hooks = []
 
@@ -34,7 +34,7 @@ class CaptureSlackAdapter(BasePlatformAdapter):
                 "metadata": metadata,
             }
         )
-        return SendResult(success=True, message_id="slack-1")
+        return SendResult(success=True, message_id="mattermost-1")
 
     async def send_typing(self, chat_id: str, metadata=None) -> None:
         return None
@@ -71,21 +71,21 @@ def _make_incomplete_result() -> dict:
     }
 
 
-def _make_runner(adapter: CaptureSlackAdapter) -> gateway_run.GatewayRunner:
+def _make_runner(adapter: CaptureMattermostAdapter) -> gateway_run.GatewayRunner:
     runner = object.__new__(gateway_run.GatewayRunner)
     runner.config = GatewayConfig(
-        platforms={Platform.SLACK: PlatformConfig(enabled=True, token="fake-token")}
+        platforms={Platform.MATTERMOST: PlatformConfig(enabled=True, token="fake-token")}
     )
-    runner.adapters = {Platform.SLACK: adapter}
+    runner.adapters = {Platform.MATTERMOST: adapter}
     runner._voice_mode = {}
     runner.hooks = SimpleNamespace(emit=AsyncMock(), loaded_hooks=False)
     runner.session_store = MagicMock()
     runner.session_store.get_or_create_session.return_value = SessionEntry(
-        session_key="agent:main:slack:channel:C123:171717",
+        session_key="agent:main:mattermost:channel:C123:171717",
         session_id="sess-1",
         created_at=datetime.now(),
         updated_at=datetime.now(),
-        platform=Platform.SLACK,
+        platform=Platform.MATTERMOST,
         chat_type="channel",
     )
     runner.session_store.load_transcript.return_value = []
@@ -111,7 +111,7 @@ def _make_event() -> MessageEvent:
     return MessageEvent(
         text="hello",
         source=SessionSource(
-            platform=Platform.SLACK,
+            platform=Platform.MATTERMOST,
             chat_id="C123",
             chat_type="channel",
             thread_id="171717",
@@ -122,9 +122,14 @@ def _make_event() -> MessageEvent:
 
 
 @pytest.mark.asyncio
-async def test_incomplete_codex_turn_stays_out_of_slack_transcript(monkeypatch, tmp_path):
-    adapter = CaptureSlackAdapter()
+async def test_incomplete_codex_turn_stays_out_of_mattermost_transcript(monkeypatch, tmp_path):
+    adapter = CaptureMattermostAdapter()
     runner = _make_runner(adapter)
+    runner.config.platforms[Platform.MATTERMOST].home_channel = HomeChannel(
+        platform=Platform.MATTERMOST,
+        chat_id="C123",
+        name="Test home",
+    )
 
     monkeypatch.setattr(gateway_run, "_hermes_home", tmp_path)
     monkeypatch.setattr(gateway_run, "_resolve_runtime_agent_kwargs", lambda: {"api_key": "fake"})
@@ -132,7 +137,6 @@ async def test_incomplete_codex_turn_stays_out_of_slack_transcript(monkeypatch, 
         "agent.model_metadata.get_model_context_length",
         lambda *_args, **_kwargs: 100,
     )
-    monkeypatch.setenv("SLACK_HOME_CHANNEL", "C123")
 
     adapter.set_message_handler(runner._handle_message)
     adapter._keep_typing = lambda *_args, **_kwargs: asyncio.Event().wait()

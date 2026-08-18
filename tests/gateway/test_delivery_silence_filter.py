@@ -79,8 +79,8 @@ async def test_silence_narration_dropped_pre_send(tmp_path, monkeypatch):
     monkeypatch.setattr("gateway.delivery.get_hermes_home", lambda: tmp_path)
     monkeypatch.delenv("HERMES_FILTER_SILENCE_NARRATION", raising=False)
     adapter = RecordingAdapter()
-    router = DeliveryRouter(GatewayConfig(), adapters={Platform.DISCORD: adapter})
-    target = DeliveryTarget.parse("discord:99887766")
+    router = DeliveryRouter(GatewayConfig(), adapters={Platform.TELEGRAM: adapter})
+    target = DeliveryTarget.parse("telegram:99887766")
 
     result = await router._deliver_to_platform(target, "*(silent)*", metadata=None)
 
@@ -98,8 +98,8 @@ async def test_config_opt_out_lets_silence_through(tmp_path, monkeypatch):
     monkeypatch.delenv("HERMES_FILTER_SILENCE_NARRATION", raising=False)
     adapter = RecordingAdapter()
     config = GatewayConfig(filter_silence_narration=False)
-    router = DeliveryRouter(config, adapters={Platform.DISCORD: adapter})
-    target = DeliveryTarget.parse("discord:99887766")
+    router = DeliveryRouter(config, adapters={Platform.TELEGRAM: adapter})
+    target = DeliveryTarget.parse("telegram:99887766")
 
     result = await router._deliver_to_platform(target, "*(silent)*", metadata=None)
 
@@ -115,8 +115,8 @@ async def test_env_override_enables_filter_over_config(tmp_path, monkeypatch):
     adapter = RecordingAdapter()
     # Config says off, env override forces on.
     config = GatewayConfig(filter_silence_narration=False)
-    router = DeliveryRouter(config, adapters={Platform.DISCORD: adapter})
-    target = DeliveryTarget.parse("discord:99887766")
+    router = DeliveryRouter(config, adapters={Platform.TELEGRAM: adapter})
+    target = DeliveryTarget.parse("telegram:99887766")
 
     result = await router._deliver_to_platform(target, "*(silent)*", metadata=None)
 
@@ -125,5 +125,4 @@ async def test_env_override_enables_filter_over_config(tmp_path, monkeypatch):
 
 
 # --- Config round-trip ------------------------------------------------------
-
 

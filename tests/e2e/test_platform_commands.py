@@ -1,4 +1,4 @@
-"""E2E tests for gateway slash commands (Telegram, Discord).
+"""E2E tests for gateway slash commands (Telegram and Mattermost).
 
 Each test drives a message through the full async pipeline:
     adapter.handle_message(event)
@@ -58,7 +58,7 @@ class TestSlashCommands:
 
     @pytest.mark.asyncio
     async def test_leading_space_stop_is_still_a_command(self, adapter, platform):
-        """Slack users type `` /stop`` to avoid native Slack slash interception."""
+        """Leading whitespace does not prevent command recognition."""
         send = await send_and_capture(adapter, " /stop", platform)
 
         send.assert_called_once()
@@ -202,11 +202,15 @@ class TestAuthorization:
     async def test_unauthorized_user_gets_pairing_response(self, adapter, runner, platform):
         """Unauthorized DM should trigger pairing code, not a command response."""
         runner._is_user_authorized = lambda _source: False
+        runner._get_unauthorized_dm_behavior = lambda *_args, **_kwargs: "pair"
 
         event = make_event(platform, "/help")
         adapter.send.reset_mock()
         await adapter.handle_message(event)
-        await asyncio.sleep(0.3)
+        for _ in range(40):
+            if adapter.send.called:
+                break
+            await asyncio.sleep(0.05)
 
         # The adapter.send is called directly by the authorization path
         # (not via _send_with_retry), so check it was called with a pairing message

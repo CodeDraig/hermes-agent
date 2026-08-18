@@ -22,10 +22,6 @@ from typing import Optional
 
 from gateway.config import Platform
 from gateway.session import SessionSource
-from gateway.whatsapp_identity import (
-    expand_whatsapp_aliases as _expand_whatsapp_auth_aliases,
-    normalize_whatsapp_identifier as _normalize_whatsapp_identifier,
-)
 
 
 def _auth_env(name: str, default: str = "") -> str:
@@ -134,19 +130,6 @@ class GatewayAuthorizationMixin:
         transport_adapter = self._registered_transport_adapter(source)
         if transport_adapter is not None:
             return transport_adapter
-        # Relay ingress deliberately keeps the underlying platform on the
-        # source so session keys and display policy remain Slack/Discord/etc.
-        # Delivery still has to use the one live RelayAdapter that owns the
-        # authenticated connector socket. Looking up the underlying platform
-        # here silently disables streaming, typing, and tool progress when a
-        # managed gateway does not also run that platform's native adapter.
-        if getattr(source, "delivered_via_upstream_relay", False) is True:
-            # One process-level RelayAdapter owns the connector socket for all
-            # multiplexed profiles. Secondary profiles intentionally do not
-            # register their own relay adapters, so profile-aware lookup would
-            # fail and suppress streamed delivery for those profiles.
-            adapters = getattr(self, "adapters", None) or {}
-            return adapters.get(Platform.RELAY)
         # ``getattr`` guards test fixtures that build a bare source via
         # SimpleNamespace and omit ``profile`` (see AGENTS.md pitfall #17).
         return self._authorization_adapter(
@@ -191,29 +174,6 @@ class GatewayAuthorizationMixin:
                     return profile
         return getattr(source, "profile", None)
 
-    def _adapter_authorization_is_upstream(
-        self,
-        platform: Optional[Platform],
-        *,
-        profile: Optional[str] = None,
-    ) -> bool:
-        """Whether the adapter for *platform* delegates authz to a trusted upstream.
-
-        Mirrors ``BasePlatformAdapter.authorization_is_upstream``. The relay
-        adapter sets this True: the Team Gateway connector authenticates the
-        gateway's WS and resolves owner-only author bindings before delivering,
-        so an inbound relay event is already authorized as this instance's bound
-        user. Unlike ``_adapter_enforces_own_access_policy`` (a LOCAL config
-        policy the gateway mirrors only when it's an allowlist), this is an
-        UPSTREAM decision the gateway honors directly. Defaults to ``False`` when
-        the adapter is unknown or doesn't expose the flag.
-        """
-        if not platform:
-            return False
-        adapter = self._authorization_adapter(platform, profile)
-        if adapter is None:
-            return False
-        return bool(getattr(adapter, "authorization_is_upstream", False))
 
     def _adapter_enforces_own_access_policy(
         self,
@@ -393,63 +353,19 @@ class GatewayAuthorizationMixin:
         Check if a user is authorized to use the bot.
         
         Checks in order:
-        1. Per-platform allow-all flag (e.g., DISCORD_ALLOW_ALL_USERS=true)
+        1. Per-platform allow-all flag
         2. Environment variable allowlists (TELEGRAM_ALLOWED_USERS, etc.)
         3. DM pairing approved list
         4. Global allow-all (GATEWAY_ALLOW_ALL_USERS=true)
         5. Default: deny
         """
         from gateway.run import logger
-        # Home Assistant events are system-generated (state changes), not
-        # user-initiated messages.  The HASS_TOKEN already authenticates the
-        # connection, so HA events are always authorized.
-        # Webhook events are authenticated via HMAC signature validation in
-        # the adapter itself — no user allowlist applies.
-        if source.platform in {Platform.HOMEASSISTANT, Platform.WEBHOOK}:
-            return True
-
         adapter_profile = self._adapter_profile_for_source(source)
-
-        # Relay (and any adapter whose authorization is enforced by a trusted
-        # authenticated upstream): the Team Gateway connector authenticates this
-        # gateway's WS with a per-instance secret and resolves owner-only author
-        # bindings BEFORE delivering, so an inbound relay event was already
-        # authorized as this instance's bound user (the author id is the one the
-        # connector observed, never gateway-asserted). There is no local
-        # RELAY_ALLOWED_USERS env allowlist to consult, and default-denying for
-        # its absence is the bug this branch fixes. This is delegation to a
-        # trusted upstream, NOT a fail-open: it fires only for an event that was
-        # actually delivered over the authenticated relay WS (the transport
-        # stamps ``delivered_via_upstream_relay``), or whose platform's adapter
-        # explicitly declares ``authorization_is_upstream=True``; every direct
-        # network-exposed adapter leaves the flag False and its events unmarked,
-        # so the env-allowlist default-deny below still applies unchanged.
-        #
-        # The delivery marker is the PRIMARY signal: a relay *message* inbound
-        # carries the UNDERLYING platform (``source.platform`` == discord/…),
-        # NOT ``Platform.RELAY``, because that's what session-keying and egress
-        # need — so keying authz off ``source.platform`` would miss (the relay
-        # adapter is registered under ``Platform.RELAY``) and default-deny the
-        # user ("Unauthorized user <id> on discord"). The adapter-flag check is
-        # retained for events whose ``source.platform`` IS ``Platform.RELAY``
-        # (e.g. the interaction-passthrough path).
-        # ``is True`` (not just truthiness): the marker is a real bool on a
-        # SessionSource, and an explicit identity check refuses to authorize a
-        # non-bool stand-in (e.g. a MagicMock attribute auto-vivifies truthy in
-        # tests) — defensive against accidental fail-open.
-        if allow_adapter_delegation and (
-            source.delivered_via_upstream_relay is True
-            or self._adapter_authorization_is_upstream(
-                source.platform,
-                profile=adapter_profile,
-            )
-        ):
-            return True
 
         user_id = source.user_id
 
-        # Telegram (and similar) authorize entire group/forum/channel chats
-        # by chat ID via TELEGRAM_GROUP_ALLOWED_CHATS / QQ_GROUP_ALLOWED_USERS.
+        # Telegram authorizes entire group/forum/channel chats by chat ID via
+        # TELEGRAM_GROUP_ALLOWED_CHATS.
         # That allowlist is chat-scoped, so it must work even when
         # source.user_id is None — Telegram emits anonymous-admin posts,
         # sender_chat traffic, and channel broadcasts with no `from_user`,
@@ -461,7 +377,6 @@ class GatewayAuthorizationMixin:
         if source.chat_type in {"group", "forum", "channel"} and source.chat_id:
             chat_allowlist_env = {
                 Platform.TELEGRAM: "TELEGRAM_GROUP_ALLOWED_CHATS",
-                Platform.QQBOT: "QQ_GROUP_ALLOWED_USERS",
             }.get(source.platform, "")
             if chat_allowlist_env:
                 raw_chat_allowlist = _platform_gate_env(chat_allowlist_env)
@@ -493,16 +408,10 @@ class GatewayAuthorizationMixin:
                 pass
 
         # Bots admitted by {PLATFORM}_ALLOW_BOTS bypass the human allowlist (#4466).
-        # Checked before the no-user-id guard below: some platforms deliver
-        # bot/automation traffic with no user_id at all -- e.g. Slack Workflow
-        # Builder posts arrive as subtype=bot_message with user=None -- so
-        # deferring past the guard would reject them outright (the same reason
-        # the chat-scoped allowlist above runs early).
+        # Checked before the no-user-id guard below because automation traffic
+        # may arrive without a user identifier.
         platform_allow_bots_map = {
-            Platform.DISCORD: "DISCORD_ALLOW_BOTS",
-            Platform.FEISHU: "FEISHU_ALLOW_BOTS",
             Platform.TELEGRAM: "TELEGRAM_ALLOW_BOTS",
-            Platform.SLACK: "SLACK_ALLOW_BOTS",
         }
         if getattr(source, "is_bot", False):
             allow_bots_var = platform_allow_bots_map.get(source.platform)
@@ -514,73 +423,25 @@ class GatewayAuthorizationMixin:
 
         platform_env_map = {
             Platform.TELEGRAM: "TELEGRAM_ALLOWED_USERS",
-            Platform.DISCORD: "DISCORD_ALLOWED_USERS",
-            Platform.WHATSAPP: "WHATSAPP_ALLOWED_USERS",
-            Platform.WHATSAPP_CLOUD: "WHATSAPP_CLOUD_ALLOWED_USERS",
-            Platform.SLACK: "SLACK_ALLOWED_USERS",
-            Platform.SIGNAL: "SIGNAL_ALLOWED_USERS",
-            Platform.EMAIL: "EMAIL_ALLOWED_USERS",
-            Platform.SMS: "SMS_ALLOWED_USERS",
             Platform.MATTERMOST: "MATTERMOST_ALLOWED_USERS",
-            Platform.MATRIX: "MATRIX_ALLOWED_USERS",
-            Platform.DINGTALK: "DINGTALK_ALLOWED_USERS",
-            Platform.FEISHU: "FEISHU_ALLOWED_USERS",
-            Platform.WECOM: "WECOM_ALLOWED_USERS",
-            Platform.WECOM_CALLBACK: "WECOM_CALLBACK_ALLOWED_USERS",
-            Platform.WEIXIN: "WEIXIN_ALLOWED_USERS",
-            Platform.BLUEBUBBLES: "BLUEBUBBLES_ALLOWED_USERS",
-            Platform.QQBOT: "QQ_ALLOWED_USERS",
-            Platform.YUANBAO: "YUANBAO_ALLOWED_USERS",
         }
         platform_group_user_env_map = {
             Platform.TELEGRAM: "TELEGRAM_GROUP_ALLOWED_USERS",
         }
         platform_group_chat_env_map = {
             Platform.TELEGRAM: "TELEGRAM_GROUP_ALLOWED_CHATS",
-            Platform.QQBOT: "QQ_GROUP_ALLOWED_USERS",
         }
         platform_allow_all_map = {
             Platform.TELEGRAM: "TELEGRAM_ALLOW_ALL_USERS",
-            Platform.DISCORD: "DISCORD_ALLOW_ALL_USERS",
-            Platform.WHATSAPP: "WHATSAPP_ALLOW_ALL_USERS",
-            Platform.WHATSAPP_CLOUD: "WHATSAPP_CLOUD_ALLOW_ALL_USERS",
-            Platform.SLACK: "SLACK_ALLOW_ALL_USERS",
-            Platform.SIGNAL: "SIGNAL_ALLOW_ALL_USERS",
-            Platform.EMAIL: "EMAIL_ALLOW_ALL_USERS",
-            Platform.SMS: "SMS_ALLOW_ALL_USERS",
             Platform.MATTERMOST: "MATTERMOST_ALLOW_ALL_USERS",
-            Platform.MATRIX: "MATRIX_ALLOW_ALL_USERS",
-            Platform.DINGTALK: "DINGTALK_ALLOW_ALL_USERS",
-            Platform.FEISHU: "FEISHU_ALLOW_ALL_USERS",
-            Platform.WECOM: "WECOM_ALLOW_ALL_USERS",
-            Platform.WECOM_CALLBACK: "WECOM_CALLBACK_ALLOW_ALL_USERS",
-            Platform.WEIXIN: "WEIXIN_ALLOW_ALL_USERS",
-            Platform.BLUEBUBBLES: "BLUEBUBBLES_ALLOW_ALL_USERS",
-            Platform.QQBOT: "QQ_ALLOW_ALL_USERS",
-            Platform.YUANBAO: "YUANBAO_ALLOW_ALL_USERS",
         }
 
-        # Plugin platforms: check the registry for auth env var names
-        if source.platform not in platform_env_map:
-            try:
-                from gateway.platform_registry import platform_registry
-
-                entry = platform_registry.get(source.platform.value)
-                if entry:
-                    if entry.allowed_users_env:
-                        platform_env_map[source.platform] = entry.allowed_users_env
-                    if entry.allow_all_env:
-                        platform_allow_all_map[source.platform] = entry.allow_all_env
-            except Exception:
-                pass
-
-        # Per-platform allow-all flag (e.g., DISCORD_ALLOW_ALL_USERS=true)
+        # Per-platform allow-all flag.
         platform_allow_all_var = platform_allow_all_map.get(source.platform, "")
         if platform_allow_all_var and _auth_env(platform_allow_all_var).lower() in {"true", "1", "yes"}:
             return True
 
-        # Adapter-verified role auth: the Discord adapter already confirmed the
-        # user holds a role in DISCORD_ALLOWED_ROLES before dispatching the message.
+        # Adapter-verified role authorization.
         # Compare with ``is True`` so the real bool field authorizes while a
         # MagicMock source (test fixtures using ``object.__new__`` runners with
         # mock sources) does not auto-truthy through this gate (see pitfall #13).
@@ -592,7 +453,7 @@ class GatewayAuthorizationMixin:
 
         # Check pairing store. A pairing entry is a first-class authorization
         # grant, created only by a trusted operator approving a pairing code
-        # (hermes gateway pairing approve / the authenticated dashboard) — an
+        # (``hermes gateway pairing approve``) — an
         # inbound sender can never reach approve_code, so this is not an
         # attacker-controlled path. Honored as a UNION with the allowlist: a
         # paired user is authorized regardless of the allowlist, and when an
@@ -664,10 +525,7 @@ class GatewayAuthorizationMixin:
                     )
                 if effective_policy == "allowlist":
                     # Trust allowlist intake only when the live adapter still
-                    # allowlists this sender. Pairing revoke can clear
-                    # WHATSAPP_ALLOWED_USERS while a construction-time
-                    # ``_allow_from`` snapshot would otherwise keep authorizing
-                    # until restart; re-check when the adapter exposes a DM
+                    # allowlists this sender; re-check when the adapter exposes a DM
                     # allowlist helper. Adapters without that helper keep the
                     # historical "reached the gateway under allowlist policy"
                     # rubber-stamp (#34515).
@@ -754,43 +612,13 @@ class GatewayAuthorizationMixin:
         if global_allowlist:
             allowed_ids.update(uid.strip() for uid in global_allowlist.split(",") if uid.strip())
 
-        # "*" in any allowlist means allow everyone (consistent with
-        # SIGNAL_GROUP_ALLOWED_USERS precedent)
+        # "*" in any allowlist means allow everyone.
         if "*" in allowed_ids:
             return True
 
         check_ids = {user_id}
         if "@" in user_id:
             check_ids.add(user_id.split("@")[0])
-
-        # WhatsApp (Baileys + Cloud): resolve phone↔LID / JID aliases so
-        # device-suffix and bare-phone allowlist entries match the same principal.
-        if source.platform in {Platform.WHATSAPP, Platform.WHATSAPP_CLOUD}:
-            normalized_allowed_ids = set()
-            for allowed_id in allowed_ids:
-                normalized_allowed_ids.update(_expand_whatsapp_auth_aliases(allowed_id))
-            if normalized_allowed_ids:
-                allowed_ids = normalized_allowed_ids
-
-            check_ids.update(_expand_whatsapp_auth_aliases(user_id))
-            normalized_user_id = _normalize_whatsapp_identifier(user_id)
-            if normalized_user_id:
-                check_ids.add(normalized_user_id)
-
-        # SimpleX: SIMPLEX_ALLOWED_USERS accepts either the numeric contactId
-        # or the contact's display name. The adapter sets user_id=contactId for
-        # stability across renames, but the SimpleX UI never surfaces the
-        # numeric id — operators only see display names, so that's what they
-        # naturally put in the env var. Match both so the allowlist works
-        # regardless of which form was chosen.
-        # Plugin platform: compare by value since Platform.SIMPLEX is not a
-        # hardcoded enum member (it's a dynamic plugin platform).
-        if (
-            source.platform is not None
-            and source.platform.value == "simplex"
-            and source.user_name
-        ):
-            check_ids.add(source.user_name)
 
         return bool(check_ids & allowed_ids)
 
@@ -827,14 +655,6 @@ class GatewayAuthorizationMixin:
                 # Operator explicitly configured behavior for this platform — respect it.
                 return config.get_unauthorized_dm_behavior(platform)
 
-        # Email is inbox-shaped, not chat-shaped: an agent mailbox may contain
-        # unrelated unread human email. Require an explicit per-platform
-        # ``unauthorized_dm_behavior: pair`` opt-in before replying to unknown
-        # senders with pairing codes. Keep this before the global fallback to
-        # match GatewayConfig.get_unauthorized_dm_behavior().
-        if platform == Platform.EMAIL:
-            return "ignore"
-
         # Check for an explicit global config override.
         if config and hasattr(config, "unauthorized_dm_behavior"):
             if config.unauthorized_dm_behavior != "pair":  # non-default → explicit override
@@ -864,29 +684,13 @@ class GatewayAuthorizationMixin:
         if platform:
             platform_env_map = {
                 Platform.TELEGRAM: "TELEGRAM_ALLOWED_USERS",
-                Platform.DISCORD:  "DISCORD_ALLOWED_USERS",
-                Platform.WHATSAPP: "WHATSAPP_ALLOWED_USERS",
-                Platform.WHATSAPP_CLOUD: "WHATSAPP_CLOUD_ALLOWED_USERS",
-                Platform.SLACK:    "SLACK_ALLOWED_USERS",
-                Platform.SIGNAL:   "SIGNAL_ALLOWED_USERS",
-                Platform.EMAIL:    "EMAIL_ALLOWED_USERS",
-                Platform.SMS:      "SMS_ALLOWED_USERS",
                 Platform.MATTERMOST: "MATTERMOST_ALLOWED_USERS",
-                Platform.MATRIX:   "MATRIX_ALLOWED_USERS",
-                Platform.DINGTALK: "DINGTALK_ALLOWED_USERS",
-                Platform.FEISHU:   "FEISHU_ALLOWED_USERS",
-                Platform.WECOM:    "WECOM_ALLOWED_USERS",
-                Platform.WECOM_CALLBACK: "WECOM_CALLBACK_ALLOWED_USERS",
-                Platform.WEIXIN:   "WEIXIN_ALLOWED_USERS",
-                Platform.BLUEBUBBLES: "BLUEBUBBLES_ALLOWED_USERS",
-                Platform.QQBOT:    "QQ_ALLOWED_USERS",
             }
             platform_group_env_map = {
                 Platform.TELEGRAM: (
                     "TELEGRAM_GROUP_ALLOWED_USERS",
                     "TELEGRAM_GROUP_ALLOWED_CHATS",
                 ),
-                Platform.QQBOT: ("QQ_GROUP_ALLOWED_USERS",),
             }
             if _platform_gate_env(platform_env_map.get(platform, "")).strip():
                 return "ignore"

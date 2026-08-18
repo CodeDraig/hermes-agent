@@ -319,23 +319,6 @@ def _origin_from_env() -> Optional[Dict[str, str]]:
     origin_chat_id = get_session_env("HERMES_SESSION_CHAT_ID")
     if origin_platform and origin_chat_id:
         thread_id = get_session_env("HERMES_SESSION_THREAD_ID") or None
-        # Slack thread-per-message session keying (native parity: thread_ts =
-        # event.thread_ts or ts) stamps every TOP-LEVEL message's own id as
-        # the session thread. That stamp is a per-message session KEY, not a
-        # durable conversation location — persisting it as origin routing
-        # pins every future delivery inside the ephemeral thread spawned
-        # around the creation message. Recognize it at the source: a Slack
-        # thread id equal to the triggering message's own id is synthetic.
-        # A genuine in-thread creation (thread == the parent's id != this
-        # message's id) keeps its thread.
-        if thread_id and origin_platform == "slack":
-            message_id = get_session_env("HERMES_SESSION_MESSAGE_ID") or None
-            if message_id and str(thread_id) == str(message_id):
-                logger.debug(
-                    "Cron origin: dropping synthetic per-message Slack "
-                    "thread_id=%s (== creation message id)", thread_id,
-                )
-                thread_id = None
         if thread_id:
             logger.debug(
                 "Cron origin captured thread_id=%s for %s:%s",
@@ -1651,7 +1634,7 @@ Scheduling from cron-run sessions is disabled by default and enabled via cron.al
             },
             "deliver": {
                 "type": "string",
-                "description": "Omit this parameter to auto-deliver back to the current chat and topic (recommended). Auto-detection preserves thread/topic context. Only set explicitly when the user asks to deliver somewhere OTHER than the current conversation. Values: 'origin' (same as omitting), 'local' (no delivery, save only), 'all' (fan out to every connected home channel), or platform:chat_id:thread_id for a specific destination. Combine with comma: 'origin,all' delivers to the origin plus every other connected channel. Examples: 'telegram:-1001234567890:17585', 'discord:#engineering', 'sms:+15551234567', 'all'. WARNING: 'platform:chat_id' without :thread_id loses topic targeting. 'all' resolves at fire time, so a job created before a channel was wired up will pick it up automatically once connected."
+                "description": "Omit this parameter to auto-deliver back to the current chat and topic (recommended). Auto-detection preserves thread/topic context. Only set explicitly when the user asks to deliver somewhere OTHER than the current conversation. Values: 'origin' (same as omitting), 'local' (no delivery, save only), 'all' (fan out to every connected home channel), or platform:chat_id:thread_id for a specific destination. Combine with comma: 'origin,all' delivers to the origin plus every other connected channel. Examples: 'telegram:-1001234567890:17585', 'mattermost:channel-id:thread-id', 'all'. WARNING: 'platform:chat_id' without :thread_id loses topic targeting. 'all' resolves at fire time, so a job created before a channel was wired up will pick it up automatically once connected."
             },
             "skills": {
                 "type": "array",
@@ -1725,7 +1708,7 @@ Scheduling from cron-run sessions is disabled by default and enabled via cron.al
             },
             "attach_to_session": {
                 "type": "boolean",
-                "description": "When True, this job becomes CONTINUABLE: the user can reply to its delivery and the agent has the brief in context instead of asking 'what is that?'. On thread-capable platforms (Telegram topics, Discord/Slack threads) a dedicated thread is opened for the job and its replies; on DM-only platforms (WhatsApp/Signal) the brief is mirrored into the origin DM session. Use this for conversational recurring jobs the user will reply to — daily briefings, reminders that kick off follow-up work. Leave unset for fire-and-forget alerts/watchdogs. Overrides the global cron.mirror_delivery config for this one job. Only the origin chat is touched (never fan-out targets); no effect when deliver='local'."
+                "description": "When True, this job becomes CONTINUABLE: the user can reply to its delivery and the agent has the brief in context instead of asking 'what is that?'. On Telegram topics and Mattermost threads, a dedicated thread is opened for the job and its replies. Use this for conversational recurring jobs the user will reply to — daily briefings, reminders that kick off follow-up work. Leave unset for fire-and-forget alerts/watchdogs. Overrides the global cron.mirror_delivery config for this one job. Only the origin chat is touched (never fan-out targets); no effect when deliver='local'."
             },
         },
         "required": ["action"]

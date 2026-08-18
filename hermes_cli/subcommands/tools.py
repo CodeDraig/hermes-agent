@@ -15,7 +15,7 @@ def build_tools_parser(subparsers, *, cmd_tools: Callable) -> None:
         "tools",
         help="Configure which tools are enabled per platform",
         description=(
-            "Enable, disable, or list tools for CLI, Telegram, Discord, etc.\n\n"
+            "Enable, disable, or list tools for CLI, Telegram, Mattermost, and API.\n\n"
             "Built-in toolsets use plain names (e.g. web, memory).\n"
             "MCP tools use server:tool notation (e.g. github:create_issue).\n\n"
             "Run 'hermes tools' with no subcommand for the interactive configuration UI."

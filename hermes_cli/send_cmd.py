@@ -1,5 +1,4 @@
-"""CLI subcommand: ``hermes send`` — pipe text from shell scripts to any
-configured messaging platform (Telegram, Discord, Slack, Signal, SMS, etc.).
+"""CLI subcommand: ``hermes send`` — pipe text to Telegram or Mattermost.
 
 This is a thin wrapper around ``tools.send_message_tool.send_message_tool``
 that exposes its functionality as a standalone CLI entry point so ops
@@ -12,12 +11,8 @@ Design notes:
 * No LLM, no agent loop — the subcommand just resolves arguments, reads the
   message body, calls the shared tool function, and prints/returns the
   result. It is intentionally fast, cheap, and side-effect-only.
-* For platforms that send via bot token (Telegram, Discord, Slack, Signal,
-  SMS, WhatsApp-CloudAPI, …) no running gateway is required. The tool
-  talks directly to each platform's REST endpoint. For platforms that rely
-  on a persistent adapter connection (plugin platforms, Matrix in some
-  modes, …) a live gateway is needed; the underlying tool surfaces that
-  error to the caller.
+* No running gateway is required. The tool talks directly to the retained
+  platform's HTTP API.
 * Exit codes follow the classic Unix convention:
     0 — delivery (or list) succeeded
     1 — delivery failed at the platform level
@@ -167,8 +162,7 @@ def _list_targets(platform_filter: Optional[str], *, json_mode: bool) -> int:
     # Merge in configured-but-undiscovered platforms so `--list` never hides
     # a working send target. The directory only contains platforms the
     # gateway has discovered channels for; a platform configured via env /
-    # config.yaml that has never run channel discovery (e.g. a fresh SimpleX
-    # setup used only for outbound `hermes send`) would otherwise be
+    # config.yaml that has never run channel discovery would otherwise be
     # invisible, leaving users guessing at platform names.
     try:
         from gateway.config import load_gateway_config
@@ -176,7 +170,7 @@ def _list_targets(platform_filter: Optional[str], *, json_mode: bool) -> int:
         gw_config = load_gateway_config()
         for plat in gw_config.get_connected_platforms():
             plat_name = getattr(plat, "value", str(plat))
-            if plat_name in ("local", "api_server", "webhook"):
+            if plat_name in ("local", "api_server"):
                 continue
             platforms.setdefault(plat_name, [])
     except Exception:
@@ -347,7 +341,7 @@ def cmd_send(args: argparse.Namespace) -> None:
             "hermes send: --to PLATFORM[:channel[:thread]] is required\n"
             "Examples:\n"
             "  hermes send --to telegram \"hello\"\n"
-            "  hermes send --to discord:#ops --file report.md\n"
+            "  hermes send --to mattermost:town-square --file report.md\n"
             "  hermes send --list      # list available targets",
             file=sys.stderr,
         )
@@ -376,8 +370,7 @@ def cmd_send(args: argparse.Namespace) -> None:
     from tools.send_message_tool import send_message_tool
 
     # send_message_tool auto-loads gateway config + env and routes to the
-    # appropriate platform adapter (bot-token path for Telegram/Discord/Slack/
-    # Signal/SMS/WhatsApp; live-adapter path for plugin platforms).
+    # appropriate retained platform adapter.
     #
     # It expects the standard tool-call dict and returns a JSON string.
     tool_args = {
@@ -409,15 +402,13 @@ def register_send_subparser(subparsers) -> argparse.ArgumentParser:
             "Pipe text from any shell script to any messaging platform Hermes "
             "is already configured for. Reuses the gateway's platform "
             "credentials (~/.hermes/.env + ~/.hermes/config.yaml) — no LLM, "
-            "no agent loop, no running gateway required for bot-token "
-            "platforms like Telegram/Discord/Slack/Signal."
+            "no agent loop and no running gateway required."
         ),
         epilog=(
             "Examples:\n"
             "  hermes send --to telegram \"deploy finished\"\n"
             "  echo \"RAM 92%\" | hermes send --to telegram:-1001234567890\n"
-            "  hermes send --to discord:#ops --file /tmp/report.md\n"
-            "  hermes send --to slack:#eng --subject \"[CI]\" --file build.log\n"
+            "  hermes send --to mattermost:town-square --file /tmp/report.md\n"
             "  hermes send --to telegram \"MEDIA:/tmp/chart.png\"   # send a media attachment\n"
             "  hermes send --list                  # all platforms\n"
             "  hermes send --list telegram         # filter by platform\n"
@@ -436,8 +427,7 @@ def register_send_subparser(subparsers) -> argparse.ArgumentParser:
             "Delivery target. Format: 'platform' (home channel), "
             "'platform:chat_id', 'platform:chat_id:thread_id', or "
             "'platform:#channel-name'. Examples: telegram, "
-            "telegram:-1001234567890:17585, discord:#ops, slack:C0123ABCD, "
-            "signal:+15551234567."
+            "telegram:-1001234567890:17585, mattermost:town-square."
         ),
     )
 

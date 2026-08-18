@@ -632,8 +632,7 @@ def create_mcp_server(event_bridge: Optional[EventBridge] = None) -> "MCPServer"
         "hermes",
         instructions=(
             "Hermes Agent messaging bridge. Use these tools to interact with "
-            "conversations across Telegram, Discord, Slack, WhatsApp, Signal, "
-            "Matrix, and other connected platforms."
+            "conversations across Telegram and Mattermost."
         ),
     )
 
@@ -653,7 +652,7 @@ def create_mcp_server(event_bridge: Optional[EventBridge] = None) -> "MCPServer"
         platform, chat type, display name, and last activity time.
 
         Args:
-            platform: Filter by platform name (telegram, discord, slack, etc.)
+            platform: Filter by platform name (telegram or mattermost)
             limit: Maximum number of conversations to return (default 50)
             search: Optional text to filter conversations by name
         """
@@ -906,8 +905,7 @@ def create_mcp_server(event_bridge: Optional[EventBridge] = None) -> "MCPServer"
 
         Examples:
             target="telegram:6308981865"
-            target="discord:#general"
-            target="slack:#engineering"
+            target="mattermost:channel-id"
 
         Args:
             target: Platform target in "platform:identifier" format
@@ -937,7 +935,7 @@ def create_mcp_server(event_bridge: Optional[EventBridge] = None) -> "MCPServer"
         returned here can be used directly with the messages_send tool.
 
         Args:
-            platform: Filter by platform name (telegram, discord, slack, etc.)
+            platform: Filter by platform name (telegram or mattermost)
         """
         directory = _load_channel_directory()
         if not directory:

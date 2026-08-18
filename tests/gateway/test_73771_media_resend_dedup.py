@@ -44,7 +44,7 @@ from gateway.session import SessionSource, build_session_key
 class _DummyAdapter(BasePlatformAdapter):
     """Minimal BasePlatformAdapter for non-streaming dispatch tests."""
 
-    def __init__(self, platform: Platform = Platform.DISCORD):
+    def __init__(self, platform: Platform = Platform.TELEGRAM):
         super().__init__(PlatformConfig(enabled=True, token="fake-token"), platform)
         self.sent: list[dict] = []
         self.documents: list[str] = []
@@ -100,7 +100,7 @@ class _StubStore:
         return list(self._transcript)
 
 
-def _make_event(platform: Platform = Platform.DISCORD) -> MessageEvent:
+def _make_event(platform: Platform = Platform.TELEGRAM) -> MessageEvent:
     return MessageEvent(
         text="send me that file again",
         message_type=MessageType.TEXT,
@@ -455,7 +455,7 @@ def _stream_event():
     return MessageEvent(
         text="send it again",
         message_type=MessageType.TEXT,
-        source=SessionSource(platform=Platform.SLACK, chat_id="C1", chat_type="group"),
+        source=SessionSource(platform=Platform.MATTERMOST, chat_id="C1", chat_type="group"),
         message_id="171.1",
     )
 

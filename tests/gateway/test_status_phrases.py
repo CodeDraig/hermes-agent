@@ -34,7 +34,7 @@ def test_status_phrase_path_can_load_relative_directory(tmp_path, monkeypatch):
 
     catalog = resolve_status_phrase_catalog(
         {"display": {"status_phrases": {"path": "phrase-catalog"}}},
-        "whatsapp",
+        "telegram",
     )
 
     assert "relative dir status text" in catalog["status"]
@@ -43,7 +43,7 @@ def test_status_phrase_path_can_load_relative_directory(tmp_path, monkeypatch):
 def test_choose_status_phrase_uses_custom_catalog_without_leaking_args():
     catalog = resolve_status_phrase_catalog(
         {"display": {"status_phrases": {"mode": "replace", "status": ["custom safe status text"]}}},
-        "whatsapp",
+        "telegram",
     )
 
     msg = choose_status_phrase(

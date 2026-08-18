@@ -11,7 +11,7 @@ from unittest.mock import patch
 import tools.send_message_tool as smt
 
 
-class _FakePhotonAdapter:
+class _FakeTelegramAdapter:
     """Adapter exposing add_reaction/remove_reaction coroutines."""
 
     def __init__(self):
@@ -33,7 +33,7 @@ class _NoReactionAdapter:
 def _runner_with(adapter):
     from gateway.config import Platform
 
-    return SimpleNamespace(adapters={Platform("photon"): adapter})
+    return SimpleNamespace(adapters={Platform.TELEGRAM: adapter})
 
 
 def _call(args):
@@ -41,19 +41,19 @@ def _call(args):
 
 
 def test_react_dispatches_to_add_reaction():
-    adapter = _FakePhotonAdapter()
+    adapter = _FakeTelegramAdapter()
     with patch("gateway.run._gateway_runner_ref", lambda: _runner_with(adapter)):
         result = _call(
-            {"action": "react", "target": "photon:+15551234567", "emoji": "❤️"}
+            {"action": "react", "target": "telegram:-100123", "emoji": "❤️"}
         )
     assert result["success"] is True
-    assert adapter.calls == [("add", "+15551234567", "❤️", None)]
+    assert adapter.calls == [("add", "-100123", "❤️", None)]
 
 
 def test_react_without_live_gateway():
     with patch("gateway.run._gateway_runner_ref", lambda: None):
         result = _call(
-            {"action": "react", "target": "photon:+15551234567", "emoji": "👍"}
+            {"action": "react", "target": "telegram:-100123", "emoji": "👍"}
         )
     assert result.get("success") is not True
     assert "live" in json.dumps(result)

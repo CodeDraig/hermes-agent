@@ -14,7 +14,7 @@ Provides speech-to-text transcription with six providers:
   - **elevenlabs** — ElevenLabs Scribe API, requires ``ELEVENLABS_API_KEY``.
 
 Used by the messaging gateway to automatically transcribe voice messages
-sent by users on Telegram, Discord, WhatsApp, Slack, and Signal.
+sent by users on Telegram and Mattermost.
 
 Supported input formats: mp3, mp4, mpeg, mpga, m4a, wav, webm, ogg, aac
 

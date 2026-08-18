@@ -20,7 +20,7 @@ class TestGetChannelOverride:
     def test_no_override_when_channel_not_in_overrides(self):
         config = GatewayConfig(
             platforms={
-                Platform.DISCORD: PlatformConfig(
+                Platform.TELEGRAM: PlatformConfig(
                     enabled=True,
                     channel_overrides={
                         "999": ChannelOverride(model="openrouter/healer-alpha"),
@@ -28,7 +28,7 @@ class TestGetChannelOverride:
                 ),
             },
         )
-        assert _get_channel_override(config, Platform.DISCORD, "123") is None
+        assert _get_channel_override(config, Platform.TELEGRAM, "123") is None
 
     def test_returns_override_when_channel_matches(self):
         ov = ChannelOverride(
@@ -38,13 +38,13 @@ class TestGetChannelOverride:
         )
         config = GatewayConfig(
             platforms={
-                Platform.DISCORD: PlatformConfig(
+                Platform.TELEGRAM: PlatformConfig(
                     enabled=True,
                     channel_overrides={"1234567890": ov},
                 ),
             },
         )
-        result = _get_channel_override(config, Platform.DISCORD, "1234567890")
+        result = _get_channel_override(config, Platform.TELEGRAM, "1234567890")
         assert result is not None
         assert result.model == "openrouter/healer-alpha"
         assert result.provider == "openrouter"
@@ -54,7 +54,7 @@ class TestGetChannelOverride:
     def test_thread_id_lookup_when_chat_id_misses(self):
         config = GatewayConfig(
             platforms={
-                Platform.DISCORD: PlatformConfig(
+                Platform.TELEGRAM: PlatformConfig(
                     enabled=True,
                     channel_overrides={
                         "thread_99": ChannelOverride(model="topic-model"),
@@ -63,7 +63,7 @@ class TestGetChannelOverride:
             },
         )
         result = _get_channel_override(
-            config, Platform.DISCORD, "parent_chan", thread_id="thread_99"
+            config, Platform.TELEGRAM, "parent_chan", thread_id="thread_99"
         )
         assert result is not None
         assert result.model == "topic-model"
@@ -73,7 +73,7 @@ class TestResolveModelForChannel:
     def test_uses_channel_override_when_present(self):
         config = GatewayConfig(
             platforms={
-                Platform.DISCORD: PlatformConfig(
+                Platform.TELEGRAM: PlatformConfig(
                     enabled=True,
                     channel_overrides={
                         "chan_1": ChannelOverride(model="anthropic/claude-opus-4.6"),
@@ -83,7 +83,7 @@ class TestResolveModelForChannel:
         )
         runner = object.__new__(GatewayRunner)
         runner.config = config
-        model = runner._resolve_model_for_channel(Platform.DISCORD, "chan_1")
+        model = runner._resolve_model_for_channel(Platform.TELEGRAM, "chan_1")
         assert model == "anthropic/claude-opus-4.6"
 
 
@@ -91,7 +91,7 @@ class TestGetSystemPromptForChannel:
     def test_uses_channel_override_when_present(self):
         config = GatewayConfig(
             platforms={
-                Platform.DISCORD: PlatformConfig(
+                Platform.TELEGRAM: PlatformConfig(
                     enabled=True,
                     channel_overrides={
                         "chan_1": ChannelOverride(system_prompt="You are a coding assistant."),
@@ -102,7 +102,7 @@ class TestGetSystemPromptForChannel:
         runner = object.__new__(GatewayRunner)
         runner.config = config
         runner._ephemeral_system_prompt = "Global prompt"
-        prompt = runner._get_system_prompt_for_channel(Platform.DISCORD, "chan_1")
+        prompt = runner._get_system_prompt_for_channel(Platform.TELEGRAM, "chan_1")
         assert prompt == "You are a coding assistant."
 
 
@@ -114,7 +114,7 @@ class TestResolveSessionAgentRuntimePriority:
         runner._session_model_overrides = {}
         runner.config = GatewayConfig(
             platforms={
-                Platform.DISCORD: PlatformConfig(
+                Platform.TELEGRAM: PlatformConfig(
                     enabled=True,
                     channel_overrides={
                         "chan_1": ChannelOverride(
@@ -126,7 +126,7 @@ class TestResolveSessionAgentRuntimePriority:
             },
         )
         source = SessionSource(
-            platform=Platform.DISCORD,
+            platform=Platform.TELEGRAM,
             chat_id="chan_1",
             user_id="u1",
         )

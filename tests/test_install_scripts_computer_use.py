@@ -2,8 +2,7 @@
 
 Policy: choosing Computer Use should be a config flip, not a surprise
 multi-minute binary fetch. The installers pre-install cua-driver
-(best-effort, skippable), and the dashboard toggle auto-installs when the
-binary is still missing (see test_web_routers_tools_install_on_enable.py).
+(best-effort and skippable).
 """
 
 from pathlib import Path
@@ -52,10 +51,10 @@ class TestInstallPs1:
         assert "[switch]$SkipComputerUse," in text
         assert "if ($SkipComputerUse)" in text
 
-    def test_install_function_wired_into_node_deps(self) -> None:
+    def test_install_function_wired_into_browser_stage(self) -> None:
         text = INSTALL_PS1.read_text()
         assert "function Install-CuaDriver {" in text
-        assert "    Install-CuaDriver\n" in text
+        assert "function Stage-BrowserTools     { Install-BrowserUseCli; Install-CuaDriver }" in text
 
     def test_install_is_timeboxed_above_upstream_lock_window(self) -> None:
         text = INSTALL_PS1.read_text()

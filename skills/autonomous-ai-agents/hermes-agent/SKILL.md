@@ -20,11 +20,11 @@ What makes Hermes different:
 
 - **Self-improving through skills** — Hermes learns from experience by saving reusable procedures as skills that load into future sessions.
 - **Persistent memory across sessions** — remembers who you are, your preferences, environment details, and lessons learned. Pluggable memory backends.
-- **Multi-platform gateway** — the same agent runs on Telegram, Discord, Slack, WhatsApp, iMessage, Signal, Matrix, Teams, Email, and a dozen more platforms with full tool access, not just chat.
+- **Messaging gateway** — the same agent runs on Telegram and Mattermost, with an OpenAI-compatible API server for programmatic access.
 - **Many surfaces** — the same agent core drives the prompt-toolkit CLI, messaging gateway, and an ACP server for IDEs (VS Code / Zed / JetBrains).
 - **Provider-agnostic** — swap models and providers mid-workflow; credential pools rotate across multiple API keys automatically.
 - **Profiles** — run multiple independent Hermes instances with isolated configs, sessions, skills, and memory.
-- **Extensible & themeable** — plugins, MCP servers, custom tools, webhook triggers, cron scheduling, CLI skins, and pet mascots.
+- **Extensible & themeable** — plugins, MCP servers, custom tools, cron scheduling, CLI skins, and pet mascots.
 
 **This skill is a hub.** The body covers identity, quick start, spawning/orchestration, and hard invariants. Everything else lives in reference files — **load the matching reference (below) before answering**; do not answer detail questions from the body alone.
 
@@ -90,7 +90,6 @@ Profiles use `~/.hermes/profiles/<name>/` with the same layout. When a profile i
 | Secret redaction, PII, approval modes, "reset permissions" | `references/security-privacy.md` |
 | Delegation, cron, curator, kanban | `references/background-systems.md` |
 | MCP servers (add, catalog, `hermes mcp`) | `references/native-mcp.md` |
-| Webhook routes and event-driven runs | `references/webhooks.md` |
 | A custom theme/skin ("synthwave theme", "change the gold ●") | `references/themes.md` + `templates/skin.yaml` |
 | Pet mascots — install, select, scale, diagnose | `references/petdex.md` |
 | Windows-specific issues (keybinds, WinError 10106, BOM) | `references/windows-quirks.md` |

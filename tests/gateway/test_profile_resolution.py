@@ -25,12 +25,12 @@ def mock_runner():
 
 
 @pytest.fixture
-def discord_source():
-    """Create a basic Discord SessionSource for testing."""
+def mattermost_source():
+    """Create a basic Mattermost SessionSource for testing."""
     return SessionSource(
-        platform=MagicMock(value="discord"),
+        platform=MagicMock(value="mattermost"),
         chat_id="123456",
-        guild_id="789",
+        scope_id="789",
         thread_id=None,
         parent_chat_id=None,
     )
@@ -40,13 +40,13 @@ def discord_source():
 def telegram_source():
     """Create a basic Telegram SessionSource for testing.
 
-    Telegram (like Slack/Feishu/etc.) has no ``guild_id`` — only ``chat_id``.
-    Used to prove profile routing is platform-generic, not Discord-only.
+    Telegram has no workspace ``scope_id`` — only ``chat_id``.
+    Used to prove profile routing works for both retained adapters.
     """
     return SessionSource(
         platform=MagicMock(value="telegram"),
         chat_id="-1001234567890",
-        guild_id=None,
+        scope_id=None,
         thread_id=None,
         parent_chat_id=None,
     )
@@ -55,15 +55,15 @@ def telegram_source():
 class TestResolutionOrder:
     """Tests that profile resolution follows the correct priority order."""
     
-    def test_source_profile_wins_over_routing(self, mock_runner, discord_source):
+    def test_source_profile_wins_over_routing(self, mock_runner, mattermost_source):
         """source.profile should be used even if routing would match."""
-        discord_source.profile = "from-source"
+        mattermost_source.profile = "from-source"
         
         with patch("hermes_cli.profiles.get_active_profile_name", return_value="active"):
             with patch("hermes_cli.profiles.get_profile_dir") as mock_get_dir:
                 with patch("hermes_cli.profiles.profile_exists", return_value=True):
                     mock_get_dir.return_value = Path("/hermes/profiles/from-source")
-                    result = mock_runner._resolve_profile_home_for_source(discord_source)
+                    result = mock_runner._resolve_profile_home_for_source(mattermost_source)
                     
                     assert result == Path("/hermes/profiles/from-source")
                     mock_get_dir.assert_called_once_with("from-source")
@@ -75,9 +75,9 @@ class TestResolutionOrder:
 class TestMissingProfileWarning:
     """Tests for warning when a profile doesn't exist on disk."""
     
-    def test_nonexistent_profile_warning(self, mock_runner, discord_source, caplog):
+    def test_nonexistent_profile_warning(self, mock_runner, mattermost_source, caplog):
         """When source.profile points to a nonexistent profile, log a WARNING."""
-        discord_source.profile = "nonexistent"
+        mattermost_source.profile = "nonexistent"
         
         with patch("hermes_cli.profiles.get_active_profile_name", return_value="active"):
             with patch("hermes_cli.profiles.get_profile_dir") as mock_get_dir:
@@ -85,7 +85,7 @@ class TestMissingProfileWarning:
                 with patch("hermes_cli.profiles.profile_exists", return_value=False):
                     with patch("hermes_constants.get_hermes_home", return_value=Path("/hermes")):
                         with caplog.at_level(logging.WARNING):
-                            result = mock_runner._resolve_profile_home_for_source(discord_source)
+                            result = mock_runner._resolve_profile_home_for_source(mattermost_source)
                             
                             # Should fall back to global HERMES_HOME
                             assert result == Path("/hermes")
@@ -95,7 +95,7 @@ class TestMissingProfileWarning:
                             assert caplog.records[0].levelname == "WARNING"
                             assert "nonexistent" in caplog.records[0].message
                             assert "does not exist" in caplog.records[0].message
-                            assert "discord" in caplog.records[0].message
+                            assert "mattermost" in caplog.records[0].message
                             assert "123456" in caplog.records[0].message
     
     
@@ -105,15 +105,15 @@ class TestMissingProfileWarning:
 class TestExceptionHandling:
     """Tests for exception handling in profile resolution."""
     
-    def test_get_profile_dir_exception_logs_warning(self, mock_runner, discord_source, caplog):
+    def test_get_profile_dir_exception_logs_warning(self, mock_runner, mattermost_source, caplog):
         """When get_profile_dir raises an exception, log a WARNING with context."""
-        discord_source.profile = "bad-profile"
+        mattermost_source.profile = "bad-profile"
         
         with patch("hermes_cli.profiles.get_active_profile_name", return_value="active"):
             with patch("hermes_cli.profiles.get_profile_dir", side_effect=ValueError("Invalid profile name")):
                 with patch("hermes_constants.get_hermes_home", return_value=Path("/hermes")):
                     with caplog.at_level(logging.WARNING):
-                        result = mock_runner._resolve_profile_home_for_source(discord_source)
+                        result = mock_runner._resolve_profile_home_for_source(mattermost_source)
                         
                         # Should fall back to global HERMES_HOME
                         assert result == Path("/hermes")
@@ -129,9 +129,9 @@ class TestExceptionHandling:
 class TestRoutingConsultation:
     """Tests that _profile_name_for_source is consulted when source.profile is empty."""
     
-    def test_routing_consulted_when_source_profile_empty(self, mock_runner, discord_source):
+    def test_routing_consulted_when_source_profile_empty(self, mock_runner, mattermost_source):
         """_profile_name_for_source should be called when source.profile is empty."""
-        discord_source.profile = None
+        mattermost_source.profile = None
         
         with patch("hermes_cli.profiles.get_active_profile_name", return_value="active"):
             with patch("hermes_cli.profiles.get_profile_dir") as mock_get_dir:
@@ -139,22 +139,15 @@ class TestRoutingConsultation:
                 
                 mock_runner._profile_name_for_source = MagicMock(return_value="routed")
                 
-                mock_runner._resolve_profile_home_for_source(discord_source)
+                mock_runner._resolve_profile_home_for_source(mattermost_source)
                 
                 # Should have called routing
-                mock_runner._profile_name_for_source.assert_called_once_with(discord_source)
+                mock_runner._profile_name_for_source.assert_called_once_with(mattermost_source)
     
 
 
-class TestNonDiscordProfileRouting:
-    """Profile routing must be platform-generic, not Discord-only.
-
-    Regression coverage for the ``gateway_runner`` injection gap: previously
-    only Discord's adapter pre-declared ``gateway_runner``, so only Discord
-    ever had ``build_source`` call ``_profile_name_for_source``. Telegram /
-    Feishu / Slack / etc. silently fell through to the default profile. These
-    tests pin the resolution half for a non-Discord platform (Telegram).
-    """
+class TestTelegramProfileRouting:
+    """Profile routing works for Telegram chat routes."""
 
     def test_telegram_route_resolves(self, mock_runner, telegram_source):
         """A configured Telegram route resolves to its profile via the real
@@ -230,7 +223,7 @@ class TestNonDiscordProfileRouting:
         telegram_source.chat_id = "route-chat"
 
         assert mock_runner._profile_name_for_source(telegram_source) is None
-        adapter = _stub_adapter(Platform.TELEGRAM, mock_runner)
+        adapter = _stub_adapter(Platform.MATTERMOST, mock_runner)
         source = adapter.build_source(chat_id="route-chat", chat_type="group")
         assert source.profile is None
 
@@ -271,8 +264,7 @@ def _stub_adapter(platform: Platform, runner) -> "_StubAdapter":
 class TestAdapterToSessionKeyIntegration:
     """Adapter -> ``source.profile`` -> session-key integration coverage.
 
-    The review asked for integration coverage for Discord AND a non-Discord
-    platform. These drive a concrete adapter's real ``build_source``
+    These tests drive a concrete adapter's real ``build_source``
     (BasePlatformAdapter) with an injected ``gateway_runner``, assert the
     matched route's profile is stamped on the source, and that the resulting
     session key is profile-scoped (``agent:<profile>:...`` rather than the
@@ -283,15 +275,15 @@ class TestAdapterToSessionKeyIntegration:
     @staticmethod
     def _routes():
         return [
-            ProfileRoute(name="dc", platform="discord", profile="coder",
-                         guild_id="111", chat_id="222"),
+            ProfileRoute(name="mm", platform="mattermost", profile="coder",
+                         scope_id="111", chat_id="222"),
             ProfileRoute(name="tg", platform="telegram", profile="ops",
                          chat_id="-1001234567890"),
         ]
 
-    def test_discord_adapter_stamps_profile_and_scopes_key(self, mock_runner):
+    def test_mattermost_adapter_stamps_profile_and_scopes_key(self, mock_runner):
         mock_runner.config.profile_routes = self._routes()
-        adapter = _stub_adapter(Platform.DISCORD, mock_runner)
+        adapter = _stub_adapter(Platform.MATTERMOST, mock_runner)
 
         with patch(
             "hermes_cli.profiles.profiles_to_serve",
@@ -299,7 +291,7 @@ class TestAdapterToSessionKeyIntegration:
                           ("coder", Path("/profiles/coder"))],
         ):
             source = adapter.build_source(
-                chat_id="222", chat_type="group", guild_id="111", user_id="u1",
+                chat_id="222", chat_type="group", scope_id="111", user_id="u1",
             )
         assert source.profile == "coder"
 
@@ -376,14 +368,12 @@ class TestMultiplexGate:
     while the agent still served the turn from ``agent:main``'s home.
     """
 
-    def test_routes_ignored_when_multiplex_off(self, mock_runner, discord_source):
+    def test_routes_ignored_when_multiplex_off(self, mock_runner, mattermost_source):
         mock_runner.config.multiplex_profiles = False
         mock_runner.config.profile_routes = [
-            ProfileRoute(name="dc", platform="discord", profile="coder",
-                         guild_id="789", chat_id="123456"),
+            ProfileRoute(name="mm", platform="mattermost", profile="coder",
+                         scope_id="789", chat_id="123456"),
         ]
-        discord_source.profile = None
+        mattermost_source.profile = None
 
-        assert mock_runner._profile_name_for_source(discord_source) is None
-
-
+        assert mock_runner._profile_name_for_source(mattermost_source) is None

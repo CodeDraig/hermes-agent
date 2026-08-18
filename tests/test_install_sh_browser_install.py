@@ -14,36 +14,6 @@ INSTALL_SH = REPO_ROOT / "scripts" / "install.sh"
 
 
 
-def test_install_script_honors_explicit_browser_override_only() -> None:
-    """find_system_browser consults only an explicit AGENT_BROWSER_EXECUTABLE_PATH."""
-    text = INSTALL_SH.read_text()
-
-    assert 'override="${AGENT_BROWSER_EXECUTABLE_PATH:-}"' in text
-    # An explicit override still skips the bundled download (override, not fallback).
-    assert "Skipping bundled Chromium download" in text
-
-
-
-
-def test_playwright_installs_are_timeout_guarded() -> None:
-    text = INSTALL_SH.read_text()
-
-    # The timeout wrapper still exists and is used internally by the install
-    # wrapper, so every Playwright download remains bounded.
-    assert "run_browser_install_with_timeout()" in text
-    # Playwright installs now go through run_playwright_install(), which wraps
-    # run_browser_install_with_timeout (timeout-guarded) and adds an
-    # unrecognized-platform fallback retry.
-    assert "run_playwright_install 600 npx playwright install chromium" in text
-    # --with-deps is still invoked on apt-based systems, but only when sudo
-    # is available non-interactively (root or passwordless sudo). Non-sudo
-    # service users fall back to the browser-only install — see
-    # install_node_deps() in install.sh.
-    assert "run_playwright_install 600 npx playwright install --with-deps chromium" in text
-    # The wrapper still bounds the download with the timeout helper.
-    assert 'run_browser_install_with_timeout "$timeout_seconds" "$@"' in text
-
-
 
 def test_install_script_supports_skip_browser_flag() -> None:
     """--skip-browser (and --no-playwright alias) skips the Playwright install."""

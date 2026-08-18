@@ -67,10 +67,6 @@ class DeliveryTransport:
     config: Optional[PlatformConfig]
     transport_platform: Platform
 
-    @property
-    def is_relay(self) -> bool:
-        return self.transport_platform == Platform.RELAY
-
     async def send(
         self,
         logical_platform: Platform,
@@ -78,14 +74,7 @@ class DeliveryTransport:
         content: str,
         metadata: Optional[Dict[str, Any]],
     ) -> Any:
-        """Send through this transport while preserving the logical platform."""
-        if self.is_relay:
-            return await self.adapter.send_for_platform(
-                logical_platform,
-                chat_id,
-                content,
-                metadata=metadata,
-            )
+        """Send through the live platform adapter."""
         return await self.adapter.send(chat_id, content, metadata=metadata)
 
 
@@ -94,19 +83,11 @@ def resolve_delivery_transport(
     config: GatewayConfig,
     adapters: Optional[Dict[Platform, Any]],
 ) -> Optional[DeliveryTransport]:
-    """Resolve a logical platform to its live delivery transport.
-
-    A concrete native adapter always wins. Relay is eligible only when its
-    authenticated transport explicitly advertises that it fronts the logical
-    platform, which keeps restart-time delivery independent of per-chat caches
-    without letting Relay hijack unrelated platform targets.
-    """
+    """Resolve a platform to its live delivery transport."""
     live_adapters = adapters or {}
     native = live_adapters.get(platform)
     native_config = config.platforms.get(platform)
-    # Preserve DeliveryRouter's historical support for explicitly supplied live
-    # adapters with no config block, but never let an explicitly disabled native
-    # adapter shadow an enabled Relay transport.
+    # Preserve support for explicitly supplied live adapters with no config block.
     if native is not None and (native_config is None or native_config.enabled):
         return DeliveryTransport(
             adapter=native,
@@ -114,20 +95,6 @@ def resolve_delivery_transport(
             transport_platform=platform,
         )
 
-    relay = live_adapters.get(Platform.RELAY)
-    relay_config = config.platforms.get(Platform.RELAY)
-    fronts_platform = getattr(relay, "fronts_platform", None)
-    if (
-        relay is not None
-        and (relay_config is None or relay_config.enabled)
-        and callable(fronts_platform)
-        and fronts_platform(platform)
-    ):
-        return DeliveryTransport(
-            adapter=relay,
-            config=relay_config,
-            transport_platform=Platform.RELAY,
-        )
     return None
 
 
@@ -544,13 +511,6 @@ class DeliveryRouter:
             }
 
         send_metadata = dict(metadata or {})
-        if transport.is_relay:
-            home = self.config.get_home_channel(target.platform)
-            if home is not None and home.chat_id == target.chat_id:
-                if home.user_id:
-                    send_metadata["user_id"] = home.user_id
-                if home.scope_id:
-                    send_metadata["scope_id"] = home.scope_id
         is_named_telegram_private_topic = False
         named_telegram_private_topic_name: Optional[str] = None
         if target.thread_id:
@@ -640,7 +600,5 @@ class DeliveryRouter:
             if _send_result_failed(result):
                 raise RuntimeError(_send_result_error(result) or f"{target.platform.value} delivery failed")
         return result
-
-
 
 

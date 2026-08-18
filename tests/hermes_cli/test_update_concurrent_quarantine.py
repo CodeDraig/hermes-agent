@@ -94,42 +94,6 @@ def _fake_psutil_with_parent_chain(
     )
 
 
-@patch.object(cli_main, "_is_windows", return_value=True)
-def test_detect_concurrent_parents_call_robust_to_one_bad_hop(_winp, tmp_path):
-    """The launcher shim is still excluded even when an ancestor exe is unreadable.
-
-    Field regression (issues #29341, #34795): the old per-hop ``parent()``
-    walk bailed on the FIRST psutil error, so an AccessDenied on any hop left
-    the launcher shim in the candidate set and re-triggered the false
-    positive. ``parents()`` returns the whole list at once; we evaluate each
-    ancestor independently, so one unreadable hop never strands the launcher.
-    """
-    scripts_dir = tmp_path
-    shim = scripts_dir / "hermes.exe"
-    shim.write_bytes(b"")
-    me = os.getpid()
-    launcher_pid = me + 100
-
-    rows = [
-        _make_proc(me, str(shim), "python.exe"),
-        _make_proc(launcher_pid, str(shim), "hermes.exe"),
-    ]
-    # ancestor_exe=None → every ancestor's .exe() raises OSError. The helper
-    # must swallow it per-ancestor and not crash; the launcher won't be
-    # excluded in this degenerate case, but a real run reads the shim exe.
-    fake_psutil = _fake_psutil_with_parent_chain(
-        parent_chain=[launcher_pid],
-        proc_iter_rows=rows,
-        ancestor_exe=None,
-    )
-    with patch.dict(sys.modules, {"psutil": fake_psutil}):
-        result = cli_main._detect_concurrent_hermes_instances(scripts_dir)
-
-    # No crash; helper completes. (Degenerate stub: launcher exe unreadable.)
-    assert result == [(launcher_pid, "hermes.exe")]
-
-
-
 
 # ---------------------------------------------------------------------------
 # _format_concurrent_instances_message

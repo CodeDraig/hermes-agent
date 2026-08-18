@@ -47,7 +47,7 @@ def _ensure_telegram_mock():
 
 _ensure_telegram_mock()
 
-from plugins.platforms.telegram.adapter import TelegramAdapter
+from gateway.platforms.telegram.adapter import TelegramAdapter
 from gateway.config import PlatformConfig
 
 

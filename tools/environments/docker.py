@@ -1567,7 +1567,7 @@ class DockerEnvironment(BaseEnvironment):
         # Explicit docker_forward_env entries are an intentional opt-in and must
         # win over the generic Hermes secret blocklist. Only implicit passthrough
         # keys are filtered. Also strip Hermes-internal dynamic secrets
-        # (AUXILIARY_*_API_KEY / _BASE_URL, GATEWAY_RELAY_* auth) that the
+        # (AUXILIARY_*_API_KEY / _BASE_URL) that the
         # name-based blocklist doesn't cover — see _is_hermes_internal_secret.
         _implicit_forward = {
             k for k in passthrough_keys if not _is_hermes_internal_secret(k)

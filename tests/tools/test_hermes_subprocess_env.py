@@ -24,7 +24,7 @@ from tools.environments.local import (
 _TIER1_SAMPLE = {
     "GH_TOKEN": "ghp_secret",
     "TELEGRAM_BOT_TOKEN": "bot-token",
-    "SLACK_APP_TOKEN": "xapp-secret",
+    "MATTERMOST_TOKEN": "mm-secret",
     "MODAL_TOKEN_SECRET": "modal-secret",
 }
 
@@ -169,15 +169,11 @@ _INTERNAL_DYNAMIC_SAMPLE = {
     "AUXILIARY_VISION_API_KEY": "sk-vision",
     "AUXILIARY_VISION_BASE_URL": "http://internal:1234/v1",
     "AUXILIARY_WEB_EXTRACT_API_KEY": "sk-webx",
-    "GATEWAY_RELAY_SECRET": "relay-secret",
-    "GATEWAY_RELAY_DELIVERY_KEY": "relay-delivery",
 }
 
 
 class TestInternalDynamicSecrets:
-    """AUXILIARY_*_API_KEY / _BASE_URL and GATEWAY_RELAY_* auth are stripped on
-    BOTH paths — including inherit_credentials=True — since a model-driving CLI
-    (codex/copilot) never needs them even when it needs provider keys."""
+    """AUXILIARY_*_API_KEY / _BASE_URL values are stripped on both paths."""
 
     def test_stripped_by_default(self):
         result = _build(_INTERNAL_DYNAMIC_SAMPLE)
@@ -192,22 +188,3 @@ class TestInternalDynamicSecrets:
         )
         assert result.get("AUXILIARY_VISION_PROVIDER") == "openai"
         assert result.get("AUXILIARY_VISION_MODEL") == "gpt-4o"
-
-    def test_gateway_relay_id_stripped_even_when_inheriting(self):
-        """GATEWAY_RELAY_ID has no secret suffix (predicate skips it) but is
-        gateway-identifying auth material provisioned alongside the relay
-        secret. It's in _ALWAYS_STRIP_KEYS so it's stripped on the inherit path
-        too — closes the codex/copilot leak the predicate alone would miss."""
-        result = _build(
-            {**_PROVIDER_SAMPLE, "GATEWAY_RELAY_ID": "relay-id"},
-            inherit_credentials=True,
-        )
-        assert "GATEWAY_RELAY_ID" not in result
-        # provider keys still flow (codex auth)
-        for var in _PROVIDER_SAMPLE:
-            assert var in result
-
-    def test_relay_triplet_in_always_strip(self):
-        assert {
-            "GATEWAY_RELAY_ID", "GATEWAY_RELAY_SECRET", "GATEWAY_RELAY_DELIVERY_KEY",
-        } <= _ALWAYS_STRIP_KEYS

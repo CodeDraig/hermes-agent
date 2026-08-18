@@ -13,18 +13,10 @@ from hermes_cli.commands import (
     SlashCommandAutoSuggest,
     SlashCommandCompleter,
     _CMD_NAME_LIMIT,
-    _SLACK_RESERVED_COMMANDS,
-    _SLACK_VIA_HERMES_ONLY,
-    _TG_NAME_LIMIT,
     _clamp_command_names,
-    _clamp_telegram_names,
     _sanitize_telegram_name,
-    discord_skill_commands,
     gateway_help_lines,
     resolve_command,
-    slack_app_manifest,
-    slack_native_slashes,
-    slack_subcommand_map,
     telegram_bot_commands,
     telegram_menu_commands,
     telegram_menu_max_commands,
@@ -184,96 +176,6 @@ class TestTelegramBotCommands:
         assert "steer" in names
 
 
-class TestSlackSubcommandMap:
-    def test_returns_dict(self):
-        mapping = slack_subcommand_map()
-        assert isinstance(mapping, dict)
-        assert len(mapping) > 10
-
-    def test_values_are_slash_prefixed(self):
-        for key, val in slack_subcommand_map().items():
-            assert val.startswith("/"), f"Slack mapping for '{key}' should start with /"
-
-
-    def test_excludes_cli_only_without_config_gate(self):
-        mapping = slack_subcommand_map()
-        for cmd in COMMAND_REGISTRY:
-            if cmd.cli_only and not cmd.gateway_config_gate:
-                assert cmd.name not in mapping
-
-
-class TestSlackNativeSlashes:
-    """Slack native slash command generation — used to register every
-    COMMAND_REGISTRY entry as a first-class Slack slash, matching Discord
-    and Telegram."""
-
-
-
-    def test_names_respect_slack_limits(self):
-        for name, _desc, _hint in slack_native_slashes():
-            # Slack: lowercase a-z, 0-9, hyphens, underscores; max 32 chars
-            assert len(name) <= 32, f"slash {name!r} exceeds 32 chars"
-            assert name == name.lower()
-            for ch in name:
-                assert ch.isalnum() or ch in "-_", f"invalid char {ch!r} in {name!r}"
-
-
-
-
-
-    def test_telegram_parity(self):
-        """Every Telegram bot command must be registerable on Slack too.
-
-        This catches the old behavior where Slack users couldn't invoke
-        commands like /btw natively. If a future command surfaces on
-        Telegram but not Slack (because of Slack's 50-slash cap), this
-        test fails loudly so we can curate the list rather than silently
-        dropping parity.
-
-        Slack-reserved built-in commands (e.g. /status) are excluded
-        from parity checks since they cannot be registered on Slack.
-        """
-        slack_names = {n for n, _d, _h in slack_native_slashes()}
-        tg_names = {n for n, _d in telegram_bot_commands()}
-        # Some Telegram names have underscores where Slack uses hyphens
-        # (e.g. set_home vs sethome). Normalize both sides for comparison.
-        def _norm(s: str) -> str:
-            return s.replace("-", "_").replace("__", "_").strip("_")
-
-        slack_norm = {_norm(n) for n in slack_names}
-        tg_norm = {_norm(n) for n in tg_names}
-        reserved_norm = {_norm(n) for n in _SLACK_RESERVED_COMMANDS}
-        # Commands deliberately routed through /hermes <command> on Slack only
-        # (Slack's 50-slash cap) are expected to be absent from native slashes.
-        via_hermes_norm = {_norm(n) for n in _SLACK_VIA_HERMES_ONLY}
-        missing = (tg_norm - slack_norm) - reserved_norm - via_hermes_norm
-        assert not missing, (
-            f"commands on Telegram but missing from Slack native slashes: {sorted(missing)}"
-        )
-
-
-class TestSlackAppManifest:
-    """Generated Slack app manifest (used by `hermes slack manifest`)."""
-
-
-    def test_each_slash_has_required_fields(self):
-        m = slack_app_manifest()
-        for entry in m["features"]["slash_commands"]:
-            assert entry["command"].startswith("/")
-            assert "description" in entry
-            assert "url" in entry
-            # should_escape must be present (Slack defaults to True which
-            # HTML-escapes args — we want the raw text)
-            assert "should_escape" in entry
-
-    def test_btw_is_in_manifest(self):
-        """Regression: /btw must be a native Slack slash, not just a
-        /hermes subcommand."""
-        m = slack_app_manifest()
-        commands = [c["command"] for c in m["features"]["slash_commands"]]
-        assert "/btw" in commands
-
-
 # ---------------------------------------------------------------------------
 # Config-gated gateway commands
 # ---------------------------------------------------------------------------
@@ -297,14 +199,6 @@ class TestGatewayConfigGate:
         joined = "\n".join(lines)
         assert "`/verbose" not in joined
 
-
-    def test_config_gate_included_in_slack_when_on(self, tmp_path, monkeypatch):
-        config_file = tmp_path / "config.yaml"
-        config_file.write_text("display:\n  tool_progress_command: true\n")
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-
-        mapping = slack_subcommand_map()
-        assert "verbose" in mapping
 
 
 # ---------------------------------------------------------------------------
@@ -451,12 +345,12 @@ class TestSubcommandCompletion:
             monkeypatch,
             {
                 "telegram": ("123", "Me"),
-                "discord": None,  # no home channel yet -> still listed
+                "mattermost": None,  # no home channel yet -> still listed
             },
         )
 
         texts = {c.text for c in _completions(SlashCommandCompleter(), "/handoff ")}
-        assert texts == {"telegram", "discord"}
+        assert texts == {"telegram", "mattermost"}
 
 
 
@@ -526,36 +420,6 @@ class TestSanitizeTelegramName:
 
 
 
-# ---------------------------------------------------------------------------
-# Telegram command name clamping (32-char limit)
-# ---------------------------------------------------------------------------
-
-
-class TestClampTelegramNames:
-    """Tests for _clamp_telegram_names() — 32-char enforcement + collision."""
-
-
-
-
-    def test_collision_between_entries_gets_incrementing_digits(self):
-        # Two long names that truncate to the same 32-char prefix
-        base = "y" * 40
-        entries = [(base + "_alpha", "d1"), (base + "_beta", "d2")]
-        result = _clamp_telegram_names(entries, set())
-        assert len(result) == 2
-        assert result[0][0] == "y" * _TG_NAME_LIMIT
-        assert result[1][0] == "y" * (_TG_NAME_LIMIT - 1) + "0"
-
-
-    def test_all_digits_exhausted_drops_entry(self):
-        prefix = "w" * _TG_NAME_LIMIT
-        # Reserve the plain truncation + all 10 digit slots
-        reserved = {prefix} | {"w" * (_TG_NAME_LIMIT - 1) + str(d) for d in range(10)}
-        long_name = "w" * 50
-        result = _clamp_telegram_names([(long_name, "d")], reserved)
-        assert result == []
-
-
 class TestClampCommandNamesTriples:
     """Tests for _clamp_command_names with 3-tuples (name, desc, cmd_key).
 
@@ -588,50 +452,6 @@ class TestClampCommandNamesTriples:
         assert key == "/long-skill"
 
 
-
-
-class TestDiscordSkillCmdKeyDispatch:
-    """Integration: discord_skill_commands preserves cmd_key for long names.
-
-    This tests the full pipeline: skill_commands → _collect_gateway_skill_entries
-    → _clamp_command_names → returned triples, verifying that skills with names
-    exceeding Discord's 32-char limit still have their original cmd_key for
-    dispatch.
-    """
-
-    def test_long_skill_name_retains_cmd_key(self, tmp_path, monkeypatch):
-        from unittest.mock import patch
-
-        long_name = "this-is-a-very-long-skill-name-that-exceeds-limit"
-        cmd_key = f"/{long_name}"
-        fake_skills_dir = tmp_path / "skills"
-        fake_skills_dir.mkdir(exist_ok=True)
-        # Use resolved path — macOS /var → /private/var symlink
-        # causes SKILLS_DIR.resolve() to differ from tmp_path.
-        resolved_dir = str(fake_skills_dir.resolve())
-
-        fake_cmds = {
-            cmd_key: {
-                "name": long_name,
-                "description": "A skill with a long name",
-                "skill_md_path": f"{resolved_dir}/{long_name}/SKILL.md",
-                "skill_dir": f"{resolved_dir}/{long_name}",
-            },
-        }
-
-        with patch("agent.skill_commands.get_skill_commands", return_value=fake_cmds), \
-             patch("tools.skills_tool.SKILLS_DIR", fake_skills_dir), \
-             patch("agent.skill_utils.get_external_skills_dirs", return_value=[]):
-            entries, hidden = discord_skill_commands(
-                max_slots=100, reserved_names=set(),
-            )
-
-        assert len(entries) == 1
-        name, desc, key = entries[0]
-        assert len(name) <= _CMD_NAME_LIMIT, "Name should be clamped to 32 chars"
-        assert key == cmd_key, (
-            f"cmd_key must be the original /{long_name}, got {key!r}"
-        )
 
 
 class TestTelegramMenuCommands:
@@ -782,218 +602,12 @@ class TestTelegramMenuCommands:
 
 
 # ---------------------------------------------------------------------------
-# Backward-compat aliases
-# ---------------------------------------------------------------------------
-
-class TestBackwardCompatAliases:
-    """The renamed constants/functions still exist under the old names."""
-
-    def test_tg_name_limit_alias(self):
-        assert _TG_NAME_LIMIT == _CMD_NAME_LIMIT == 32
-
-    def test_clamp_telegram_names_is_clamp_command_names(self):
-        assert _clamp_telegram_names is _clamp_command_names
-
-
-# ---------------------------------------------------------------------------
-# Discord skill command registration
-# ---------------------------------------------------------------------------
-
-class TestDiscordSkillCommands:
-    """Tests for discord_skill_commands() — centralized skill registration."""
-
-
-    def test_names_allow_hyphens(self, tmp_path, monkeypatch):
-        """Discord names should keep hyphens (unlike Telegram's _ sanitization)."""
-        from unittest.mock import patch
-
-        fake_skills_dir = str(tmp_path / "skills")
-        fake_cmds = {
-            "/my-cool-skill": {
-                "name": "my-cool-skill",
-                "description": "A cool skill",
-                "skill_md_path": f"{fake_skills_dir}/my-cool-skill/SKILL.md",
-                "skill_dir": f"{fake_skills_dir}/my-cool-skill",
-            },
-        }
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-        (tmp_path / "skills").mkdir(exist_ok=True)
-        with (
-            patch("agent.skill_commands.get_skill_commands", return_value=fake_cmds),
-            patch("tools.skills_tool.SKILLS_DIR", tmp_path / "skills"),
-        ):
-            entries, _ = discord_skill_commands(
-                max_slots=50, reserved_names=set(),
-            )
-
-        assert entries[0][0] == "my-cool-skill"  # hyphens preserved
-
-    def test_cap_enforcement(self, tmp_path, monkeypatch):
-        """Entries beyond max_slots should be hidden."""
-        from unittest.mock import patch
-
-        fake_skills_dir = str(tmp_path / "skills")
-        fake_cmds = {
-            f"/skill-{i:03d}": {
-                "name": f"skill-{i:03d}",
-                "description": f"Skill {i}",
-                "skill_md_path": f"{fake_skills_dir}/skill-{i:03d}/SKILL.md",
-                "skill_dir": f"{fake_skills_dir}/skill-{i:03d}",
-            }
-            for i in range(20)
-        }
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-        (tmp_path / "skills").mkdir(exist_ok=True)
-        with (
-            patch("agent.skill_commands.get_skill_commands", return_value=fake_cmds),
-            patch("tools.skills_tool.SKILLS_DIR", tmp_path / "skills"),
-        ):
-            entries, hidden = discord_skill_commands(
-                max_slots=5, reserved_names=set(),
-            )
-
-        assert len(entries) == 5
-        assert hidden == 15
-
-
-
-
-
-
-# ---------------------------------------------------------------------------
-# Discord skill commands grouped by category
-# ---------------------------------------------------------------------------
-
-from hermes_cli.commands import discord_skill_commands_by_category  # noqa: E402
-
-
-class TestDiscordSkillCommandsByCategory:
-    """Tests for discord_skill_commands_by_category() — /skill group registration."""
-
-
-
-
-    def test_no_legacy_25x25_cap(self, tmp_path, monkeypatch):
-        """The old nested-layout caps (25 groups × 25 skills/group) are gone.
-
-        The live caller flattens categories into a single autocomplete list,
-        which Discord fetches dynamically — the per-command 8KB payload
-        concern from the old nested layout (#11321, #10259) no longer applies.
-        Guards against accidentally re-introducing the caps, which would
-        silently drop skills in the 26th+ alphabetical category (the exact
-        failure mode users were hitting with 29 category dirs on real
-        installs).
-        """
-        from unittest.mock import patch
-
-        fake_skills_dir = str(tmp_path / "skills")
-
-        # Build 30 categories (> old _MAX_GROUPS=25) each with 30 skills
-        # (> old _MAX_PER_GROUP=25).
-        fake_cmds = {}
-        for c in range(30):
-            cat = f"cat{c:02d}"  # cat00, cat01, ..., cat29 — 30 categories
-            for s in range(30):
-                name = f"skill-{c:02d}-{s:02d}"
-                skill_subdir = tmp_path / "skills" / cat / name
-                skill_subdir.mkdir(parents=True, exist_ok=True)
-                (skill_subdir / "SKILL.md").write_text("---\nname: x\n---\n")
-                fake_cmds[f"/{name}"] = {
-                    "name": name,
-                    "description": f"Category {cat} skill {s}",
-                    "skill_md_path": f"{fake_skills_dir}/{cat}/{name}/SKILL.md",
-                }
-
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-        with (
-            patch("agent.skill_commands.get_skill_commands", return_value=fake_cmds),
-            patch("tools.skills_tool.SKILLS_DIR", tmp_path / "skills"),
-        ):
-            categories, uncategorized, hidden = discord_skill_commands_by_category(
-                reserved_names=set(),
-            )
-
-        # Every category should be present — no 25-group cap
-        assert len(categories) == 30, (
-            f"expected all 30 categories, got {len(categories)} "
-            f"(cap from old nested layout must be removed)"
-        )
-        # Every skill in every category must be present — no 25-per-group cap
-        for cat_name, entries in categories.items():
-            assert len(entries) == 30, (
-                f"category {cat_name}: expected 30 skills, got {len(entries)} "
-                f"(cap from old nested layout must be removed)"
-            )
-        # Nothing should be reported hidden for the cap reason (the only
-        # legitimate hidden reason now is name clamp collisions, which
-        # don't happen here since all names are unique).
-        assert hidden == 0
-
-    def test_external_dirs_skills_included(self, tmp_path, monkeypatch):
-        """Skills in ``skills.external_dirs`` must appear in /skill autocomplete.
-
-        #18741 fixed this for the flat ``discord_skill_commands`` collector
-        but left ``discord_skill_commands_by_category`` (the live caller for
-        Discord's ``/skill`` command) still filtering by
-        ``SKILLS_DIR`` prefix only. Regression guard that both collectors
-        now accept external-dir skills.
-        """
-        from unittest.mock import patch
-
-        local_skills_dir = tmp_path / "local-skills"
-        external_dir = tmp_path / "external-skills"
-
-        (local_skills_dir / "creative" / "local-skill").mkdir(parents=True)
-        (local_skills_dir / "creative" / "local-skill" / "SKILL.md").write_text("")
-
-        (external_dir / "mlops" / "external-skill").mkdir(parents=True)
-        (external_dir / "mlops" / "external-skill" / "SKILL.md").write_text("")
-
-        fake_cmds = {
-            "/local-skill": {
-                "name": "local-skill",
-                "description": "Local",
-                "skill_md_path": str(local_skills_dir / "creative" / "local-skill" / "SKILL.md"),
-            },
-            "/external-skill": {
-                "name": "external-skill",
-                "description": "External",
-                "skill_md_path": str(external_dir / "mlops" / "external-skill" / "SKILL.md"),
-            },
-        }
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-        with (
-            patch("agent.skill_commands.get_skill_commands", return_value=fake_cmds),
-            patch("tools.skills_tool.SKILLS_DIR", local_skills_dir),
-            patch(
-                "agent.skill_utils.get_external_skills_dirs",
-                return_value=[external_dir],
-            ),
-        ):
-            categories, uncategorized, hidden = discord_skill_commands_by_category(
-                reserved_names=set(),
-            )
-
-        # Local skill → grouped under "creative"
-        assert "creative" in categories
-        assert any(n == "local-skill" for n, _d, _k in categories["creative"])
-        # External skill → grouped under its own top-level dir "mlops"
-        assert "mlops" in categories, (
-            "external-dir skills must be included — the old SKILLS_DIR-only "
-            "prefix check was broken for by_category (completes #18741)"
-        )
-        assert any(n == "external-skill" for n, _d, _k in categories["mlops"])
-        assert uncategorized == []
-        assert hidden == 0
-
-
-# ---------------------------------------------------------------------------
 # Plugin slash command integration
 # ---------------------------------------------------------------------------
 
 class TestPluginCommandEnumeration:
     """Plugin commands registered via ctx.register_command() must be surfaced
-    by every gateway enumerator (Telegram menu, Slack subcommand map, etc.).
+    by the retained gateway command enumerators.
     """
 
     def _patch_plugin_commands(self, monkeypatch, commands):
@@ -1031,8 +645,5 @@ class TestPluginCommandEnumeration:
 
         monkeypatch.setattr(_plugins_mod, "get_plugin_commands", _boom)
 
-        # Both calls should succeed and just return the built-in set.
         tg_names = {name for name, _desc in telegram_bot_commands()}
-        slack_names = set(slack_subcommand_map())
         assert "status" in tg_names
-        assert "status" in slack_names

@@ -24,7 +24,7 @@ async def test_video_attachment_adds_path_note_without_document_wording():
     from gateway.run import _build_media_placeholder
 
     runner = _make_runner()
-    source = SessionSource(platform=Platform.SLACK, chat_id="D123", chat_type="dm")
+    source = SessionSource(platform=Platform.MATTERMOST, chat_id="D123", chat_type="dm")
     event = MessageEvent(
         text="what happens here?",
         message_type=MessageType.VIDEO,

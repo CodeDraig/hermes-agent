@@ -84,14 +84,14 @@ def test_resolve_platform_override_wins():
         "display": {
             "runtime_footer": {"enabled": True, "fields": ["model"]},
             "platforms": {
-                "slack": {"runtime_footer": {"enabled": False}},
+                "mattermost": {"runtime_footer": {"enabled": False}},
             },
         },
     }
     # Telegram picks up the global enable
     assert resolve_footer_config(user, "telegram")["enabled"] is True
     # Slack overrides to off
-    assert resolve_footer_config(user, "slack")["enabled"] is False
+    assert resolve_footer_config(user, "mattermost")["enabled"] is False
 
 
 def test_resolve_platform_can_add_fields_only():
@@ -99,14 +99,14 @@ def test_resolve_platform_can_add_fields_only():
         "display": {
             "runtime_footer": {"enabled": True},
             "platforms": {
-                "discord": {"runtime_footer": {"fields": ["context_pct"]}},
+                "mattermost": {"runtime_footer": {"fields": ["context_pct"]}},
             },
         },
     }
     tg = resolve_footer_config(user, "telegram")
     assert tg["enabled"] is True
     assert tg["fields"] == ["model", "context_pct", "cwd"]
-    dc = resolve_footer_config(user, "discord")
+    dc = resolve_footer_config(user, "mattermost")
     assert dc["enabled"] is True
     assert dc["fields"] == ["context_pct"]
 
@@ -120,12 +120,12 @@ def test_build_footer_per_platform_off_suppresses():
     user = {
         "display": {
             "runtime_footer": {"enabled": True},
-            "platforms": {"slack": {"runtime_footer": {"enabled": False}}},
+            "platforms": {"mattermost": {"runtime_footer": {"enabled": False}}},
         },
     }
     out = build_footer_line(
         user_config=user,
-        platform_key="slack",
+        platform_key="mattermost",
         model="openai/gpt-5.4",
         context_tokens=10, context_length=100,
         cwd="/tmp",
@@ -236,7 +236,7 @@ def test_build_footer_line_threads_turn_seconds(monkeypatch):
                 }
             }
         },
-        platform_key="discord",
+        platform_key="mattermost",
         model="gpt-5.4",
         context_tokens=0,
         context_length=None,
@@ -268,7 +268,7 @@ def test_latency_not_in_default_fields():
 def test_resolve_footer_config_default_fields_exclude_latency():
     assert resolve_footer_config({}, "telegram")["fields"] == _LEGACY_DEFAULT_FIELDS
     assert resolve_footer_config(
-        {"display": {"runtime_footer": {"enabled": True}}}, "discord"
+        {"display": {"runtime_footer": {"enabled": True}}}, "mattermost"
     )["fields"] == _LEGACY_DEFAULT_FIELDS
 
 
@@ -307,7 +307,7 @@ def test_default_build_footer_line_ignores_turn_seconds(monkeypatch):
     monkeypatch.delenv("TERMINAL_CWD", raising=False)
     common = dict(
         user_config={"display": {"runtime_footer": {"enabled": True}}},
-        platform_key="discord",
+        platform_key="mattermost",
         model="openai/gpt-5.4",
         context_tokens=50_247,
         context_length=1_000_000,

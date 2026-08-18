@@ -23,7 +23,7 @@ ACTIVE_TURN_MAX_AGE_SECONDS = 60 * 60
 
 def _make_source(chat_id: str = "active-turn-chat") -> SessionSource:
     return SessionSource(
-        platform=Platform.DISCORD,
+        platform=Platform.TELEGRAM,
         chat_id=chat_id,
         user_id="user-1",
         chat_type="channel",

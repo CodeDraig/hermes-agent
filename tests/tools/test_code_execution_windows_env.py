@@ -314,7 +314,7 @@ class TestPosixEquivalence:
         "AWS_SECRET_ACCESS_KEY": "yyy",
         "MY_PASSWORD": "hunter2",
         "SENTRY_DSN": "https://abc@sentry.io/1",     # DSN substring → blocked
-        "SLACK_WEBHOOK": "https://hooks.slack/x",    # WEBHOOK substring → blocked
+        "APP_WEBHOOK": "https://hooks.example/x",   # WEBHOOK substring → blocked
         # Uncategorized — must be dropped
         "RANDOM_UNKNOWN": "drop-me",
         "DISPLAY": ":0",

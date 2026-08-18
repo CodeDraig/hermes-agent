@@ -1,7 +1,7 @@
 # Slash Commands (In-Session)
 
 Registry of record: `hermes_cli/commands.py` (`COMMAND_REGISTRY`) — every
-consumer (autocomplete, `/help`, Telegram menu, Slack mapping) derives from
+consumer (autocomplete, `/help`, and the Telegram menu) derives from
 it. New commands land often; `/help` in-session is always authoritative.
 (CLI) = interactive prompt-toolkit CLI only. (GW) = gateway platforms only.
 

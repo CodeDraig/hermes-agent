@@ -208,11 +208,8 @@ def _capture_routing_origin() -> Dict[str, Any]:
     carry the contextvars) and persisted with the durable record, so a
     completion replayed after a restart can reconstruct a full SessionSource
     even when the session-store origin and in-memory source cache are gone.
-    scope_id matters most: on a relay-fronted deployment the connector's
-    fail-closed egress guard needs the tenant discriminator (or a user
-    binding) to route a scoped reply; without it, post-restart scoped
-    completions bounce with "target not routed to an onboarded tenant"
-    (staging 2026-08-09 defect #4). Best-effort — empty values are simply
+    ``scope_id`` preserves Mattermost team-level profile routing after a
+    restart. Best-effort — empty values are simply
     omitted so CLI/contextvar-unaware paths persist nothing new.
     """
     origin: Dict[str, Any] = {}

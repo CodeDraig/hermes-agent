@@ -38,7 +38,7 @@ SESSION_KEY = "agent:main:slack:dm:D123:1111.2222"
 
 class _StubAdapter(BasePlatformAdapter):
     def __init__(self):
-        super().__init__(PlatformConfig(enabled=True, token="test"), Platform.SLACK)
+        super().__init__(PlatformConfig(enabled=True, token="test"), Platform.MATTERMOST)
 
     async def connect(self, *, is_reconnect: bool = False):
         return True
@@ -62,7 +62,7 @@ def _event(text):
         text=text,
         message_type=MessageType.TEXT,
         source=SessionSource(
-            platform=Platform.SLACK,
+            platform=Platform.MATTERMOST,
             chat_id="D123",
             chat_type="dm",
             user_id="U1",
@@ -86,7 +86,6 @@ def _make_runner(adapter):
 
     runner = GatewayRunner.__new__(GatewayRunner)
     runner._startup_restore_in_progress = False
-    runner._scale_to_zero_note_real_inbound = lambda: None
     runner._is_user_authorized = lambda source: True
     runner._session_key_for_source = lambda source: SESSION_KEY
     runner._adapter_for_source = lambda source: adapter
@@ -263,4 +262,3 @@ async def test_prose_still_accepted_after_other_flips_text_capture():
     assert entry.event.is_set()
     assert entry.response == "a carousel actually"
     _clear_clarify_state()
-

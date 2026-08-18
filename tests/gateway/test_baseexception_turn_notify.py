@@ -26,7 +26,7 @@ class _ProbeAdapter(BasePlatformAdapter):
     """Minimal concrete adapter that records deliveries."""
 
     def __init__(self) -> None:
-        super().__init__(PlatformConfig(enabled=True, token="x"), Platform.SLACK)
+        super().__init__(PlatformConfig(enabled=True, token="x"), Platform.MATTERMOST)
         self.sent: list[str] = []
 
     async def start(self):  # pragma: no cover - unused
@@ -59,7 +59,7 @@ class _ProbeAdapter(BasePlatformAdapter):
 
 def _source() -> SessionSource:
     return SessionSource(
-        platform=Platform.SLACK,
+        platform=Platform.MATTERMOST,
         user_id="U1",
         chat_id="C1",
         user_name="tester",

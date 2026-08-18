@@ -119,11 +119,7 @@ CONFIGURABLE_TOOLSETS = [
     ("clarify",         "❓ Clarifying Questions",      "clarify"),
     ("delegation",      "👥 Task Delegation",           "delegate_task"),
     ("cronjob",         "⏰ Cron Jobs",                 "create/list/update/pause/resume/run, with optional attached skills"),
-    ("homeassistant",    "🏠 Home Assistant",           "smart home device control"),
     ("spotify",          "🎵 Spotify",                  "playback, search, playlists, library"),
-    ("discord",         "💬 Discord (read/participate)", "fetch messages, search members, create thread"),
-    ("discord_admin",   "🛡️  Discord Server Admin",    "list channels/roles, pin, assign roles"),
-    ("yuanbao",          "🤖 Yuanbao",                  "group info, member queries, DM"),
     ("computer_use",     "🖱️  Computer Use (macOS/Windows/Linux)", "background desktop control via cua-driver"),
 ]
 
@@ -138,11 +134,11 @@ CONFIGURABLE_TOOLSETS = [
 #
 # X search is off by default for users without xAI credentials, but
 # auto-enables when SuperGrok OAuth tokens are stored OR XAI_API_KEY is
-# set — mirroring the HASS_TOKEN → homeassistant auto-enable below. The
+# set. The
 # `hermes tools` → X (Twitter) Search setup walks users through credential
 # setup. The tool's check_fn means the schema still won't appear to the
 # model if the credential later goes missing or expires.
-_DEFAULT_OFF_TOOLSETS = {"homeassistant", "spotify", "discord", "discord_admin", "video", "video_gen", "x_search", "a2a"}
+_DEFAULT_OFF_TOOLSETS = {"spotify", "video", "video_gen", "x_search"}
 
 
 # Config-only capabilities: they appear in `hermes tools` for provider/API-key
@@ -186,26 +182,7 @@ def _xai_credentials_present() -> bool:
     return bool(str(get_secret("XAI_API_KEY") or "").strip())
 
 
-def _homeassistant_credentials_present() -> bool:
-    """Return whether the active profile has a Home Assistant token."""
-    try:
-        from agent.secret_scope import get_secret
-
-        return bool((get_secret("HASS_TOKEN", "") or "").strip())
-    except Exception:
-        return False
-
-# Platform-scoped toolsets: only appear in the `hermes tools` checklist for
-# these platforms, and only resolve/save for these platforms.  A toolset
-# absent from this map is available on every platform (current behaviour).
-#
-# Use this for tools whose APIs only make sense on one platform (Discord
-# server admin, Slack workspace admin, etc.).  Keeps every other platform's
-# checklist from filling up with irrelevant toggles.
-_TOOLSET_PLATFORM_RESTRICTIONS: Dict[str, Set[str]] = {
-    "discord": {"discord"},
-    "discord_admin": {"discord"},
-}
+_TOOLSET_PLATFORM_RESTRICTIONS: Dict[str, Set[str]] = {}
 
 
 def _toolset_allowed_for_platform(ts_key: str, platform: str) -> bool:
@@ -655,20 +632,6 @@ TOOL_CATEGORIES = {
                 "env_vars": [],
                 "browser_backend": "browser-use",
                 "post_setup": "browser_use_cli",
-            },
-        ],
-    },
-    "homeassistant": {
-        "name": "Smart Home",
-        "icon": "🏠",
-        "providers": [
-            {
-                "name": "Home Assistant",
-                "tag": "REST API integration",
-                "env_vars": [
-                    {"key": "HASS_TOKEN", "prompt": "Home Assistant Long-Lived Access Token"},
-                    {"key": "HASS_URL", "prompt": "Home Assistant URL", "default": "http://homeassistant.local:8123"},
-                ],
             },
         ],
     },
@@ -2218,14 +2181,8 @@ def _get_enabled_platforms() -> List[str]:
     enabled = ["cli"]
     if get_env_value("TELEGRAM_BOT_TOKEN"):
         enabled.append("telegram")
-    if get_env_value("DISCORD_BOT_TOKEN"):
-        enabled.append("discord")
-    if get_env_value("SLACK_BOT_TOKEN"):
-        enabled.append("slack")
-    if get_env_value("WHATSAPP_ENABLED"):
-        enabled.append("whatsapp")
-    if get_env_value("QQ_APP_ID"):
-        enabled.append("qqbot")
+    if get_env_value("MATTERMOST_TOKEN"):
+        enabled.append("mattermost")
     return enabled
 
 
@@ -2299,28 +2256,6 @@ def enabled_mcp_server_names(config: dict) -> Set[str]:
     return names
 
 
-def _exempt_explicit_platform_native(
-    default_off: Set[str], platform: str, *, explicitly_configured: bool
-) -> None:
-    """Let platform-native default-off toolsets through on explicit config.
-
-    Toolsets that are both in ``_DEFAULT_OFF_TOOLSETS`` and restricted to
-    ``platform`` via ``_TOOLSET_PLATFORM_RESTRICTIONS`` (currently
-    ``discord``/``discord_admin`` on the discord platform) are the platform's
-    own native tools. They are kept off for *unconfigured* platforms (security
-    opt-in), but once a user explicitly saves a toolset list for the platform
-    the composite they chose (e.g. ``hermes-discord``, which contains those
-    tools) is an opt-in — stripping them silently defeats the explicit
-    configuration (#35527). Mutates ``default_off`` in place.
-    """
-    if not explicitly_configured:
-        return
-    for ts in list(default_off):
-        allowed = _TOOLSET_PLATFORM_RESTRICTIONS.get(ts)
-        if allowed is not None and platform in allowed:
-            default_off.discard(ts)
-
-
 #: Toolsets young enough that absence from a saved ``platform_toolsets`` list
 #: means "never offered" rather than "declined".
 #:
@@ -2392,20 +2327,16 @@ def _get_platform_tools(
 
     platform_toolsets = config.get("platform_toolsets") or {}
     toolset_names = platform_toolsets.get(platform)
-    # Track whether the user explicitly saved a toolset list for this platform
-    # (vs. falling back to the platform default). An explicit composite (e.g.
-    # ``hermes-discord``) is an opt-in to the platform's native default-off
-    # toolsets — see _exempt_explicit_platform_native (#35527).
+    # Track whether the user explicitly saved a toolset list for this platform.
     explicitly_configured = isinstance(toolset_names, list)
 
     if toolset_names is None or not isinstance(toolset_names, list):
         plat_info = PLATFORMS.get(platform)
         if plat_info:
             default_ts = plat_info["default_toolset"]
+            toolset_names = [default_ts]
         else:
-            # Plugin platform — derive toolset name from platform key
-            default_ts = f"hermes-{platform}"
-        toolset_names = [default_ts]
+            toolset_names = []
 
     # YAML may parse bare numeric names (e.g. ``12306:``) as int.
     # Normalise to str so downstream sorted() never mixes types.
@@ -2462,11 +2393,6 @@ def _get_platform_tools(
             default_off = set(_DEFAULT_OFF_TOOLSETS)
             if platform in default_off and platform not in _TOOLSET_PLATFORM_RESTRICTIONS:
                 default_off.remove(platform)
-            if "homeassistant" in default_off and _homeassistant_credentials_present():
-                default_off.remove("homeassistant")
-            _exempt_explicit_platform_native(
-                default_off, platform, explicitly_configured=explicitly_configured
-            )
             expanded -= default_off
 
             enabled_toolsets |= expanded
@@ -2493,12 +2419,9 @@ def _get_platform_tools(
                 enabled_toolsets.add(ts_key)
 
         # Auto-enable ``x_search`` when xAI credentials are configured.
-        # Unlike ``homeassistant`` (whose ``ha_*`` tools live inside the
-        # platform composite and thus pass the subset check above),
         # ``x_search`` is its own one-tool toolset that the composite does
         # NOT include, so the subset loop never picks it up. Inject it
-        # directly here, mirroring the HASS_TOKEN → ``homeassistant`` rule
-        # below: once you have working creds, you don't have to also click
+        # directly here: once you have working creds, you don't have to also click
         # through ``hermes tools`` to flip the toolset on. Only fires when
         # the user has not yet saved an explicit toolset list — once they
         # do, the saved list is authoritative.
@@ -2510,34 +2433,19 @@ def _get_platform_tools(
             enabled_toolsets.add("x_search")
 
         default_off = set(_DEFAULT_OFF_TOOLSETS)
-        # Legacy safety: if the platform's own name matches a default-off
-        # toolset (e.g. `homeassistant` platform + `homeassistant` toolset),
-        # keep that toolset enabled on first install.  Skip this dodge for
-        # platform-restricted toolsets — those are always opt-in even on
-        # their own platform (e.g. `discord` + `discord` should stay OFF).
+        # If a platform's own name matches a default-off toolset, keep that
+        # toolset enabled on first install.
         if platform in default_off and platform not in _TOOLSET_PLATFORM_RESTRICTIONS:
             default_off.remove(platform)
-        # Home Assistant is already runtime-gated by its check_fn (requires
-        # HASS_TOKEN to register any tools). When a user has configured
-        # HASS_TOKEN, they've explicitly opted in — don't also strip it via
-        # _DEFAULT_OFF_TOOLSETS, which would silently drop HA from platforms
-        # (e.g. cron) that run through _get_platform_tools without an
-        # explicit saved toolset list. Without this, Norbert's HA cron jobs
-        # regressed after #14798 made cron honor per-platform tool config.
-        if "homeassistant" in default_off and _homeassistant_credentials_present():
-            default_off.remove("homeassistant")
         # Symmetric carve-out for x_search auto-enable (see the inject
         # block above). Without this, the default_off subtraction would
         # strip the entry we just added.
         if x_search_auto_enabled and "x_search" in default_off:
             default_off.remove("x_search")
-        _exempt_explicit_platform_native(
-            default_off, platform, explicitly_configured=explicitly_configured
-        )
         enabled_toolsets -= default_off
 
-    # Recover non-configurable platform toolsets (e.g. discord, feishu_doc,
-    # feishu_drive).  These are part of the platform's default composite but
+    # Recover non-configurable platform toolsets. These may be part of a
+    # platform's default composite but
     # absent from CONFIGURABLE_TOOLSETS, so they can't appear in the TUI
     # checklist or in a user-saved config.  Must run in BOTH branches —
     # otherwise saving via `hermes tools` (which flips has_explicit_config
@@ -2699,7 +2607,7 @@ def _save_platform_tools(config: dict, platform: str, enabled_toolset_keys: Set[
 
     # Drop platform-scoped toolsets that don't apply here.  Prevents the
     # "Configure all platforms" checklist (or a hand-edited config.yaml)
-    # from turning on, say, the `discord` toolset for Telegram.
+    # from turning on a platform-specific toolset for another platform.
     enabled_toolset_keys = {
         ts for ts in enabled_toolset_keys
         if _toolset_allowed_for_platform(ts, platform)
@@ -5640,24 +5548,8 @@ def _print_tools_list(enabled_toolsets: set, mcp_servers: dict, platform: str = 
 
 
 def _known_tool_platforms() -> set[str]:
-    """Return built-in plus discovered plugin platform names.
-
-    Plugin platforms are registered at runtime rather than in the static CLI
-    display registry. Tool introspection/configuration must recognize those
-    names too, otherwise an active plugin platform cannot audit its authority.
-    """
-    known = set(PLATFORMS)
-    try:
-        from hermes_cli.plugins import discover_plugins
-        from gateway.platform_registry import platform_registry
-
-        discover_plugins()  # idempotent
-        known.update(platform_registry.registered_names())
-    except Exception:
-        # Plugin discovery is optional. Preserve the built-in CLI path when a
-        # third-party plugin is malformed or its dependencies are unavailable.
-        pass
-    return known
+    """Return platforms with retained tool-configuration surfaces."""
+    return set(PLATFORMS)
 
 
 def tools_disable_enable_command(args):

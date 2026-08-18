@@ -1,4 +1,4 @@
-"""Tests for plugins.platforms.telegram.telegram_network – fallback transport layer.
+"""Tests for gateway.platforms.telegram.telegram_network – fallback transport layer.
 
 Background
 ----------
@@ -19,7 +19,7 @@ and "stick" to whichever path works.
 import httpx
 import pytest
 
-import plugins.platforms.telegram.telegram_network as tnet
+import gateway.platforms.telegram.telegram_network as tnet
 
 
 # ---------------------------------------------------------------------------
@@ -150,7 +150,7 @@ class TestFallbackTransport:
             _fake_transport_factory(calls, {"149.154.167.220": "ok"}),
         )
         transport = tnet.TelegramFallbackTransport(["149.154.167.220"])
-        with caplog.at_level(logging.INFO, logger="plugins.platforms.telegram.telegram_network"):
+        with caplog.at_level(logging.INFO, logger="gateway.platforms.telegram.telegram_network"):
             await transport.handle_async_request(_telegram_request())
         records = [r for r in caplog.records if "sticky IPv4 Telegram API path" in r.getMessage()]
         assert len(records) == 1
@@ -169,7 +169,7 @@ class TestFallbackTransport:
             ),
         )
         transport = tnet.TelegramFallbackTransport(["149.154.167.220", "149.154.167.221"])
-        with caplog.at_level(logging.INFO, logger="plugins.platforms.telegram.telegram_network"):
+        with caplog.at_level(logging.INFO, logger="gateway.platforms.telegram.telegram_network"):
             await transport.handle_async_request(_telegram_request())
         records = [r for r in caplog.records if "sticky IPv4 Telegram API path" in r.getMessage()]
         assert len(records) == 1
@@ -412,7 +412,7 @@ class TestAdapterFallbackIps:
                 sys.modules.setdefault(name, mod)
 
         from gateway.config import PlatformConfig
-        from plugins.platforms.telegram.adapter import TelegramAdapter
+        from gateway.platforms.telegram.adapter import TelegramAdapter
 
         config = PlatformConfig(enabled=True, token="test-token")
         if extra:

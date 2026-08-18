@@ -60,7 +60,6 @@ class TestToolsCompletionsReadonlyConfig:
              patch("hermes_cli.config.load_config_readonly", counting_readonly), \
              patch("hermes_cli.plugins.get_portable_mcp_server_names_nowait", lambda: set()), \
              patch("hermes_cli.tools_config._get_plugin_toolset_keys", lambda: set()), \
-             patch("hermes_cli.tools_config._homeassistant_credentials_present", lambda: False), \
              patch("hermes_cli.tools_config._xai_credentials_present", lambda: False):
             list(commands_mod.SlashCommandCompleter._tools_completions("enable ", "enable "))
 

@@ -90,14 +90,14 @@ class TestMemoryManagerUserIdThreading:
 
         mgr.initialize_all(
             session_id="sess-multi",
-            platform="slack",
+            platform="mattermost",
             user_id="slack_U12345",
         )
 
         assert p1._init_kwargs.get("user_id") == "slack_U12345"
-        assert p1._init_kwargs.get("platform") == "slack"
+        assert p1._init_kwargs.get("platform") == "mattermost"
         assert p2._init_kwargs.get("user_id") == "slack_U12345"
-        assert p2._init_kwargs.get("platform") == "slack"
+        assert p2._init_kwargs.get("platform") == "mattermost"
 
 
 # ---------------------------------------------------------------------------
@@ -190,7 +190,7 @@ class TestHonchoUserIdScoping:
             provider.initialize(
                 session_id="test-sess",
                 user_id="discord_user_789",
-                platform="discord",
+                platform="mattermost",
             )
 
         assert mock_cfg.peer_name == "static-user"

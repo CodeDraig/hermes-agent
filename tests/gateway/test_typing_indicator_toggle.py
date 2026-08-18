@@ -41,7 +41,7 @@ class _StubAdapter(BasePlatformAdapter):
 def _make_adapter(typing_indicator: bool) -> _StubAdapter:
     adapter = _StubAdapter(
         PlatformConfig(enabled=True, token="t", typing_indicator=typing_indicator),
-        Platform.SLACK,
+        Platform.MATTERMOST,
     )
     # Record send_typing calls without performing any platform I/O.
     adapter.send_typing = AsyncMock(return_value=None)
@@ -55,13 +55,13 @@ def _make_event(chat_id="C123"):
     return MessageEvent(
         text="hi",
         message_type=MessageType.TEXT,
-        source=SessionSource(platform=Platform.SLACK, chat_id=chat_id, chat_type="dm"),
+        source=SessionSource(platform=Platform.MATTERMOST, chat_id=chat_id, chat_type="dm"),
     )
 
 
 def _sk(chat_id="C123"):
     return build_session_key(
-        SessionSource(platform=Platform.SLACK, chat_id=chat_id, chat_type="dm")
+        SessionSource(platform=Platform.MATTERMOST, chat_id=chat_id, chat_type="dm")
     )
 
 

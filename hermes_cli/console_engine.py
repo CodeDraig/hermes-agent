@@ -792,26 +792,12 @@ class HermesConsoleEngine:
                 [("list",), ("approve",), ("revoke",), ("clear-pending",)],
                 {("approve",), ("revoke",), ("clear-pending",)},
             ),
-            "webhook": (
-                "hermes_cli.subcommands.webhook",
-                "build_webhook_parser",
-                "cmd_webhook",
-                [("list",), ("subscribe",), ("remove",), ("test",)],
-                {("subscribe",), ("remove",)},
-            ),
             "hooks": (
                 "hermes_cli.subcommands.hooks",
                 "build_hooks_parser",
                 "cmd_hooks",
                 [("list",), ("test",), ("doctor",), ("revoke",)],
                 {("test",), ("doctor",), ("revoke",)},
-            ),
-            "slack": (
-                "hermes_cli.subcommands.slack",
-                "build_slack_parser",
-                "cmd_slack",
-                [("manifest",)],
-                set(),
             ),
             "profile": (
                 "hermes_cli.subcommands.profile",
@@ -1194,8 +1180,6 @@ class HermesConsoleEngine:
             "setup",
             "uninstall",
             "update",
-            "whatsapp",
-            "whatsapp-cloud",
         }
         if first in blocked_top:
             return f"`hermes {first}` is not available in Hermes Console."
@@ -1357,7 +1341,7 @@ def _sessions_stats(_engine: HermesConsoleEngine, args: list[str]) -> str:
             f"Listable sessions: {listable}",
             f"Total messages: {messages}",
         ]
-        for source in ["cli", "telegram", "discord", "slack", "cron"]:
+        for source in ["cli", "telegram", "mattermost", "cron"]:
             count = db.session_count(source=source)
             if count:
                 lines.append(f"  {source}: {count}")

@@ -29,13 +29,10 @@ from hermes_cli.subcommands.model import build_model_parser
 from hermes_cli.subcommands.prompt_size import build_prompt_size_parser
 from hermes_cli.subcommands.security import build_security_parser
 from hermes_cli.subcommands.setup import build_setup_parser
-from hermes_cli.subcommands.slack import build_slack_parser
 from hermes_cli.subcommands.status import build_status_parser
 from hermes_cli.subcommands.uninstall import build_uninstall_parser
 from hermes_cli.subcommands.update import build_update_parser
 from hermes_cli.subcommands.version import build_version_parser
-from hermes_cli.subcommands.webhook import build_webhook_parser
-from hermes_cli.subcommands.whatsapp import build_whatsapp_parser
 
 
 def _h(name):
@@ -50,13 +47,10 @@ SINGLE_HANDLER_CASES = [
     ("model", build_model_parser, "cmd_model", ["model"]),
     ("setup", build_setup_parser, "cmd_setup", ["setup"]),
 
-    ("whatsapp", build_whatsapp_parser, "cmd_whatsapp", ["whatsapp"]),
-    ("slack", build_slack_parser, "cmd_slack", ["slack"]),
     ("login", build_login_parser, "cmd_login", ["login"]),
     ("logout", build_logout_parser, "cmd_logout", ["logout"]),
     ("auth", build_auth_parser, "cmd_auth", ["auth"]),
     ("status", build_status_parser, "cmd_status", ["status"]),
-    ("webhook", build_webhook_parser, "cmd_webhook", ["webhook"]),
     ("hooks", build_hooks_parser, "cmd_hooks", ["hooks"]),
     ("doctor", build_doctor_parser, "cmd_doctor", ["doctor"]),
     ("security", build_security_parser, "cmd_security", ["security"]),

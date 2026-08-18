@@ -320,7 +320,7 @@ def test_subprocess_env_strips_unrelated_secrets(hermes_home, monkeypatch):
     # Unrelated env vars that should NOT propagate.
     monkeypatch.setenv("MY_PRIVATE_TOKEN", "should-not-leak")
     monkeypatch.setenv("DATABASE_URL", "postgres://very-private")
-    monkeypatch.setenv("SLACK_BOT_TOKEN", "xoxb-very-secret")
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123:very-secret")
     # Provider keys that ARE in load_mappings should propagate.
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-real")
     ip.write_mappings([_sample_mapping("OPENROUTER_API_KEY")])
@@ -328,7 +328,7 @@ def test_subprocess_env_strips_unrelated_secrets(hermes_home, monkeypatch):
     env = ip._build_proxy_subprocess_env()
     assert "MY_PRIVATE_TOKEN" not in env
     assert "DATABASE_URL" not in env
-    assert "SLACK_BOT_TOKEN" not in env
+    assert "TELEGRAM_BOT_TOKEN" not in env
     assert env.get("OPENROUTER_API_KEY") == "sk-or-real"
 
 
@@ -812,5 +812,4 @@ def test_bitwarden_importerror_raise_without_fallback(
         ip._build_proxy_subprocess_env(
             refresh_from_bitwarden=True, bitwarden_config=bw_cfg,
         )
-
 

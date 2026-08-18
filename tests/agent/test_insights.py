@@ -104,7 +104,7 @@ def populated_db(db):
 
     # Session 4: Discord, same model as s1, ended, 1 day ago
     db.create_session(
-        session_id="s4", source="discord",
+        session_id="s4", source="mattermost",
         model="anthropic/claude-sonnet-4-20250514", user_id="user2",
     )
     db._conn.execute("UPDATE sessions SET started_at = ? WHERE id = 's4'", (now - 1 * day,))

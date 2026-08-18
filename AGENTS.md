@@ -7,8 +7,8 @@ Instructions for AI coding assistants and developers working on the hermes-agent
 ## What Hermes Is
 
 Hermes is a personal AI agent that runs the same agent core across a
-prompt-toolkit CLI and a messaging gateway (Telegram, Discord, Slack, and ~20
-other platforms). It learns across sessions (memory + skills),
+prompt-toolkit CLI and a messaging gateway (Telegram, Mattermost, and an
+OpenAI-compatible API). It learns across sessions (memory + skills),
 delegates to subagents, runs scheduled jobs, and drives a real terminal and
 browser. It is extended primarily through **plugins and skills**, not by
 growing the core.
@@ -189,7 +189,7 @@ Each rung adds more permanent surface than the one above. Choose the highest
 2. **CLI command + skill** — manages config/state/infra expressible as shell
    commands. The agent runs `hermes <subcommand>` guided by a skill. Zero
    model-tool footprint. Default choice for subscriptions, scheduled tasks,
-   service setup. Examples: `hermes webhook`, `hermes cron`, `hermes tools`.
+   service setup. Examples: `hermes cron`, `hermes tools`.
 3. **Service-gated tool (`check_fn`)** — needs structured params/returns AND
    only appears when a prerequisite is configured. Zero footprint otherwise.
    Examples: Home Assistant tools (gated on token), memory-provider tools.
@@ -242,10 +242,7 @@ hermes-agent/
 ├── tools/                # Tool implementations — auto-discovered via tools/registry.py
 │   └── environments/     # Terminal backends (local, docker, ssh, modal, daytona, singularity)
 ├── gateway/              # Messaging gateway — run.py + session.py + platforms/
-│   ├── platforms/        # Adapter per platform (telegram, discord, slack, whatsapp,
-│   │                     #   homeassistant, signal, matrix, mattermost, email, sms,
-│   │                     #   dingtalk, wecom, weixin, feishu, qqbot, bluebubbles,
-│   │                     #   yuanbao, webhook, api_server, ...). See ADDING_A_PLATFORM.md.
+│   ├── platforms/        # Direct Telegram, Mattermost, API, and shared adapters
 │   └── builtin_hooks/    # Extension point for always-registered gateway hooks (none shipped)
 ├── plugins/              # Plugin system (see "Plugins" section below)
 │   ├── memory/           # Memory-provider plugins (honcho, mem0, supermemory, ...)
@@ -382,7 +379,6 @@ All slash commands are defined in a central `COMMAND_REGISTRY` list of `CommandD
 - **Gateway** — `GATEWAY_KNOWN_COMMANDS` frozenset for hook emission, `resolve_command()` for dispatch
 - **Gateway help** — `gateway_help_lines()` generates `/help` output
 - **Telegram** — `telegram_bot_commands()` generates the BotCommand menu
-- **Slack** — `slack_subcommand_map()` generates `/hermes` subcommand routing
 - **Autocomplete** — `COMMANDS` flat dict feeds `SlashCommandCompleter`
 - **CLI help** — `COMMANDS_BY_CATEGORY` dict feeds `show_help()`
 
@@ -415,7 +411,7 @@ if canonical == "mycommand":
 - `gateway_only` — only available in messaging platforms
 - `gateway_config_gate` — config dotpath (e.g. `"display.tool_progress_command"`); when set on a `cli_only` command, the command becomes available in the gateway if the config value is truthy. `GATEWAY_KNOWN_COMMANDS` always includes config-gated commands so the gateway can dispatch them; help/menus only show them when the gate is open.
 
-**Adding an alias** requires only adding it to the `aliases` tuple on the existing `CommandDef`. No other file changes needed — dispatch, help text, Telegram menu, Slack mapping, and autocomplete all update automatically.
+**Adding an alias** requires only adding it to the `aliases` tuple on the existing `CommandDef`. No other file changes needed — dispatch, help text, Telegram menu, and autocomplete all update automatically.
 
 ---
 
@@ -900,11 +896,8 @@ Each platform's adapter picks a base toolset (e.g. Telegram uses
 `"messaging"`); `_HERMES_CORE_TOOLS` is the default bundle most
 platforms inherit from.
 
-Current toolset keys: `browser`, `clarify`, `code_execution`, `cronjob`,
-`debugging`, `delegation`, `discord`, `discord_admin`, `feishu_doc`,
-`feishu_drive`, `file`, `homeassistant`, `image_gen`, `kanban`, `memory`,
-`messaging`, `moa`, `rl`, `safe`, `search`, `session_search`, `skills`,
-`spotify`, `terminal`, `todo`, `tts`, `video`, `vision`, `web`, `yuanbao`.
+Current toolset keys are defined authoritatively by `toolsets.py`; do not copy
+an enumerated list into documentation.
 
 Enable/disable per platform via `hermes tools` (the curses UI) or the
 `tools.<platform>.enabled` / `tools.<platform>.disabled` lists in
@@ -1137,7 +1130,7 @@ automatically scope to the active profile.
    a unique credential (bot token, API key), call `acquire_scoped_lock()` from
    `gateway.status` in the `connect()`/`start()` method and `release_scoped_lock()` in
    `disconnect()`/`stop()`. This prevents two profiles from using the same credential.
-   See `plugins/platforms/irc/adapter.py` for the canonical pattern.
+   See the retained adapters under `gateway/platforms/` for the pattern.
 
 6. **Profile operations are HOME-anchored, not HERMES_HOME-anchored** — `_get_profiles_root()`
    returns `Path.home() / ".hermes" / "profiles"`, NOT `get_hermes_home() / "profiles"`.
@@ -1149,10 +1142,10 @@ automatically scope to the active profile.
    `os.environ` holds the **default profile's** values; a secondary profile's `.env` lives
    only in its secret scope (installed per-turn by `_profile_runtime_scope`). Any
    profile-level env config — credentials (`app_secret`, tokens) AND authorization
-   (`FEISHU_ALLOWED_USERS`, `{PLATFORM}_ALLOW_ALL_USERS`, `GATEWAY_ALLOW_ALL_USERS`,
+   (`{PLATFORM}_ALLOW_ALL_USERS`, `GATEWAY_ALLOW_ALL_USERS`,
    `group_policy`, `allow_bots`, ...) — must be read scope-aware:
    - Adapters: `_get_scoped_secret()` (canonical fail-closed copy in
-     `plugins/platforms/feishu/adapter.py`, #86905).
+     `gateway/platforms/telegram/adapter.py`).
    - Gateway authz: `_auth_env()` / `_platform_gate_env()` (`gateway/authz_mixin.py`).
    Rules:
    - Scope installed + multiplex active → a scoped miss returns the **default**.
@@ -1163,10 +1156,8 @@ automatically scope to the active profile.
      deployments keep the `os.environ` read — there it IS the profile's own value.
    - Authorization config is the sharpest edge: allowlist/allow-all leaks cause
      silent rejections (or worse, fail-open) that only show up as missing replies.
-   - The `_get_scoped_secret` wrapper is copy-pasted across ~15 platform adapters —
-     when touching any of them, make sure the fail-closed semantics are present;
-     do not reintroduce the `except _UnscopedSecretError: val = os.getenv(...)`
-     fallback-after-miss shape.
+   - Retained adapters must preserve the fail-closed `_get_scoped_secret`
+     semantics; do not reintroduce fallback-after-miss behavior.
 
 ## Known Pitfalls
 

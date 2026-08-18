@@ -75,7 +75,9 @@ class TestUpdateYesConfigMigration:
 
         args = SimpleNamespace(yes=True)
 
-        with patch("builtins.input") as mock_input:
+        with patch("builtins.input") as mock_input, patch(
+            "hermes_cli.gateway.find_gateway_pids", return_value=[]
+        ):
             cmd_update(args)
             # Never prompted the user.
             mock_input.assert_not_called()
@@ -128,7 +130,9 @@ class TestUpdateYesConfigMigration:
 
         with patch("builtins.input", return_value="n") as mock_input, patch.object(
             _sys.stdin, "isatty", return_value=True
-        ), patch.object(_sys.stdout, "isatty", return_value=True):
+        ), patch.object(_sys.stdout, "isatty", return_value=True), patch(
+            "hermes_cli.gateway.find_gateway_pids", return_value=[]
+        ):
             cmd_update(args)
             # The user was actually prompted.
             assert mock_input.called
@@ -182,6 +186,8 @@ class TestUnicodeDecodeErrorInUpdatePrompts:
             side_effect=UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid byte"),
         ), patch.object(_sys.stdin, "isatty", return_value=True), patch.object(
             _sys.stdout, "isatty", return_value=True
+        ), patch(
+            "hermes_cli.gateway.find_gateway_pids", return_value=[]
         ):
             cmd_update(args)  # must not raise
 

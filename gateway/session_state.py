@@ -107,8 +107,6 @@ class ConversationState:
     sidecar_notes: List[str] = field(default_factory=list)
     # Pinned session-context bytes: (change_key, text).
     ephemeral_pin: Optional[Tuple[Any, ...]] = None
-    # Last voice-channel context delivered (None = never delivered).
-    vc_last: Optional[str] = None
 
     def clear(self) -> None:
         """Reset every conversation-scoped field to its default.
@@ -125,7 +123,6 @@ class ConversationState:
         self.queued_events = []
         self.sidecar_notes = []
         self.ephemeral_pin = None
-        self.vc_last = None
 
 
 @dataclass
@@ -393,9 +390,6 @@ LEGACY_FIELD_SPECS: Dict[str, _FieldSpec] = {
     ),
     "_session_ephemeral_pin": _FieldSpec(
         "conversation", "ephemeral_pin", lambda: None, _present_not_none
-    ),
-    "_session_vc_last": _FieldSpec(
-        "conversation", "vc_last", lambda: None, _present_not_none
     ),
     "_pending_approvals": _FieldSpec(
         "persistent", "approvals", lambda: None, _present_not_none

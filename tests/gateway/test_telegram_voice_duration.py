@@ -40,8 +40,8 @@ def _ensure_telegram_mock():
 
 _ensure_telegram_mock()
 
-from plugins.platforms.telegram import adapter as telegram_mod  # noqa: E402
-from plugins.platforms.telegram.adapter import (  # noqa: E402
+from gateway.platforms.telegram import adapter as telegram_mod  # noqa: E402
+from gateway.platforms.telegram.adapter import (  # noqa: E402
     TelegramAdapter,
     _coerce_duration_seconds,
     _probe_voice_duration_seconds,

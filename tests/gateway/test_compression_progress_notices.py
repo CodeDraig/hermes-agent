@@ -23,8 +23,8 @@ from agent.conversation_compression import (
 from gateway.run import _prepare_gateway_status_message
 
 # Chat surfaces the opt-in must deliver to (subset of the noise-filter
-# suite's CHAT_PLATFORMS; telegram + discord are the required anchors).
-CHAT_PLATFORMS = ["telegram", "discord", "slack", "whatsapp"]
+# suite's CHAT_PLATFORMS).
+CHAT_PLATFORMS = ["telegram", "mattermost"]
 
 # Noisy statuses that are NOT routine compression progress — they must stay
 # suppressed on chat platforms even when progress_notices is enabled.
@@ -100,7 +100,7 @@ def test_compaction_completion_notice_reaches_chat(monkeypatch, platform, enable
 def test_enabled_gate_does_not_leak_to_raw_platforms(progress_notices_enabled):
     """Programmatic surfaces keep raw text regardless of the gate."""
     message = ROUTINE_COMPRESSION_STATUS_SAMPLES[0]
-    for platform in ("local", "api_server", "webhook", "msgraph_webhook"):
+    for platform in ("local", "api_server"):
         assert (
             _prepare_gateway_status_message(platform, "lifecycle", message) == message
         )

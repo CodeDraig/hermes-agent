@@ -445,7 +445,7 @@ def test_env_scrub_hermes_allowlist_and_secret_blocks():
         "HERMES_BASE_URL": "https://x", "HERMES_INTERACTIVE": "1",
         "HERMES_KANBAN_DB": "postgres://u:p@h/db",
         # secret substrings (incl. new DSN/WEBHOOK) → dropped
-        "SENTRY_DSN": "https://a@s.io/1", "SLACK_WEBHOOK": "https://h/x",
+        "SENTRY_DSN": "https://a@s.io/1", "APP_WEBHOOK": "https://h/x",
         "OPENAI_API_KEY": "sk", "GITHUB_TOKEN": "ghp",
         # safe prefix → kept; uncategorized → dropped
         "PATH": "/usr/bin", "RANDOM_X": "y",
@@ -459,7 +459,7 @@ def test_env_scrub_hermes_allowlist_and_secret_blocks():
         assert kept in out, f"{kept} should be kept"
     for dropped in (
         "HERMES_BASE_URL", "HERMES_INTERACTIVE", "HERMES_KANBAN_DB",
-        "SENTRY_DSN", "SLACK_WEBHOOK", "OPENAI_API_KEY", "GITHUB_TOKEN",
+        "SENTRY_DSN", "APP_WEBHOOK", "OPENAI_API_KEY", "GITHUB_TOKEN",
         "RANDOM_X",
     ):
         assert dropped not in out, f"{dropped} should be dropped"

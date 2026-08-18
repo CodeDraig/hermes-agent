@@ -181,20 +181,20 @@ class TestResolveDeliveryTarget:
 
 
     def test_bare_platform_delivery_uses_home_root_instead_of_origin_thread(self, monkeypatch):
-        monkeypatch.setenv("DISCORD_HOME_CHANNEL", "home-parent")
-        monkeypatch.delenv("DISCORD_HOME_CHANNEL_THREAD_ID", raising=False)
+        monkeypatch.setenv("MATTERMOST_HOME_CHANNEL", "home-parent")
+        monkeypatch.delenv("MATTERMOST_HOME_CHANNEL_THREAD_ID", raising=False)
 
         job = {
-            "deliver": "discord",
+            "deliver": "mattermost",
             "origin": {
-                "platform": "discord",
+                "platform": "mattermost",
                 "chat_id": "origin-parent",
                 "thread_id": "origin-thread",
             },
         }
 
         assert _resolve_delivery_target(job) == {
-            "platform": "discord",
+            "platform": "mattermost",
             "chat_id": "home-parent",
             "thread_id": None,
         }
@@ -225,32 +225,32 @@ class TestResolveDeliveryTarget:
 
 
     def test_human_friendly_label_resolved_via_channel_directory(self):
-        """deliver: 'whatsapp:Alice (dm)' resolves to the real JID."""
-        job = {"deliver": "whatsapp:Alice (dm)"}
+        """A Mattermost channel label resolves to its channel id."""
+        job = {"deliver": "mattermost:Town Square"}
         with patch(
             "gateway.channel_directory.resolve_channel_name",
-            return_value="12345678901234@lid",
+            return_value="channel-id",
         ) as resolve_mock:
             result = _resolve_delivery_target(job)
-        resolve_mock.assert_called_once_with("whatsapp", "Alice (dm)")
+        resolve_mock.assert_called_once_with("mattermost", "Town Square")
         assert result == {
-            "platform": "whatsapp",
-            "chat_id": "12345678901234@lid",
+            "platform": "mattermost",
+            "chat_id": "channel-id",
             "thread_id": None,
         }
 
 
     def test_raw_id_not_mangled_when_directory_returns_none(self):
-        """deliver: 'whatsapp:12345@lid' passes through when directory has no match."""
-        job = {"deliver": "whatsapp:12345@lid"}
+        """A Mattermost channel id passes through when the directory has no match."""
+        job = {"deliver": "mattermost:channel-id"}
         with patch(
             "gateway.channel_directory.resolve_channel_name",
             return_value=None,
         ):
             result = _resolve_delivery_target(job)
         assert result == {
-            "platform": "whatsapp",
-            "chat_id": "12345@lid",
+            "platform": "mattermost",
+            "chat_id": "channel-id",
             "thread_id": None,
         }
 
@@ -302,20 +302,13 @@ class TestRoutingIntents:
         from cron.scheduler import _resolve_delivery_targets
 
         monkeypatch.setenv("TELEGRAM_HOME_CHANNEL", "-111")
-        monkeypatch.setenv("DISCORD_HOME_CHANNEL", "-222")
-        monkeypatch.setenv("SLACK_HOME_CHANNEL", "C333")
-        # Sanity: platforms without the env var must NOT appear in the expansion.
-        monkeypatch.delenv("SIGNAL_HOME_CHANNEL", raising=False)
-        monkeypatch.delenv("MATRIX_HOME_ROOM", raising=False)
+        monkeypatch.setenv("MATTERMOST_HOME_CHANNEL", "C333")
 
         targets = _resolve_delivery_targets({"deliver": "all", "origin": None})
         platforms = sorted(t["platform"] for t in targets)
 
         assert "telegram" in platforms
-        assert "discord" in platforms
-        assert "slack" in platforms
-        assert "signal" not in platforms
-        assert "matrix" not in platforms
+        assert "mattermost" in platforms
 
 
 class TestDeliverResultWrapping:
@@ -360,81 +353,10 @@ class TestDeliverResultWrapping:
         assert "To stop or manage this job" in sent_content
 
 
-    def test_relay_fronted_home_uses_relay_config_and_live_adapter(self, monkeypatch, tmp_path):
-        """Persisted Slack home survives restart without native Slack config."""
-        from concurrent.futures import Future
-
-        from gateway.config import GatewayConfig, HomeChannel, Platform, PlatformConfig
-
-        relay = MagicMock()
-        relay.fronts_platform.side_effect = lambda platform: platform == Platform.SLACK
-        relay.send_for_platform = AsyncMock(return_value=MagicMock(success=True))
-        relay.send_voice = AsyncMock(return_value=MagicMock(success=True))
-        relay.supports_inchannel_continuable = False
-
-        config = GatewayConfig(
-            platforms={
-                Platform.RELAY: PlatformConfig(enabled=True),
-                Platform.SLACK: PlatformConfig(
-                    enabled=False,
-                    home_channel=HomeChannel(
-                        platform=Platform.SLACK,
-                        chat_id="D123",
-                        name="Owner DM",
-                        user_id="U123",
-                    ),
-                ),
-            },
-        )
-        loop = MagicMock()
-        loop.is_running.return_value = True
-
-        def fake_run_coro(coro, _loop):
-            import asyncio as _asyncio
-
-            future = Future()
-            try:
-                future.set_result(_asyncio.run(coro))
-            except BaseException as exc:  # noqa: BLE001
-                future.set_exception(exc)
-            return future
-
-        standalone_send = AsyncMock(return_value={"success": True})
-        media_path = self._safe_media_path(tmp_path, monkeypatch, "relay-voice.mp3")
-        monkeypatch.setenv("SLACK_HOME_CHANNEL", "D123")
-        job = {
-            "id": "relay-cron",
-            "deliver": "slack",
-        }
-
-        with (
-            patch("gateway.config.load_gateway_config", return_value=config),
-            patch("cron.scheduler.load_config", return_value={"cron": {"wrap_response": False}}),
-            patch("asyncio.run_coroutine_threadsafe", side_effect=fake_run_coro),
-            patch("tools.send_message_tool._send_to_platform", new=standalone_send),
-        ):
-            result = _deliver_result(
-                job,
-                f"scheduled result\nMEDIA:{media_path}",
-                adapters={Platform.RELAY: relay},
-                loop=loop,
-            )
-
-        assert result is None
-        relay.send_for_platform.assert_awaited_once()
-        args = relay.send_for_platform.await_args.args
-        assert args[:3] == (Platform.SLACK, "D123", "scheduled result")
-        assert relay.send_for_platform.await_args.kwargs["metadata"]["user_id"] == "U123"
-        relay.send_voice.assert_awaited_once()
-        media_metadata = relay.send_voice.await_args.kwargs["metadata"]
-        assert media_metadata["_relay_logical_platform"] == "slack"
-        assert media_metadata["user_id"] == "U123"
-        standalone_send.assert_not_awaited()
-
 
     def test_live_adapter_sends_media_as_attachments(self, tmp_path, monkeypatch):
         """When a live adapter is available, MEDIA files should be sent as native
-        platform attachments (e.g., Discord voice, Telegram audio) rather than
+        platform attachments (for example Telegram audio) rather than
         as literal 'MEDIA:/path' text."""
         from gateway.config import Platform
         from concurrent.futures import Future
@@ -447,7 +369,7 @@ class TestDeliverResultWrapping:
         pconfig = MagicMock()
         pconfig.enabled = True
         mock_cfg = MagicMock()
-        mock_cfg.platforms = {Platform.DISCORD: pconfig}
+        mock_cfg.platforms = {Platform.TELEGRAM: pconfig}
 
         loop = MagicMock()
         loop.is_running.return_value = True
@@ -468,7 +390,7 @@ class TestDeliverResultWrapping:
         job = {
             "id": "tts-job",
             "deliver": "origin",
-            "origin": {"platform": "discord", "chat_id": "9876"},
+            "origin": {"platform": "telegram", "chat_id": "9876"},
         }
 
         with patch("gateway.config.load_gateway_config", return_value=mock_cfg), \
@@ -477,7 +399,7 @@ class TestDeliverResultWrapping:
             _deliver_result(
                 job,
                 f"Here is TTS\nMEDIA:{media_path}",
-                adapters={Platform.DISCORD: adapter},
+                adapters={Platform.TELEGRAM: adapter},
                 loop=loop,
             )
 
@@ -761,67 +683,8 @@ class TestRunJobSessionPersistence:
         assert os.getenv("HERMES_CRON_AUTO_DELIVER_THREAD_ID") is None
         fake_db.close.assert_called_once()
 
-    def test_run_job_preserves_slack_origin_thread_for_same_explicit_channel(self, tmp_path, monkeypatch):
-        job = {
-            "id": "slack-thread-job",
-            "name": "slack-thread",
-            "prompt": "hello",
-            "deliver": "slack:C0B3KEP3SD6",
-            "origin": {
-                "platform": "slack",
-                "chat_id": "C0B3KEP3SD6",
-                "thread_id": "1778485067.844139",
-            },
-        }
-        fake_db = MagicMock()
-        seen = {}
 
-        monkeypatch.delenv("HERMES_CRON_AUTO_DELIVER_PLATFORM", raising=False)
-        monkeypatch.delenv("HERMES_CRON_AUTO_DELIVER_CHAT_ID", raising=False)
-        monkeypatch.delenv("HERMES_CRON_AUTO_DELIVER_THREAD_ID", raising=False)
-
-        class FakeAgent:
-            def __init__(self, *args, **kwargs):
-                pass
-
-            def run_conversation(self, *args, **kwargs):
-                from gateway.session_context import get_session_env
-
-                seen["platform"] = get_session_env("HERMES_CRON_AUTO_DELIVER_PLATFORM") or None
-                seen["chat_id"] = get_session_env("HERMES_CRON_AUTO_DELIVER_CHAT_ID") or None
-                seen["thread_id"] = get_session_env("HERMES_CRON_AUTO_DELIVER_THREAD_ID") or None
-                return {"final_response": "ok"}
-
-        with patch("cron.scheduler._hermes_home", tmp_path), \
-             patch("cron.scheduler._preflight_job_config", return_value=None), \
-             patch("hermes_state.SessionDB", return_value=fake_db), \
-             patch(
-                 "hermes_cli.runtime_provider.resolve_runtime_provider",
-                 return_value={
-                     "api_key": "***",
-                     "base_url": "https://example.invalid/v1",
-                     "provider": "openrouter",
-                     "api_mode": "chat_completions",
-                 },
-             ), \
-             patch("run_agent.AIAgent", FakeAgent):
-            success, output, final_response, error = run_job(job)
-
-        assert success is True
-        assert error is None
-        assert final_response == "ok"
-        assert "ok" in output
-        assert seen == {
-            "platform": "slack",
-            "chat_id": "C0B3KEP3SD6",
-            "thread_id": "1778485067.844139",
-        }
-        assert os.getenv("HERMES_CRON_AUTO_DELIVER_PLATFORM") is None
-        assert os.getenv("HERMES_CRON_AUTO_DELIVER_CHAT_ID") is None
-        assert os.getenv("HERMES_CRON_AUTO_DELIVER_THREAD_ID") is None
-        fake_db.close.assert_called_once()
-
-    @pytest.mark.parametrize("timeout_value", ["600", "0"])
+    @pytest.mark.parametrize("timeout_value", [600, 0])
     def test_run_job_heartbeats_oneshot_claim_in_both_wait_modes(
         self, tmp_path, monkeypatch, timeout_value
     ):
@@ -1870,8 +1733,8 @@ class TestParallelTick:
         jobs = [
             {"id": "tg-job", "name": "tg", "deliver": "local",
              "origin": {"platform": "telegram", "chat_id": "111"}},
-            {"id": "dc-job", "name": "dc", "deliver": "local",
-             "origin": {"platform": "discord", "chat_id": "222"}},
+            {"id": "mm-job", "name": "mm", "deliver": "local",
+             "origin": {"platform": "mattermost", "chat_id": "222"}},
         ]
 
         with patch("cron.scheduler.get_due_jobs", return_value=jobs), \
@@ -1884,7 +1747,7 @@ class TestParallelTick:
             tick(verbose=False)
 
         assert seen["tg-job"] == {"platform": "telegram", "chat_id": "111"}
-        assert seen["dc-job"] == {"platform": "discord", "chat_id": "222"}
+        assert seen["mm-job"] == {"platform": "mattermost", "chat_id": "222"}
 
     def test_max_parallel_env_var(self, monkeypatch):
         """HERMES_CRON_MAX_PARALLEL=1 should restore serial behaviour."""
@@ -2173,16 +2036,16 @@ class TestCronDeliveryTargets:
     def test_lists_configured_platforms_flagging_missing_home_channel(self, monkeypatch):
         from cron.scheduler import cron_delivery_targets
 
-        self._patch_connected(monkeypatch, ["matrix", "telegram"])
-        monkeypatch.delenv("MATRIX_HOME_ROOM", raising=False)
+        self._patch_connected(monkeypatch, ["mattermost", "telegram"])
+        monkeypatch.delenv("MATTERMOST_HOME_CHANNEL", raising=False)
         monkeypatch.delenv("TELEGRAM_HOME_CHANNEL", raising=False)
 
         targets = {t["id"]: t for t in cron_delivery_targets()}
 
-        assert set(targets) == {"matrix", "telegram"}
+        assert set(targets) == {"mattermost", "telegram"}
         # Configured but no home channel → surfaced, flagged for the UI.
-        assert targets["matrix"]["home_target_set"] is False
-        assert targets["matrix"]["home_env_var"] == "MATRIX_HOME_ROOM"
+        assert targets["mattermost"]["home_target_set"] is False
+        assert targets["mattermost"]["home_env_var"] == "MATTERMOST_HOME_CHANNEL"
         assert targets["telegram"]["home_target_set"] is False
 
 
@@ -2318,7 +2181,7 @@ class TestCronContinuableSurfaceInChannel:
 
     Design: decisions.md D1/D2/D6 + F5. The scheduler reads the per-platform key
     generically from pconfig.extra; the in_channel branch is gated on the
-    adapter capability flag ``supports_inchannel_continuable`` (Slack=True,
+    adapter capability flag ``supports_inchannel_continuable`` (Mattermost=True,
     others fail SAFE to thread). In in_channel mode the thread-open branch is
     SKIPPED (thread_id stays None), then ``_seed_cron_channel_session`` CREATES
     the flat shared-channel session and mirrors the brief into it (the shipped
@@ -2326,25 +2189,25 @@ class TestCronContinuableSurfaceInChannel:
     otherwise absent for a chat_postMessage delivery).
     """
 
-    def _slack_cfg(self, extra):
-        """A mock GatewayConfig with a Slack pconfig carrying ``extra``."""
+    def _mattermost_cfg(self, extra):
+        """A mock GatewayConfig with a Mattermost pconfig carrying ``extra``."""
         from gateway.config import Platform
 
         pconfig = MagicMock()
         pconfig.enabled = True
         pconfig.extra = extra
         mock_cfg = MagicMock()
-        mock_cfg.platforms = {Platform.SLACK: pconfig}
+        mock_cfg.platforms = {Platform.MATTERMOST: pconfig}
         return mock_cfg
 
     def _run_inchannel_delivery(self, extra, adapter, *, mirror_ok=True, origin=None):
-        """Drive _deliver_result down the live-adapter path for a Slack
+        """Drive _deliver_result down the live-adapter path for a Mattermost
         channel-origin job with the given ``extra`` config. Returns the
         _open_continuable_cron_thread mock and the mirror_to_session mock."""
         from gateway.config import Platform
         from concurrent.futures import Future
 
-        mock_cfg = self._slack_cfg(extra)
+        mock_cfg = self._mattermost_cfg(extra)
 
         loop = MagicMock()
         loop.is_running.return_value = True
@@ -2365,7 +2228,7 @@ class TestCronContinuableSurfaceInChannel:
             # Channel origin: no thread_id (flat channel message scheduled it).
             # Carries the scheduling user's id — the in_channel seed must key
             # the flat channel session to THIS user (see build_session_key).
-            "origin": origin or {"platform": "slack", "chat_id": "C123", "user_id": "U_HUMAN"},
+            "origin": origin or {"platform": "mattermost", "chat_id": "C123", "user_id": "U_HUMAN"},
             # Opt into the continuable mirror.
             "attach_to_session": True,
         }
@@ -2377,11 +2240,11 @@ class TestCronContinuableSurfaceInChannel:
              patch("gateway.mirror.mirror_to_session", return_value=mirror_ok) as mirror_mock:
             _deliver_result(
                 job, "Here is today's brief.",
-                adapters={Platform.SLACK: adapter}, loop=loop,
+                adapters={Platform.MATTERMOST: adapter}, loop=loop,
             )
         return open_thread_mock, mirror_mock
 
-    def _slack_adapter(self, supports_inchannel=True, with_store=True):
+    def _mattermost_adapter(self, supports_inchannel=True, with_store=True):
         adapter = AsyncMock()
         adapter.send.return_value = MagicMock(success=True)
         # Capability flag read via getattr in the scheduler.
@@ -2395,7 +2258,7 @@ class TestCronContinuableSurfaceInChannel:
 
     def test_in_channel_skips_thread_open(self):
         """G2: in_channel mode must NOT open a handoff thread."""
-        adapter = self._slack_adapter(supports_inchannel=True)
+        adapter = self._mattermost_adapter(supports_inchannel=True)
         open_thread_mock, _ = self._run_inchannel_delivery(
             {"cron_continuable_surface": "in_channel"}, adapter,
         )
@@ -2419,7 +2282,7 @@ class TestCronContinuableSurfaceInChannel:
 
         with patch("gateway.mirror.mirror_to_session", return_value=True) as mirror_mock:
             ok = _seed_cron_channel_session(
-                {"id": "j1", "name": "Brief"}, adapter, "slack", "C123",
+                {"id": "j1", "name": "Brief"}, adapter, "mattermost", "C123",
                 "Daily brief", is_dm=False, user_id="U_HUMAN", chat_name="ops",
             )
         assert ok is True
@@ -2429,7 +2292,7 @@ class TestCronContinuableSurfaceInChannel:
         # What a plain top-level channel reply (reply_in_thread:false → thread
         # None) from the same user resolves to:
         inbound = SessionSource(
-            platform=Platform.SLACK, chat_id="C123", chat_type="group",
+            platform=Platform.MATTERMOST, chat_id="C123", chat_type="group",
             user_id="U_HUMAN", thread_id=None,
         )
         assert seed_key == build_session_key(inbound), (
@@ -2452,23 +2315,23 @@ class TestMultiTargetDeliveryContinuesOnFailure:
     and silently dropping every subsequent target.
     """
 
-    def _email_cfg(self):
+    def _delivery_cfg(self):
         from gateway.config import Platform
 
         pconfig = MagicMock()
         pconfig.enabled = True
         mock_cfg = MagicMock()
-        mock_cfg.platforms = {Platform.EMAIL: pconfig}
+        mock_cfg.platforms = {Platform.TELEGRAM: pconfig}
         return mock_cfg
 
     def test_first_target_failure_does_not_crash_loop(self):
-        """First email target fails in the fallback; the second is still attempted."""
+        """The second retained target is attempted after the first fails."""
         job = {
-            "id": "multi-email-job",
-            "deliver": "email:a@example.com,email:b@example.com",
+            "id": "multi-target-job",
+            "deliver": "telegram:-111,telegram:-222",
         }
 
-        with patch("gateway.config.load_gateway_config", return_value=self._email_cfg()), \
+        with patch("gateway.config.load_gateway_config", return_value=self._delivery_cfg()), \
              patch("cron.scheduler.load_config", return_value={"cron": {"wrap_response": False}}), \
              patch("asyncio.run", side_effect=RuntimeError("no running loop")), \
              patch("concurrent.futures.ThreadPoolExecutor") as mock_pool_cls:
@@ -2489,17 +2352,17 @@ class TestMultiTargetDeliveryContinuesOnFailure:
         )
         # First target's failure is surfaced in the returned error string.
         assert result is not None
-        assert "a@example.com" in result
+        assert "-111" in result
         assert "SMTP connection refused" in result
 
     def test_all_targets_fail_returns_combined_errors(self):
         """When every target fails, the result reports all of them."""
         job = {
             "id": "all-fail-job",
-            "deliver": "email:a@example.com,email:b@example.com",
+            "deliver": "telegram:-111,telegram:-222",
         }
 
-        with patch("gateway.config.load_gateway_config", return_value=self._email_cfg()), \
+        with patch("gateway.config.load_gateway_config", return_value=self._delivery_cfg()), \
              patch("cron.scheduler.load_config", return_value={"cron": {"wrap_response": False}}), \
              patch("asyncio.run", side_effect=RuntimeError("no running loop")), \
              patch("concurrent.futures.ThreadPoolExecutor") as mock_pool_cls:
@@ -2513,8 +2376,8 @@ class TestMultiTargetDeliveryContinuesOnFailure:
             result = _deliver_result(job, "Report content")
 
         assert result is not None
-        assert "a@example.com" in result
-        assert "b@example.com" in result
+        assert "-111" in result
+        assert "-222" in result
         assert mock_pool.submit.call_count == 2
 
 class TestBuildJobPromptExtraPrompt:

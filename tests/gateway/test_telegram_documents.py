@@ -51,7 +51,7 @@ def _ensure_telegram_mock():
 _ensure_telegram_mock()
 
 # Now we can safely import
-from plugins.platforms.telegram.adapter import TelegramAdapter  # noqa: E402
+from gateway.platforms.telegram.adapter import TelegramAdapter  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -331,7 +331,7 @@ class TestMediaGroups:
         msg1 = _make_message(caption="two images", photo=[first_photo])
         msg2 = _make_message(photo=[second_photo])
 
-        with patch("plugins.platforms.telegram.adapter.cache_image_from_bytes", side_effect=["/tmp/burst-one.jpg", "/tmp/burst-two.jpg"]):
+        with patch("gateway.platforms.telegram.adapter.cache_image_from_bytes", side_effect=["/tmp/burst-one.jpg", "/tmp/burst-two.jpg"]):
             await adapter._handle_media_message(_make_update(msg1), MagicMock())
             await adapter._handle_media_message(_make_update(msg2), MagicMock())
             assert adapter.handle_message.await_count == 0
@@ -505,8 +505,8 @@ class TestTelegramPhotoBatching:
         )
 
         with (
-            patch("plugins.platforms.telegram.adapter.asyncio.current_task", return_value=old_task),
-            patch("plugins.platforms.telegram.adapter.asyncio.sleep", new=AsyncMock()),
+            patch("gateway.platforms.telegram.adapter.asyncio.current_task", return_value=old_task),
+            patch("gateway.platforms.telegram.adapter.asyncio.sleep", new=AsyncMock()),
         ):
             await adapter._flush_photo_batch(batch_key)
 

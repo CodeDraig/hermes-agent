@@ -183,76 +183,6 @@ class TestHandleUpdateCommand:
 # ---------------------------------------------------------------------------
 
 
-class TestUpdateCommandPlatformGate:
-    """Tests for the platform-allowlist gate at the top of
-    ``_handle_update_command``.  Built-in messaging platforms are listed in
-    ``_UPDATE_ALLOWED_PLATFORMS``; plugin-migrated platforms (discord,
-    mattermost, teams, …) are NOT in the frozenset and rely on the
-    registry's ``allow_update_command=True`` fallback.  Programmatic
-    interfaces (ACP, API server, webhooks) must be blocked.
-    """
-
-
-    @pytest.mark.asyncio
-    async def test_allows_plugin_platform_via_registry_fallback(self, monkeypatch):
-        """A plugin-migrated platform (DISCORD) is no longer in
-        ``_UPDATE_ALLOWED_PLATFORMS`` but must still pass the gate via
-        the registry's ``allow_update_command=True`` flag.
-
-        This test is the empirical guarantee that removing DISCORD from
-        the hardcoded frozenset does not regress the /update command for
-        Discord users.
-        """
-        from gateway.run import GatewayRunner
-
-        # Precondition: DISCORD is NOT in the hardcoded set anymore.
-        assert Platform.DISCORD not in GatewayRunner._UPDATE_ALLOWED_PLATFORMS
-
-        # Make sure the plugin registry is populated so the fallback fires.
-        from hermes_cli.plugins import PluginManager
-        PluginManager().discover_and_load(force=True)
-        from gateway.platform_registry import platform_registry
-        discord_entry = platform_registry.get("discord")
-        assert discord_entry is not None
-        assert discord_entry.allow_update_command is True
-
-        runner = _make_runner()
-        event = _make_event(platform=Platform.DISCORD)
-
-        with patch("subprocess.Popen"):
-            result = await runner._handle_update_command(event)
-
-        # The gate must NOT have rejected us — anything other than the
-        # ``platform_not_messaging`` rejection string is acceptable here.
-        # Later steps may legitimately return success ("Starting Hermes
-        # update…") or fail for environment reasons.
-        assert "only available from messaging platforms" not in result
-
-
-    @pytest.mark.asyncio
-    async def test_allows_homeassistant_via_registry_fallback(self, monkeypatch):
-        """Same as DISCORD/MATTERMOST: HOMEASSISTANT is now plugin-migrated
-        (PR #40709) and not in the hardcoded frozenset; the registry must
-        keep /update working via ``allow_update_command=True``.
-        """
-        from gateway.run import GatewayRunner
-
-        assert Platform.HOMEASSISTANT not in GatewayRunner._UPDATE_ALLOWED_PLATFORMS
-
-        from hermes_cli.plugins import PluginManager
-        PluginManager().discover_and_load(force=True)
-        from gateway.platform_registry import platform_registry
-        ha_entry = platform_registry.get("homeassistant")
-        assert ha_entry is not None
-        assert ha_entry.allow_update_command is True
-
-        runner = _make_runner()
-        event = _make_event(platform=Platform.HOMEASSISTANT)
-
-        with patch("subprocess.Popen"):
-            result = await runner._handle_update_command(event)
-
-        assert "only available from messaging platforms" not in result
 
 
 # ---------------------------------------------------------------------------
@@ -388,7 +318,7 @@ class TestSendUpdateNotification:
         hermes_home = tmp_path / "hermes"
         hermes_home.mkdir()
 
-        pending = {"platform": "discord", "chat_id": "111", "user_id": "222"}
+        pending = {"platform": "mattermost", "chat_id": "111", "user_id": "222"}
         pending_path = hermes_home / ".update_pending.json"
         output_path = hermes_home / ".update_output.txt"
         exit_code_path = hermes_home / ".update_exit_code"
@@ -396,7 +326,7 @@ class TestSendUpdateNotification:
         output_path.write_text("Done")
         exit_code_path.write_text("0")
 
-        # Only telegram adapter available, but pending says discord
+        # Only Telegram is available, but the notification targets Mattermost.
         mock_adapter = AsyncMock()
         runner.adapters = {Platform.TELEGRAM: mock_adapter}
 
@@ -426,7 +356,7 @@ class TestSendUpdateNotification:
         hermes_home = tmp_path / "hermes"
         hermes_home.mkdir()
 
-        pending = {"platform": "discord", "chat_id": "111", "user_id": "222"}
+        pending = {"platform": "mattermost", "chat_id": "111", "user_id": "222"}
         pending_path = hermes_home / ".update_pending.json"
         output_path = hermes_home / ".update_output.txt"
         exit_code_path = hermes_home / ".update_exit_code"
@@ -434,7 +364,7 @@ class TestSendUpdateNotification:
         output_path.write_text("✓ Update complete!")
         exit_code_path.write_text("0")
 
-        # First pass: target platform (discord) is still offline → defer.
+        # First pass: Mattermost is still offline, so defer.
         with patch("gateway.run._hermes_home", hermes_home):
             first = await runner._send_update_notification()
 
@@ -443,7 +373,7 @@ class TestSendUpdateNotification:
 
         # Platform reconnects: the reconnect watcher adds the adapter back.
         mock_adapter = AsyncMock()
-        runner.adapters = {Platform.DISCORD: mock_adapter}
+        runner.adapters = {Platform.MATTERMOST: mock_adapter}
 
         with patch("gateway.run._hermes_home", hermes_home):
             second = await runner._send_update_notification()
@@ -465,7 +395,7 @@ class TestSendUpdateNotification:
         hermes_home = tmp_path / "hermes"
         hermes_home.mkdir()
 
-        pending = {"platform": "discord", "chat_id": "111", "user_id": "222"}
+        pending = {"platform": "mattermost", "chat_id": "111", "user_id": "222"}
         pending_path = hermes_home / ".update_pending.json"
         output_path = hermes_home / ".update_output.txt"
         exit_code_path = hermes_home / ".update_exit_code"
@@ -474,7 +404,7 @@ class TestSendUpdateNotification:
         exit_code_path.write_text("0")
 
         mock_adapter = AsyncMock()
-        runner.adapters = {Platform.DISCORD: mock_adapter}
+        runner.adapters = {Platform.MATTERMOST: mock_adapter}
 
         with patch("gateway.run._hermes_home", hermes_home):
             delivered = await runner._send_update_notification()

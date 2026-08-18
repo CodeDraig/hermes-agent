@@ -20,7 +20,6 @@ from gateway.lifecycle_ledger import (
     detect_unclean_exit,
     get_lifecycle_sentinel_path,
     mark_exited,
-    read_prior_exit_label,
     record_startup,
     sample_memory,
 )
@@ -202,15 +201,3 @@ def test_mark_exited_leaves_pid_none_sentinel_alone(tmp_path: Path) -> None:
     sentinel = _read_sentinel(tmp_path)
     assert sentinel["phase"] == "running"
     assert sentinel["pid"] is None
-
-
-# ---------------------------------------------------------------------------
-# read_prior_exit_label (container-boot annotation)
-# ---------------------------------------------------------------------------
-
-
-def test_prior_exit_label_survives_corrupt_sentinel(tmp_path: Path) -> None:
-    path = get_lifecycle_sentinel_path(tmp_path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("garbage", encoding="utf-8")
-    assert read_prior_exit_label(tmp_path) == "unknown"

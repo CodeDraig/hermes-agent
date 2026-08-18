@@ -145,7 +145,7 @@ def _bare_adapter(db: SessionDB | None = None):
     # property that delegates to ``platform.value.title()``, so
     # we set ``platform`` rather than poking ``name`` directly.
     from gateway.config import Platform
-    from plugins.platforms.telegram.adapter import TelegramAdapter
+    from gateway.platforms.telegram.adapter import TelegramAdapter
 
     adapter = object.__new__(TelegramAdapter)
     adapter.platform = Platform.TELEGRAM
@@ -192,7 +192,7 @@ class TestThreadNotFoundFallbackSitesPruneBinding:
     """
 
     def test_streaming_send_fallback_calls_prune(self):
-        from plugins.platforms.telegram import adapter as telegram_mod
+        from gateway.platforms.telegram import adapter as telegram_mod
 
         src = inspect.getsource(telegram_mod.TelegramAdapter.send)
         # Locate the second-failure branch (the one that flips
@@ -217,7 +217,7 @@ class TestThreadNotFoundFallbackSitesPruneBinding:
         )
 
     def test_control_message_helper_calls_prune(self):
-        from plugins.platforms.telegram import adapter as telegram_mod
+        from gateway.platforms.telegram import adapter as telegram_mod
 
         src = inspect.getsource(
             telegram_mod.TelegramAdapter._send_message_with_thread_fallback

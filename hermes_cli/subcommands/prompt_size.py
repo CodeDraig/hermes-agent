@@ -26,7 +26,7 @@ def build_prompt_size_parser(subparsers, *, cmd_prompt_size: Callable) -> None:
     prompt_size_parser.add_argument(
         "--platform",
         default="cli",
-        help="Platform to simulate (cli, telegram, discord, ...). Default: cli",
+        help="Platform to simulate (cli, telegram, mattermost, api_server). Default: cli",
     )
     prompt_size_parser.add_argument(
         "--json",

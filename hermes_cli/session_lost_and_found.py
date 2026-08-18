@@ -37,12 +37,9 @@ SESSION_ID_PATTERN = re.compile(r"^\d{8}_\d{6}_")
 
 MESSAGE_ROLES = frozenset({"user", "assistant", "tool", "system"})
 
-# Values observed in sessions.source across gateway platforms and tooling.
-# ``dashboard`` is historical data only: retaining the sentinel lets the
-# recovery command salvage sessions created before that client was removed.
+# Values produced by the retained clients and tooling.
 KNOWN_SOURCES = frozenset({
-    "cli", "telegram", "discord", "slack", "whatsapp", "signal", "matrix",
-    "irc", "email", "x", "twitter", "api", "gateway", "web", "dashboard",
+    "cli", "telegram", "mattermost", "api_server", "api", "gateway",
     "tool", "subagent", "cron", "recovered", "imported", "acp",
 })
 

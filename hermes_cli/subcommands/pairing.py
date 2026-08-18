@@ -24,7 +24,7 @@ def build_pairing_parser(subparsers, *, cmd_pairing: Callable) -> None:
         "approve", help="Approve a pairing request"
     )
     pairing_approve_parser.add_argument(
-        "platform", help="Platform name (telegram, discord, slack, whatsapp)"
+        "platform", help="Platform name (telegram or mattermost)"
     )
     pairing_approve_parser.add_argument(
         "code",

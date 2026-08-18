@@ -90,8 +90,8 @@ class TestAllowlist:
         # every install layout, immune to PEP 668) and carry the same specs
         # as the default uv form.
         import sys as _sys
-        default = ld.feature_install_command("platform.teams")
-        venv = ld.feature_install_command("platform.teams", venv_pip=True)
+        default = ld.feature_install_command("platform.telegram")
+        venv = ld.feature_install_command("platform.telegram", venv_pip=True)
         assert default is not None and venv is not None
         assert venv.startswith(f"{_sys.executable} -m pip install ")
         assert default.startswith("uv pip install ")
@@ -303,60 +303,10 @@ class TestActiveFeatures:
         monkeypatch.setattr(ld, "_is_present", lambda spec: False)
         assert ld.active_features() == []
 
-
-    def test_shared_dependency_does_not_activate_feature(self, monkeypatch):
-        # asyncpg is a generic dependency that may be installed for unrelated
-        # reasons. It must not make hermes update try to refresh Matrix unless
-        # the Matrix anchor package (mautrix) is present.
-        monkeypatch.setattr(
-            ld, "_is_present",
-            lambda spec: ld._pkg_name_from_spec(spec) == "asyncpg",
-        )
-        assert "platform.matrix" not in ld.active_features()
-
-
 class TestRefreshActiveFeatures:
     def test_no_active_features_returns_empty(self, monkeypatch):
         monkeypatch.setattr(ld, "active_features", lambda: [])
         assert ld.refresh_active_features() == {}
-
-    def test_windows_matrix_refresh_is_skipped_before_pip(self, monkeypatch):
-        # Matrix E2EE pulls python-olm, which has no native Windows wheel/build
-        # path. `hermes update` must not retry that doomed install every run.
-        #
-        # The subject here is the *consumer* — refresh_active_features honouring
-        # the gate before pip — so we monkeypatch lazy_deps' own platform probe
-        # instead of faking the host, which keeps this covered on Linux too.
-        monkeypatch.setattr(
-            ld,
-            "_unsupported_feature_reason",
-            lambda feature: (
-                "unsupported on Windows: Matrix E2EE depends on python-olm"
-                if feature == "platform.matrix"
-                else None
-            ),
-        )
-        monkeypatch.setattr(ld, "active_features", lambda: ["platform.matrix"])
-        monkeypatch.setattr(ld, "_is_satisfied", lambda spec: False)
-        monkeypatch.setattr(ld, "_allow_lazy_installs", lambda: True)
-        monkeypatch.setattr(
-            ld,
-            "_venv_pip_install",
-            lambda *a, **kw: pytest.fail("pip should not be called for unsupported Matrix on Windows"),
-        )
-
-        result = ld.refresh_active_features()
-
-        assert result["platform.matrix"].startswith("skipped:")
-        assert "unsupported on Windows" in result["platform.matrix"]
-
-    @pytest.mark.windows_only
-    def test_matrix_probe_reports_unsupported_on_real_windows(self):
-        # The probe itself keys off the real host: patching sys.platform only
-        # proved the string, never that Windows actually hits this gate.
-        assert "unsupported on Windows" in (
-            ld._unsupported_feature_reason("platform.matrix") or ""
-        )
 
     def test_restore_snapshot_skips_telegram_with_lazy_installs_disabled(
         self, monkeypatch

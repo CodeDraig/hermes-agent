@@ -564,7 +564,7 @@ class TestMessageStorage:
         conn.execute("ALTER TABLE messages ADD COLUMN active INTEGER")
         conn.execute("ALTER TABLE messages ADD COLUMN compacted INTEGER DEFAULT 0")
         conn.execute(
-            "INSERT INTO sessions (id, source, started_at) VALUES ('s1', 'discord', 1.0)"
+            "INSERT INTO sessions (id, source, started_at) VALUES ('s1', 'mattermost', 1.0)"
         )
         # A row written by the pre-fix INSERT: active is NULL.
         conn.execute(
@@ -3855,15 +3855,15 @@ def test_find_session_by_origin_matching_rules(db):
     assert db.find_session_by_origin(platform="telegram", chat_id="c9") == "gw-o1"
     # Thread filter.
     db.create_session(
-        "gw-th", "discord", user_id="u9",
+        "gw-th", "mattermost", user_id="u9",
         session_key="agent:main:discord:thread:t7", chat_id="ch7",
         chat_type="thread", thread_id="t7",
     )
     assert db.find_session_by_origin(
-        platform="discord", chat_id="ch7", thread_id="t7"
+        platform="mattermost", chat_id="ch7", thread_id="t7"
     ) == "gw-th"
     assert db.find_session_by_origin(
-        platform="discord", chat_id="ch7", thread_id="other"
+        platform="mattermost", chat_id="ch7", thread_id="other"
     ) is None
 
 

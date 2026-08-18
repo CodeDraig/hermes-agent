@@ -617,7 +617,7 @@ def _get_enabled_plugins() -> Optional[set]:
 # Data classes
 # ---------------------------------------------------------------------------
 
-_VALID_PLUGIN_KINDS: Set[str] = {"standalone", "backend", "exclusive", "platform", "model-provider"}
+_VALID_PLUGIN_KINDS: Set[str] = {"standalone", "backend", "exclusive", "model-provider"}
 
 
 def _portable_skill_namespace(key: str) -> str:
@@ -1049,11 +1049,6 @@ class PluginManifest:
     #              Selection via ``<category>.provider`` config key; the
     #              category's own discovery system handles loading and the
     #              general scanner skips these.
-    # ``platform``: gateway messaging platform adapter (e.g. IRC). Bundled
-    #              platform plugins auto-load so every shipped platform is
-    #              available out of the box; user-installed platform plugins
-    #              in ~/.hermes/plugins/ still gated by ``plugins.enabled``
-    #              (untrusted code).
     kind: str = "standalone"
     # Registry key — path-derived, used by ``plugins.enabled``/``disabled``
     # lookups and by ``hermes plugins list``. For a flat plugin at
@@ -1157,10 +1152,6 @@ class LoadedPlugin:
     commands_registered: List[str] = field(default_factory=list)
     enabled: bool = False
     error: Optional[str] = None
-    # True for a bundled platform plugin recorded as a deferred (not-yet-
-    # imported) loader. The module loads on first real use via the
-    # platform_registry; see PluginManager._register_deferred_platform.
-    deferred: bool = False
 
 
 @dataclass
@@ -1394,8 +1385,6 @@ class PluginContext:
         self._llm: Any = None
         self._subagent_lifecycle: Any = None
         self._state: PluginState | None = None
-        # Lazy-built capability-gated platform action facade (#64176).
-        self._platform_actions: Any = None
 
     @property
     def plugin_id(self) -> str:
@@ -1504,23 +1493,6 @@ class PluginContext:
         if self._state is None:
             self._state = PluginState(self.plugin_id, self.manifest.skill_namespace)
         return self._state
-
-    @property
-    def platform_actions(self):
-        """Capability-gated platform action facade (#64176, v1).
-
-        Minimal verb set (``add_reaction``, ``set_thread_title``) routed
-        through the live gateway adapter registry. Every call re-checks the
-        ``gateway.platform_actions`` capability (legacy gate:
-        ``plugins.entries.<id>.allow_platform_actions``, default OFF) and
-        returns a structured ``{"ok": bool, ...}`` dict — verbs never raise
-        into hook dispatch. No adapter handles or raw SDK objects are exposed.
-        """
-        if self._platform_actions is None:
-            from hermes_cli.platform_actions import PlatformActions
-
-            self._platform_actions = PlatformActions(self.plugin_id)
-        return self._platform_actions
 
     def _track(
         self,
@@ -2702,164 +2674,6 @@ class PluginContext:
         )
         return handle
 
-    # -- platform adapter registration ---------------------------------------
-
-    @_serialized_replacement
-    def register_platform(
-        self,
-        name: str,
-        label: str,
-        adapter_factory: Callable,
-        check_fn: Callable,
-        validate_config: Callable | None = None,
-        required_env: list | None = None,
-        install_hint: str = "",
-        **entry_kwargs: Any,
-    ) -> Optional[PluginRegistration]:
-        """Register a gateway platform adapter.
-
-        The adapter_factory receives a ``PlatformConfig`` and returns a
-        ``BasePlatformAdapter`` subclass instance.
-
-        ``check_fn`` is a PASSIVE dependency probe — "are deps importable
-        right now?".  It must never install anything: status displays and
-        config loading call it freely.  If your platform's SDK is
-        lazy-installable, pass the ACTIVE installer separately as
-        ``ensure_deps_fn`` (forwarded via ``entry_kwargs``); the gateway
-        calls it from ``create_adapter()`` when ``check_fn`` is False,
-        right before connecting the platform.
-
-        Extra keyword arguments are forwarded to ``PlatformEntry`` (e.g.
-        ``setup_fn``, ``emoji``, ``allowed_users_env``, ``platform_hint``,
-        ``ensure_deps_fn``).  Unknown keys raise TypeError from the
-        dataclass constructor.
-
-        Example::
-
-            ctx.register_platform(
-                name="irc",
-                label="IRC",
-                adapter_factory=lambda cfg: IRCAdapter(cfg),
-                check_fn=lambda: True,
-                emoji="💬",
-                setup_fn=irc_interactive_setup,
-            )
-        """
-        from gateway.platform_registry import platform_registry, PlatformEntry
-
-        entry_kwargs.setdefault("plugin_name", self.manifest.name)
-        entry = PlatformEntry(
-            name=name,
-            label=label,
-            adapter_factory=adapter_factory,
-            check_fn=check_fn,
-            validate_config=validate_config,
-            required_env=required_env or [],
-            install_hint=install_hint,
-            source="plugin",
-            **entry_kwargs,
-        )
-        scope = self._manager.scope_key
-        previous = platform_registry.snapshot_registration(name, scope=scope)
-        platform_registry.register(entry, scope=scope)
-        current = platform_registry.snapshot_registration(name, scope=scope)
-        if current[0] is not entry or current[1] is not None:
-            return None
-        self._manager._plugin_platform_names.add(name)
-        handle = self._track_replacement(
-            "platform",
-            name,
-            slot=("platform", scope, name),
-            current=current,
-            previous=previous,
-            restore=lambda replacement: self._restore_platform_registration(
-                platform_registry, name, current, replacement, scope
-            ),
-            finalize=lambda: self._manager._remove_platform_name_if_unowned(name),
-        )
-        logger.debug(
-            "Plugin %s registered platform: %s",
-            self.manifest.name,
-            name,
-        )
-        return handle
-
-    def _restore_platform_registration(
-        self,
-        platform_registry,
-        name: str,
-        current,
-        replacement,
-        scope: str,
-    ) -> bool:
-        return platform_registry.restore_registration(
-            name, current, replacement, scope=scope
-        )
-
-    # -- slack action handler registration ----------------------------------
-
-    def register_slack_action_handler(
-        self,
-        action_id: Any,
-        callback: Callable,
-    ) -> PluginRegistration:
-        """Register a Slack Block Kit action handler from a plugin.
-
-        Hermes' Slack adapter wires registered handlers into its
-        ``slack_bolt.AsyncApp`` at connect time. The callback is invoked
-        when a user clicks a button (or interacts with another Block Kit
-        action element) whose ``action_id`` matches.
-
-        Callback signature follows the slack_bolt convention::
-
-            async def handler(ack, body, action) -> None:
-                await ack()  # required, within 3 seconds
-                ...
-
-        Args:
-            action_id: Whatever ``slack_bolt.App.action()`` accepts —
-                a literal ``action_id`` string, a compiled ``re.Pattern``
-                for matching multiple ids, or a constraint dict
-                (e.g. ``{"action_id": "...", "block_id": "..."}``).
-            callback: Async callable receiving ``(ack, body, action)``.
-
-        Raises:
-            ValueError: if ``callback`` is not callable, or ``action_id``
-                is empty/None.
-
-        Example::
-
-            async def _on_approve(ack, body, action):
-                await ack()
-                # apply some workflow keyed on action["value"]
-
-            ctx.register_slack_action_handler("inbox_sweep_approve", _on_approve)
-        """
-        if not callable(callback):
-            raise ValueError(
-                f"Plugin '{self.manifest.name}' tried to register a Slack "
-                f"action handler with a non-callable callback."
-            )
-        if action_id is None or (isinstance(action_id, str) and not action_id.strip()):
-            raise ValueError(
-                f"Plugin '{self.manifest.name}' tried to register a Slack "
-                f"action handler with an empty action_id."
-            )
-        entry = (action_id, callback, self.manifest.name)
-        self._manager._slack_action_handlers.append(entry)
-        handle = self._track(
-            "slack_action_handler",
-            repr(action_id),
-            lambda: self._manager._remove_identity(
-                self._manager._slack_action_handlers, entry
-            ),
-        )
-        logger.debug(
-            "Plugin %s registered Slack action handler: %s",
-            self.manifest.name,
-            action_id,
-        )
-        return handle
 
     # -- hook registration --------------------------------------------------
 
@@ -3333,7 +3147,6 @@ class PluginManager:
         self._hooks: Dict[str, List[Callable]] = {}
         self._middleware: Dict[str, List[Callable]] = {}
         self._plugin_tool_names: Set[str] = set()
-        self._plugin_platform_names: Set[str] = set()
         self._cli_commands: Dict[str, dict] = {}
         self._context_engine = None  # Set by a plugin via register_context_engine()
         self._plugin_commands: Dict[str, dict] = {}  # Slash commands registered by plugins
@@ -3364,38 +3177,23 @@ class PluginManager:
         # Per-worker chain depth caps mutually-emitting plugins even though each
         # re-entrant emit is queued rather than invoked recursively.
         self._emit_depth = threading.local()
-        # Slack Block Kit action handlers registered by plugins. Each entry
-        # is (matcher, callback, plugin_name); the Slack adapter wires them
-        # into its slack_bolt App at connect() time. ``matcher`` is whatever
-        # ``app.action()`` accepts (a literal action_id string, a compiled
-        # ``re.Pattern``, or a constraint dict); ``callback`` is an async
-        # function with the slack_bolt signature ``(ack, body, action)``.
-        self._slack_action_handlers: List[tuple] = []
         # Registration handles are kept both per plugin (ownership lookup) and
         # globally (reverse-order teardown for overrides spanning plugins).
         #
         # Multi-profile constraint (#65593): several process-global registries
-        # (tools, platforms, providers) are shared across profiles while
+        # (tools and providers) are shared across profiles while
         # multiple PluginManager instances may coexist in one process (keyed
         # by resolved hermes home). The ledger is therefore keyed per manager
         # — i.e. per (hermes_home, plugin_id) — and every release/restore
         # closure is identity-conditional, so one profile's unload can never
         # clear another profile's registrations. Registry overlays keyed by
-        # scope_key (see tools/registry.py and gateway/platform_registry.py)
+        # scope_key (see tools/registry.py)
         # carry the profile dimension; anything still process-global is
         # guarded by the identity checks. TODO(#64178): extend explicit
         # profile keying to any remaining process-global slots when the
         # symmetric force-reload lands.
         self._ownership_ledger: Dict[str, List[PluginRegistration]] = {}
         self._registration_order: List[PluginRegistration] = []
-        # Deferred platform plugins whose client tools were registered at
-        # discovery time (see _register_deferred_platform_tools). Keyed by
-        # plugin id: the already-imported package module, so materializing the
-        # adapter later doesn't re-execute it, and the tool names it
-        # contributed, so `hermes plugins list` still attributes them once the
-        # full plugin loads.
-        self._predeclared_modules: Dict[str, types.ModuleType] = {}
-        self._predeclared_tools: Dict[str, List[str]] = {}
 
     # -----------------------------------------------------------------------
     # Registration ledger internals
@@ -3481,15 +3279,6 @@ class PluginManager:
             for registration in self._registration_order
         ):
             self._plugin_tool_names.discard(name)
-
-    def _remove_platform_name_if_unowned(self, name: str) -> None:
-        if not any(
-            registration.active
-            and registration.kind == "platform"
-            and registration.key == name
-            for registration in self._registration_order
-        ):
-            self._plugin_platform_names.discard(name)
 
     def _forget_registrations(
         self,
@@ -3602,16 +3391,6 @@ class PluginManager:
             # manager-local containers are also reset to clear legacy/manual
             # state that predates the ledger.
             #
-            # Platform names may exist in _plugin_platform_names without a
-            # ledger entry (state predating the ledger, or set manually in
-            # long-lived processes). Main's force path always unregistered
-            # them from the global registry — keep that sweep so disabled
-            # plugins can't leak parsers/send handlers into the next
-            # discovery pass.
-            from gateway.platform_registry import platform_registry
-
-            for platform_name in tuple(self._plugin_platform_names):
-                platform_registry.unregister(platform_name)
             # Symmetric sweep for tools: names in _plugin_tool_names that no
             # ledger registration covers (pre-ledger state, or set manually)
             # would survive in the process-global tools.registry as zombie
@@ -3650,7 +3429,6 @@ class PluginManager:
             self._hooks.clear()
             self._middleware.clear()
             self._plugin_tool_names.clear()
-            self._plugin_platform_names.clear()
             self._cli_commands.clear()
             self._plugin_commands.clear()
             self._plugin_skills.clear()
@@ -3658,9 +3436,6 @@ class PluginManager:
             self._aux_tasks.clear()
             self._system_prompt_sections.clear()
             self._approval_transports.clear()
-            self._slack_action_handlers.clear()
-            self._predeclared_modules.clear()
-            self._predeclared_tools.clear()
             self._context_engine = None
             self._discovered = False
         else:
@@ -3883,21 +3658,6 @@ class PluginManager:
                 self._load_plugin(manifest)
                 continue
 
-            # Bundled platform plugins (gateway adapters: telegram, discord,
-            # feishu, teams, ...) are registered LAZILY. Their modules import
-            # heavy, platform-specific SDKs at module level (lark_oapi,
-            # microsoft_teams, discord.py, slack_bolt, ...), so eagerly loading
-            # all ~20 of them added several seconds to every `hermes`
-            # invocation — including plain `hermes chat`, which never touches a
-            # gateway platform. Instead we register a cheap deferred loader in
-            # the platform_registry keyed on the platform name; the real module
-            # is imported only when the gateway / cron / setup / send_message
-            # path actually asks for that platform. Every platform Hermes ships
-            # remains available out of the box — it just loads on first use.
-            if manifest.source == "bundled" and manifest.kind == "platform":
-                self._register_deferred_platform(manifest)
-                continue
-
             # Everything else (standalone, user-installed backends,
             # entry-point plugins) is opt-in via plugins.enabled.
             # Accept both the path-derived key and the legacy bare name
@@ -3983,7 +3743,7 @@ class PluginManager:
         """Collect directory manifests in the same order as full discovery.
 
         This method only reads manifests. It does not load native plugin
-        modules, register deferred platforms, or otherwise mutate manager
+        modules or otherwise mutate manager
         registries. Keeping the source ordering and scanner calls here lets
         startup probes share the exact precedence and containment rules used
         by :meth:`_discover_and_load_inner`.
@@ -3991,22 +3751,16 @@ class PluginManager:
         manifests: List[PluginManifest] = []
 
         # 1. Bundled plugins (<repo>/plugins/<name>/). The excluded top-level
-        # categories have their own discovery systems; bundled platforms are
-        # scanned explicitly one level below.
+        # categories have their own discovery systems.
         repo_plugins = get_bundled_plugins_dir()
         logger.debug("Scanning bundled plugins: %s", repo_plugins)
         bundled = self._scan_directory(
             repo_plugins,
             source="bundled",
-            skip_names={"memory", "context_engine", "platforms", "model-providers"},
+            skip_names={"memory", "context_engine", "model-providers"},
         )
         logger.debug("  bundled (top-level): %d manifest(s)", len(bundled))
         manifests.extend(bundled)
-        bundled_platforms = self._scan_directory(
-            repo_plugins / "platforms", source="bundled"
-        )
-        logger.debug("  bundled/platforms: %d manifest(s)", len(bundled_platforms))
-        manifests.extend(bundled_platforms)
 
         # 2. User plugins (~/.hermes/plugins/)
         user_dir = get_hermes_home() / "plugins"
@@ -4348,234 +4102,6 @@ class PluginManager:
     # Loading
     # -----------------------------------------------------------------------
 
-    def _platform_name_from_manifest(self, manifest: PluginManifest) -> str:
-        """Derive the gateway platform name (e.g. ``feishu``) for a platform plugin.
-
-        The platform name registered via ``register_platform(name=...)`` lives
-        inside the adapter module (which we are explicitly trying NOT to import
-        early). It is not carried in ``plugin.yaml``. Across every bundled
-        platform plugin the manifest name is ``<platform>-platform`` and the
-        plugin directory basename is ``<platform>``, so we derive the name
-        without importing: strip a trailing ``-platform`` from the manifest
-        name, falling back to the directory basename. This is also a sensible
-        convention for third-party platform plugins.
-        """
-        name = manifest.name or ""
-        if name.endswith("-platform"):
-            return name[: -len("-platform")]
-        if manifest.path:
-            return Path(manifest.path).name
-        return name
-
-    @_serialized_replacement
-    def _register_deferred_platform(self, manifest: PluginManifest) -> None:
-        """Register a lazy loader for a bundled platform plugin.
-
-        The platform adapter module is imported only when the gateway / cron /
-        setup / send_message path first asks the ``platform_registry`` for this
-        platform. Until then we record a lightweight ``LoadedPlugin`` so
-        ``hermes plugins list`` still shows the platform as available, and we
-        hand the registry a loader that runs the normal eager-load path.
-        """
-        lookup_key = manifest.key or manifest.name
-        platform_name = self._platform_name_from_manifest(manifest)
-
-        # Record an enabled placeholder for introspection (`hermes plugins
-        # list`). The real module load swaps in a fully-populated LoadedPlugin
-        # (tools/hooks/commands attribution) when the loader fires.
-        loaded = LoadedPlugin(manifest=manifest, enabled=True)
-        loaded.deferred = True
-        self._plugins[lookup_key] = loaded
-
-        try:
-            from gateway.platform_registry import platform_registry
-
-            scope = self.scope_key
-
-            def _loader(_manifest: PluginManifest = manifest) -> None:
-                # Acquire the manager lock before checking cancellation. If an
-                # unload won the race after the registry marked this loader
-                # in-flight, it restores the predecessor and this loader exits
-                # without publishing any plugin registrations. If loading won,
-                # unload waits and then disposes the completed registration set.
-                with self._discovery_lock, _plugin_home_scope(self.home_path):
-                    if platform_registry.is_deferred_load_cancelled(
-                        platform_name, scope=scope
-                    ):
-                        return
-                    self._load_plugin_scoped(_manifest)
-
-            previous = platform_registry.snapshot_registration(
-                platform_name, scope=scope
-            )
-            platform_registry.register_deferred(
-                platform_name, _loader, scope=scope
-            )
-            current = platform_registry.snapshot_registration(
-                platform_name, scope=scope
-            )
-            if current[0] is None and current[1] is _loader:
-                self._plugin_platform_names.add(platform_name)
-                lease = replacement_coordinator.acquire(
-                    ("platform", scope, platform_name),
-                    current=current,
-                    previous=previous,
-                    restore=lambda replacement: self._restore_deferred_platform(
-                        platform_registry,
-                        platform_name,
-                        current,
-                        replacement,
-                        scope,
-                    ),
-                    finalize=lambda: self._remove_platform_name_if_unowned(
-                        platform_name
-                    ),
-                )
-                self._track_registration(
-                    manifest,
-                    "platform",
-                    platform_name,
-                    lease.dispose,
-                )
-            logger.debug(
-                "Registered deferred platform loader: %s (plugin=%s)",
-                platform_name,
-                lookup_key,
-            )
-        except Exception:
-            # If the registry import fails for any reason, fall back to eager
-            # loading so the platform is never silently lost.
-            logger.debug(
-                "Deferred platform registration failed for '%s'; eager-loading",
-                lookup_key,
-                exc_info=True,
-            )
-            self._load_plugin(manifest)
-            return
-
-        self._register_deferred_platform_tools(manifest, loaded)
-
-    def _register_deferred_platform_tools(
-        self, manifest: PluginManifest, loaded: LoadedPlugin
-    ) -> None:
-        """Register a deferred platform's *client* tools without its adapter.
-
-        A platform plugin can ship two independent things: an inbound adapter
-        (heavy — it imports the platform SDK) and outbound client tools the
-        agent calls like any other tool. Deferring the plugin defers both, so
-        in a CLI/TUI process the client tools never register at all:
-        ``resolve_toolset()`` returns ``[]``, the toolset is missing from the
-        ``hermes tools`` checklist, and even an explicit ``platform_toolsets``
-        entry is dropped because the key is unknown. The same tools work in
-        gateway/web processes only because those materialize every platform at
-        startup (issue #78050).
-
-        Client tools that live in a dedicated ``tools`` submodule can be
-        registered at discovery time instead: importing ``<plugin>/tools.py``
-        does not import the adapter, so the SDK stays unloaded and startup
-        stays cheap. A plugin taking this path must therefore keep its package
-        ``__init__`` import-light and pull the adapter in from inside
-        ``register()`` (as ``plugins/platforms/a2a`` does).
-
-        Opting in is explicit: the manifest must declare ``provides_tools``
-        (the field the plugin list and web server already read to name a
-        plugin's tools, per #78538). Keying off the mere presence of a
-        ``tools.py`` would opt a plugin in by accident — a platform is free to
-        put internal helpers there — and would leave the contract invisible to
-        anyone reading the manifest. ``tools.py`` remains where the code is
-        imported from; ``provides_tools`` is what asks for it. A platform that
-        does not declare the field is untouched and stays fully deferred.
-        """
-        if not manifest.provides_tools:
-            return
-
-        lookup_key = manifest.key or manifest.name
-        plugin_dir = Path(manifest.path) if manifest.path else None
-        if plugin_dir is None or not (plugin_dir / "tools.py").is_file():
-            # Declared but undeliverable. Staying quiet here reproduces the
-            # exact symptom this path exists to fix — tools the manifest
-            # promises, silently absent from the session (#78050) — so say so.
-            logger.warning(
-                "Plugin '%s' declares provides_tools %s but has no tools.py; "
-                "those tools will not be available in CLI/TUI sessions.",
-                lookup_key,
-                list(manifest.provides_tools),
-            )
-            return
-
-        # Snapshotted outside the try so the failure path can tell which tools
-        # a partially-successful register_tools() left behind.
-        before = set(self._plugin_tool_names)
-        try:
-            module = self._load_directory_module(manifest)
-            # Record the module even if nothing below registers: the package
-            # body has already run, so materializing the adapter later must
-            # reuse it rather than execute it a second time.
-            loaded.module = module
-            self._predeclared_modules[lookup_key] = module
-
-            tools_module = importlib.import_module(f"{module.__name__}.tools")
-            register_tools = getattr(tools_module, "register_tools", None)
-            if register_tools is None:
-                logger.warning(
-                    "Plugin '%s' declares provides_tools %s but its tools.py "
-                    "has no register_tools(ctx); those tools will not be "
-                    "available in CLI/TUI sessions.",
-                    lookup_key,
-                    list(manifest.provides_tools),
-                )
-                return
-
-            register_tools(PluginContext(manifest, self))
-            registered = [
-                t for t in self._plugin_tool_names if t not in before
-            ]
-
-            loaded.tools_registered = registered
-            self._predeclared_tools[lookup_key] = registered
-            logger.debug(
-                "Deferred platform '%s': pre-registered %d client tool(s) %s",
-                lookup_key,
-                len(registered),
-                registered,
-            )
-        except Exception as exc:
-            # A register_tools() that registered some tools and THEN raised
-            # leaves those tools live in the registry. Credit them, or
-            # `hermes plugins list` under-reports what the process is actually
-            # carrying — and _load_plugin's own diff would miss them later
-            # too, since they are already in its "before" snapshot.
-            partial = [t for t in self._plugin_tool_names if t not in before]
-            if partial:
-                loaded.tools_registered = partial
-                self._predeclared_tools[lookup_key] = partial
-
-            # Never let a client-tool import break discovery — the platform
-            # stays deferred and behaves exactly as it did before. But a
-            # broken tools.py produces the #78050 symptom itself (declared
-            # tools missing from the session), so this has to be visible
-            # without turning on debug logging to find it.
-            #
-            # Where it failed is the first thing an operator needs: nothing
-            # registered points at the import or the module body, a partial
-            # run points at one tool's definition, and a full run that still
-            # raised points past the registrations entirely.
-            declared = len(manifest.provides_tools)
-            if not partial:
-                scope = f"before registering any of its {declared} declared tool(s)"
-            elif len(partial) >= declared:
-                scope = f"after registering all {declared} declared tool(s)"
-            else:
-                scope = f"after registering {len(partial)} of {declared} declared tool(s)"
-            logger.warning(
-                "Plugin '%s': client-tool pre-registration failed %s (%s).%s",
-                lookup_key,
-                scope,
-                exc,
-                "" if len(partial) >= declared else
-                " The remainder will be missing from CLI/TUI sessions.",
-                exc_info=_PLUGINS_DEBUG,
-            )
 
     def _warn_python_dependencies(self, manifest: PluginManifest) -> None:
         """Surface declared pip dependencies (#64165).
@@ -4644,17 +4170,6 @@ class PluginManager:
         ):
             logger.warning("Plugin %s config: %s", plugin_id, warning)
 
-    def _restore_deferred_platform(
-        self,
-        platform_registry,
-        name: str,
-        current,
-        replacement,
-        scope: str,
-    ) -> bool:
-        return platform_registry.restore_registration(
-            name, current, replacement, scope=scope
-        )
 
     def _load_plugin(self, manifest: PluginManifest) -> None:
         """Import a plugin module and call its ``register(ctx)`` function."""
@@ -4704,13 +4219,7 @@ class PluginManager:
                 policy_lease.dispose,
             )
         try:
-            # A deferred platform whose client tools were already registered at
-            # discovery time has its package imported too — reuse it so the
-            # module body doesn't execute twice (#78050).
-            preloaded = self._predeclared_modules.pop(plugin_key, None)
-            if preloaded is not None:
-                module = preloaded
-            elif manifest.source in {"user", "project", "bundled"}:
+            if manifest.source in {"user", "project", "bundled"}:
                 module = self._load_directory_module(
                     manifest, module_name=_module_name
                 )
@@ -4732,20 +4241,10 @@ class PluginManager:
                     for registration in self._registration_order[registration_start:]
                     if registration.plugin_key == plugin_key and registration.active
                 ]
-                # Tools this plugin already contributed at discovery time were
-                # registered before ``registration_start``, so the ledger slice
-                # above cannot see them and `hermes plugins list` would
-                # under-report once the deferred adapter materializes (#78050).
-                # Credit them back to the plugin that actually registered them.
-                _predeclared = [
-                    t for t in self._predeclared_tools.pop(plugin_key, [])
-                    if t in self._plugin_tool_names
-                ]
-                loaded.tools_registered = _predeclared + [
+                loaded.tools_registered = [
                     registration.key
                     for registration in registrations
                     if registration.kind == "tool"
-                    and registration.key not in _predeclared
                 ]
                 loaded.hooks_registered = [
                     registration.key
@@ -4798,16 +4297,6 @@ class PluginManager:
                 "Failed to load plugin '%s': %s",
                 manifest.name, exc, exc_info=_PLUGINS_DEBUG,
             )
-        # A materialization that did NOT succeed has already had its
-        # discovery-time pre-registrations disposed: the failure path above
-        # sweeps the whole ownership ledger for this plugin key, not just the
-        # ``registration_start:`` slice, so nothing this plugin registered
-        # survives it. There is no live tool left to credit — attribution and
-        # the registry agree at zero. Only the success path pops
-        # _predeclared_tools, so drop the entry here rather than let the
-        # bookkeeping outlive the load attempt (#78050).
-        if not loaded.enabled:
-            self._predeclared_tools.pop(plugin_key, None)
         self._plugins[manifest.key or manifest.name] = loaded
 
     def _load_portable_plugin(
@@ -5368,22 +4857,6 @@ class PluginManager:
                     exc,
                 )
         return results
-
-    # -----------------------------------------------------------------------
-    # Slack action handler accessor
-    # -----------------------------------------------------------------------
-
-    def get_slack_action_handlers(self) -> List[tuple]:
-        """Return the list of plugin-registered Slack action handlers.
-
-        Each entry is a ``(action_id, callback, plugin_name)`` tuple.
-        Consumed by the Slack adapter at connect time to wire callbacks
-        into its ``slack_bolt.AsyncApp``.
-
-        Plugins register handlers via
-        :meth:`PluginContext.register_slack_action_handler`.
-        """
-        return list(self._slack_action_handlers)
 
     # -----------------------------------------------------------------------
     # Introspection

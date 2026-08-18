@@ -318,26 +318,8 @@ def _create_app(adapter: APIServerAdapter) -> web.Application:
     app.router.add_post("/v1/responses", adapter._handle_responses)
     app.router.add_get("/v1/responses/{response_id}", adapter._handle_get_response)
     app.router.add_delete("/v1/responses/{response_id}", adapter._handle_delete_response)
-    app.router.add_post(
-        "/api/platforms/{platform}/events",
-        adapter._handle_platform_event_callback,
-    )
     return app
 
-
-class _FakeGoogleChatAdapter:
-    def __init__(self, *, verify_ok: bool = True, verify_code: str = ""):
-        self.verify_ok = verify_ok
-        self.verify_code = verify_code
-        self.dispatched = []
-
-    def verify_http_event_request(self, auth_header: str):
-        self.auth_header = auth_header
-        return self.verify_ok, self.verify_code
-
-    async def dispatch_http_event(self, payload):
-        self.dispatched.append(payload)
-        return {"ok": True}
 
 
 @pytest.fixture
@@ -1882,30 +1864,6 @@ class TestSendMethod:
         assert "HTTP request/response" in result.error
 
 
-class TestPlatformEventCallbackEndpoint:
-
-    @pytest.mark.asyncio
-    async def test_rejects_invalid_google_chat_auth(self, adapter):
-        app = _create_app(adapter)
-        app["platform_event_adapters"] = {
-            "google_chat": _FakeGoogleChatAdapter(
-                verify_ok=False,
-                verify_code="invalid_google_bearer",
-            )
-        }
-
-        async with TestClient(TestServer(app)) as cli:
-            resp = await cli.post(
-                "/api/platforms/google_chat/events",
-                headers={"Authorization": "Bearer bad"},
-                json={"type": "MESSAGE"},
-            )
-            body = await resp.json()
-
-        assert resp.status == 401
-        assert body["error"]["code"] == "invalid_google_bearer"
-
-
 # ---------------------------------------------------------------------------
 # GET /v1/responses/{response_id}
 # ---------------------------------------------------------------------------
@@ -2865,4 +2823,3 @@ class TestCreateAgentModelRecovery:
         )
         adapter._create_agent(session_id="another-session", gateway_session_key="stable-chan-1")
         assert captured[1]["model"] == "minimax/minimax-m3"
-

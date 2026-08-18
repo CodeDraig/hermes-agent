@@ -3422,7 +3422,7 @@ def list_authenticated_providers(
             # Also probes when no api_key is set (e.g. local llama.cpp /
             # Ollama servers) — the /models endpoint often works without
             # auth.  The CLI's _model_flow_named_custom always probes, so
-            # the Telegram/Discord picker should do the same for parity.
+            # the Telegram/Mattermost picker should do the same for parity.
             # Live-discovery policy:
             # - With an api_key, the user has explicitly opted into the
             #   endpoint and live /models is the source of truth — replace
@@ -3595,7 +3595,7 @@ def list_picker_providers(
 ) -> List[dict]:
     """Interactive-picker variant of :func:`list_authenticated_providers`.
 
-    Post-processes the base list so the ``/model`` picker (Telegram/Discord
+    Post-processes the base list so the ``/model`` picker (Telegram/Mattermost
     inline keyboards) only surfaces models that are actually callable in the
     current install:
 

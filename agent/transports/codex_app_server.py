@@ -82,7 +82,7 @@ class CodexAppServerClient:
         # to authenticate against the model endpoint. But the previous
         # `os.environ.copy()` also handed it every Tier-1 Hermes secret — gateway
         # bot tokens, GitHub auth, Modal/Daytona infra tokens, the dashboard
-        # session token, AUXILIARY_* side-LLM keys, GATEWAY_RELAY_* auth — none
+        # session token and AUXILIARY_* side-LLM keys — none
         # of which a coding subprocess has any use for. Route through the
         # centralized helper so Tier-1 + dynamic-internal secrets are always
         # stripped while provider creds still flow, matching copilot_acp_client

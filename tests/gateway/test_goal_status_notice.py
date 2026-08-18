@@ -50,11 +50,11 @@ async def test_goal_status_notice_defers_until_post_delivery_callback():
     """
     runner = GatewayRunner.__new__(GatewayRunner)
     adapter = FakeAdapter()
-    runner.adapters = {Platform.DISCORD: adapter}
+    runner.adapters = {Platform.TELEGRAM: adapter}
     runner.config = SimpleNamespace(group_sessions_per_user=True, thread_sessions_per_user=False)
 
     source = SessionSource(
-        platform=Platform.DISCORD,
+        platform=Platform.TELEGRAM,
         chat_id="parent-channel",
         thread_id="thread-123",
         user_id="user-1",
@@ -75,8 +75,11 @@ async def test_goal_status_notice_defers_until_post_delivery_callback():
             "chat_id": "parent-channel",
             "content": "✓ Goal achieved: done",
             "reply_to": None,
-            "metadata": {"thread_id": "thread-123"},
+            "metadata": {
+                "thread_id": "thread-123",
+                "telegram_dm_topic_reply_fallback": True,
+                "direct_messages_topic_id": "thread-123",
+            },
         }
     ]
-
 

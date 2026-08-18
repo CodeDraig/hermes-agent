@@ -457,40 +457,21 @@ def _resolve_cron_enabled_toolsets(job: dict, cfg: dict) -> list[str] | None:
 # Valid delivery platforms — used to validate user-supplied platform names
 # in cron delivery targets, preventing env var enumeration via crafted names.
 _KNOWN_DELIVERY_PLATFORMS = frozenset({
-    "telegram", "discord", "slack", "whatsapp", "signal",
-    "matrix", "mattermost", "homeassistant", "dingtalk", "feishu",
-    "wecom", "wecom_callback", "weixin", "sms", "email", "webhook", "bluebubbles",
-    "qqbot", "yuanbao",
+    "telegram", "mattermost",
 })
 
 # Platforms that support a configured cron/notification home target, mapped to
 # the environment variable used by gateway setup/runtime config.
 _HOME_TARGET_ENV_VARS = {
-    "matrix": "MATRIX_HOME_ROOM",
     "telegram": "TELEGRAM_HOME_CHANNEL",
-    "discord": "DISCORD_HOME_CHANNEL",
-    "slack": "SLACK_HOME_CHANNEL",
-    "signal": "SIGNAL_HOME_CHANNEL",
     "mattermost": "MATTERMOST_HOME_CHANNEL",
-    "sms": "SMS_HOME_CHANNEL",
-    "email": "EMAIL_HOME_ADDRESS",
-    "dingtalk": "DINGTALK_HOME_CHANNEL",
-    "feishu": "FEISHU_HOME_CHANNEL",
-    "wecom": "WECOM_HOME_CHANNEL",
-    "weixin": "WEIXIN_HOME_CHANNEL",
-    "bluebubbles": "BLUEBUBBLES_HOME_CHANNEL",
-    "qqbot": "QQBOT_HOME_CHANNEL",
-    "whatsapp": "WHATSAPP_HOME_CHANNEL",
-    "whatsapp_cloud": "WHATSAPP_CLOUD_HOME_CHANNEL",
 }
 
 # Legacy env var names kept for back-compat.  Each entry is the current
 # primary env var → the previous name.  _get_home_target_chat_id falls
 # back to the legacy name if the primary is unset, so users who set the
 # old name before the rename keep working until they migrate.
-_LEGACY_HOME_TARGET_ENV_VARS = {
-    "QQBOT_HOME_CHANNEL": "QQ_HOME_CHANNEL",
-}
+_LEGACY_HOME_TARGET_ENV_VARS = {}
 
 from cron.jobs import (
     advance_next_runs,
@@ -1726,16 +1707,7 @@ def _seed_cron_thread_session(
             except (ValueError, KeyError):
                 platform_enum = None
             if platform_enum is not None:
-                # Discord thread destinations must key on the thread's OWN id
-                # to match how the Discord adapter keys organic in-thread
-                # messages (chat_id == thread_id). Other platforms (Slack,
-                # Telegram) use chat_id == parent_channel for thread messages,
-                # so the parent chat_id is correct for them. See the matching
-                # guard in GatewayRunner._process_handoff.
-                if platform_enum == Platform.DISCORD:
-                    seed_chat_id = str(thread_id)
-                else:
-                    seed_chat_id = str(chat_id)
+                seed_chat_id = str(chat_id)
                 dest_source = SessionSource(
                     platform=platform_enum,
                     chat_id=seed_chat_id,
@@ -1896,64 +1868,28 @@ def _cron_job_origin_log_suffix(job: dict) -> str:
     return " " + " ".join(fields) if fields else ""
 
 
-def _plugin_cron_env_var(platform_name: str) -> str:
-    """Return the cron home-channel env var registered by a plugin platform.
-
-    Falls through the platform registry so plugins that set
-    ``cron_deliver_env_var`` on their ``PlatformEntry`` get cron delivery
-    support without editing this module.
-    """
-    try:
-        from hermes_cli.plugins import discover_plugins
-        discover_plugins()  # idempotent
-        from gateway.platform_registry import platform_registry
-        entry = platform_registry.get(platform_name.lower())
-        if entry and entry.cron_deliver_env_var:
-            return entry.cron_deliver_env_var
-    except Exception:
-        pass
-    return ""
 
 
 def _is_known_delivery_platform(platform_name: str) -> bool:
     """Whether ``platform_name`` is a valid cron delivery target.
 
-    Hardcoded built-ins in ``_KNOWN_DELIVERY_PLATFORMS`` are checked first;
-    plugin platforms registered via ``PlatformEntry`` are accepted if they
-    provide a ``cron_deliver_env_var``.
+    Only retained human messaging transports are valid targets.
     """
     name = platform_name.lower()
-    if name in _KNOWN_DELIVERY_PLATFORMS:
-        return True
-    return bool(_plugin_cron_env_var(name))
+    return name in _KNOWN_DELIVERY_PLATFORMS
 
 
 def _resolve_home_env_var(platform_name: str) -> str:
     """Return the env var name for a platform's cron home channel.
 
-    Built-in platforms are in ``_HOME_TARGET_ENV_VARS``; plugin platforms are
-    resolved from the platform registry.
+    Retained platforms are in ``_HOME_TARGET_ENV_VARS``.
     """
     name = platform_name.lower()
-    env_var = _HOME_TARGET_ENV_VARS.get(name)
-    if env_var:
-        return env_var
-    return _plugin_cron_env_var(name)
+    return _HOME_TARGET_ENV_VARS.get(name, "")
 
 
 def _get_config_home_channel(platform_name: str):
-    """Return the persisted ``HomeChannel`` for a platform from gateway config.
-
-    ``/sethome`` declares ``config.yaml`` canonical (it is the only store that
-    survives for relay-fronted logical platforms, whose adapters are not
-    natively enabled) and mirrors the value into the legacy
-    ``<PLATFORM>_HOME_CHANNEL`` env var only as a best-effort compatibility
-    shim.  Cron historically read ONLY the env mirror, so a home channel that
-    existed solely in config.yaml — e.g. Discord fronted by the relay
-    connector, where no ``DISCORD_HOME_CHANNEL`` was ever exported — was
-    invisible and jobs silently fell back to local-only.  Reading the
-    canonical store here fixes that for every relay-fronted platform at once.
-    """
+    """Return the persisted ``HomeChannel`` for a retained platform."""
     try:
         from gateway.config import load_gateway_config, Platform
 
@@ -2032,45 +1968,10 @@ def _get_home_target_thread_id(platform_name: str) -> Optional[str]:
 
 
 def _iter_home_target_platforms():
-    """Iterate built-in + plugin platform names that expose a home channel.
-
-    Used by the ``deliver=origin`` fallback when the job has no origin.
-    """
-    for name in _HOME_TARGET_ENV_VARS:
-        yield name
-    try:
-        from hermes_cli.plugins import discover_plugins
-        discover_plugins()  # idempotent
-        from gateway.platform_registry import platform_registry
-        for entry in platform_registry.plugin_entries():
-            if entry.cron_deliver_env_var and entry.name not in _HOME_TARGET_ENV_VARS:
-                yield entry.name
-    except Exception:
-        pass
+    """Iterate retained platform names that expose a home channel."""
+    yield from _HOME_TARGET_ENV_VARS
 
 
-def _relay_fronted_delivery_platforms(connected: set) -> set:
-    """Logical platforms deliverable through a connected relay connector.
-
-    ``get_connected_platforms()`` only sees NATIVELY configured platforms.
-    On a relay-fronted deployment (relay in ``config.platforms``, the real
-    platform credential living in the connector) the fronted platforms are
-    absent from that set although fire-time routing delivers to them via
-    ``resolve_delivery_transport`` + ``RelayAdapter.fronts_platform``. This
-    keeps validation symmetric with routing by consulting the same
-    env-derived deploy stamp (``GATEWAY_RELAY_PLATFORMS``) the live
-    adapter's identity set is seeded from. No relay connected -> empty set,
-    so native topologies keep the strict credential check unchanged.
-    """
-    if "relay" not in connected:
-        return set()
-    try:
-        from gateway.relay import relay_fronted_platforms
-
-        return relay_fronted_platforms()
-    except Exception:
-        logger.debug("relay fronted-platform lookup failed", exc_info=True)
-        return set()
 
 
 def cron_delivery_targets() -> list[dict]:
@@ -2093,7 +1994,6 @@ def cron_delivery_targets() -> list[dict]:
 
         gateway_config = load_gateway_config()
         connected = {p.value for p in gateway_config.get_connected_platforms()}
-        connected |= _relay_fronted_delivery_platforms(connected)
     except Exception:
         logger.debug("cron_delivery_targets: gateway config unavailable", exc_info=True)
         connected = set()
@@ -2115,36 +2015,6 @@ def cron_delivery_targets() -> list[dict]:
     return targets
 
 
-def _origin_thread_is_stale(origin: dict) -> bool:
-    """True when a Slack origin's thread is a stale creation-turn artifact.
-
-    Relay-fronted Slack in thread-per-message mode stamps each top-level
-    message's own id as the session thread (a session KEY, not a durable
-    location). Jobs persisted before origin capture learned to drop that
-    stamp carry it as ``origin.thread_id`` forever. Heuristic that repairs
-    them at fire time without touching genuine threads: when the origin
-    chat IS the configured Slack home chat (the ``/sethome`` conversation),
-    a pinned origin thread is the creation-message artifact — the user's
-    delivery expectation for their home conversation is top-level (or the
-    home target's own configured thread). Non-home chats keep their
-    threads: a job deliberately created inside a working thread stays there.
-    """
-    if str(origin.get("platform") or "").lower() != "slack":
-        return False
-    if not origin.get("thread_id"):
-        return False
-    home_chat = _get_home_target_chat_id("slack")
-    return bool(home_chat) and str(origin.get("chat_id")) == str(home_chat)
-
-
-def _origin_delivery_thread(origin: dict):
-    """The thread a deliver=origin job should use, stale stamps dropped."""
-    if _origin_thread_is_stale(origin):
-        home_thread = _get_home_target_thread_id("slack")
-        return home_thread if home_thread else None
-    return origin.get("thread_id")
-
-
 def _resolve_single_delivery_target(job: dict, deliver_value: str) -> Optional[dict]:
     """Resolve one concrete auto-delivery target for a cron job."""
 
@@ -2158,7 +2028,7 @@ def _resolve_single_delivery_target(job: dict, deliver_value: str) -> Optional[d
             return {
                 "platform": origin["platform"],
                 "chat_id": str(origin["chat_id"]),
-                "thread_id": _origin_delivery_thread(origin),
+                "thread_id": origin.get("thread_id"),
             }
         # Origin missing (e.g. job created via API/script) — try each
         # platform's home channel as a fallback instead of silently dropping.
@@ -2181,12 +2051,7 @@ def _resolve_single_delivery_target(job: dict, deliver_value: str) -> Optional[d
         platform_name, rest = deliver_value.split(":", 1)
         platform_key = platform_name.lower()
 
-        from tools.send_message_tool import (
-            prepare_send_message_platforms,
-            resolve_send_target,
-        )
-
-        prepare_send_message_platforms()
+        from tools.send_message_tool import resolve_send_target
         # pass_unresolved_references: stored jobs have no model in the loop to react
         # to a resolution error, and a target the directory doesn't know
         # (fresh install, platform-native id) used to be handed to the
@@ -2202,17 +2067,6 @@ def _resolve_single_delivery_target(job: dict, deliver_value: str) -> Optional[d
                 resolution_error,
             )
             return None
-
-        if (
-            thread_id is None
-            and platform_key == "slack"
-            and origin
-            and str(origin.get("platform") or "").lower() == platform_key
-            and str(origin.get("chat_id")) == str(chat_id)
-            and origin.get("thread_id")
-            and not _origin_thread_is_stale(origin)
-        ):
-            thread_id = origin.get("thread_id")
 
         return {
             "platform": platform_name,
@@ -2476,8 +2330,8 @@ def _deliver_result(job: dict, content: str, adapters=None, loop=None) -> Option
     Deliver job output to the configured target(s) (origin chat, specific platform, etc.).
 
     When ``adapters`` and ``loop`` are provided (gateway is running), tries to
-    use the live adapter first — this supports E2EE rooms (e.g. Matrix) where
-    the standalone HTTP path cannot encrypt.  Falls back to standalone send if
+    use the live adapter first so retained thread and upload behavior is
+    preserved. Falls back to standalone send if
     the adapter path fails or is unavailable.
 
     Returns None on success, or an error string on failure.
@@ -2588,8 +2442,8 @@ def _deliver_result(job: dict, content: str, adapters=None, loop=None) -> Option
         # the exact member who scheduled the job — parity with send_message.
         origin_user_id = origin.get("user_id") if mirror_this_target else None
 
-        # Built-in names resolve to their enum member; plugin platform names
-        # create dynamic members via Platform._missing_().
+        # Retained platform names resolve to their enum member. Unknown names
+        # use the existing unsupported-platform delivery error.
         try:
             platform = Platform(platform_name.lower())
         except (ValueError, KeyError):
@@ -2610,25 +2464,14 @@ def _deliver_result(job: dict, content: str, adapters=None, loop=None) -> Option
             pconfig = config.platforms.get(platform)
             runtime_adapter = None
 
-        if transport is not None and transport.is_relay:
-            # A relay transport carries the RELAY adapter's config, and
-            # resolve_delivery_transport already applied relay's enablement
-            # rule (config block absent OR enabled). The logical platform is
-            # deliberately NOT natively enabled in a relay-fronted deployment
-            # (its credential lives in the connector), so the native
-            # configured/enabled gate below must not apply — it used to
-            # reject exactly the targets the relay was resolved to serve.
-            if pconfig is None:
-                from gateway.config import PlatformConfig
-                pconfig = PlatformConfig(enabled=True)
-        elif not pconfig or not pconfig.enabled:
+        if not pconfig or not pconfig.enabled:
             msg = f"platform '{platform_name}' not configured/enabled"
             logger.warning("Job '%s': %s", job["id"], msg)
             delivery_errors.append(msg)
             continue
 
-        # Prefer the resolved live transport when the gateway is running. This
-        # supports E2EE native adapters and relay-fronted logical platforms.
+        # Prefer the resolved live transport when the gateway is running so
+        # retained adapter-specific thread and upload behavior is preserved.
         # The live-send path (which SEEDS the flat in_channel continuation
         # session via _seed_cron_channel_session) needs not just a live adapter
         # but a running event loop to schedule the async send onto. Compute that
@@ -2933,13 +2776,10 @@ def _deliver_result(job: dict, content: str, adapters=None, loop=None) -> Option
                                     f"live adapter send to {platform_name}:{chat_id} "
                                     f"returned unconfirmed result ({shape}, error={err})"
                                 )
-                                if transport is not None and transport.is_relay:
-                                    logger.warning("Job '%s': %s", job["id"], msg)
-                                else:
-                                    logger.warning(
-                                        "Job '%s': %s, falling back to standalone",
-                                        job["id"], msg,
-                                    )
+                                logger.warning(
+                                    "Job '%s': %s, falling back to standalone",
+                                    job["id"], msg,
+                                )
                                 target_errors.append(msg)
                                 adapter_ok = False  # fall through to standalone path
                             elif (
@@ -2966,14 +2806,6 @@ def _deliver_result(job: dict, content: str, adapters=None, loop=None) -> Option
                 # lost.
                 if adapter_ok and not timed_out and media_files:
                     routed_media_metadata = dict(media_metadata or {})
-                    if transport is not None and transport.is_relay:
-                        routed_media_metadata["_relay_logical_platform"] = platform.value
-                        logical_home = config.get_home_channel(platform)
-                        if logical_home is not None and logical_home.chat_id == chat_id:
-                            if logical_home.user_id:
-                                routed_media_metadata["user_id"] = logical_home.user_id
-                            if logical_home.scope_id:
-                                routed_media_metadata["scope_id"] = logical_home.scope_id
                     _send_media_via_adapter(
                         runtime_adapter,
                         chat_id,
@@ -3023,25 +2855,12 @@ def _deliver_result(job: dict, content: str, adapters=None, loop=None) -> Option
                 err_msg = f"live adapter delivery to {platform_name}:{chat_id} failed: {e}"
                 if not any(err_msg in err for err in target_errors):
                     target_errors.append(err_msg)
-                if transport is not None and transport.is_relay:
-                    logger.warning("Job '%s': %s", job["id"], err_msg)
-                else:
-                    logger.warning(
-                        "Job '%s': %s, falling back to standalone",
-                        job["id"], err_msg,
-                    )
+                logger.warning(
+                    "Job '%s': %s, falling back to standalone",
+                    job["id"], err_msg,
+                )
 
         if not delivered:
-            if transport is not None and transport.is_relay:
-                # Relay owns the logical destination and its connector owns the
-                # platform credential. A native retry could duplicate delivery
-                # and cannot be authenticated correctly, so fail closed.
-                if not target_errors:
-                    target_errors.append(
-                        f"relay delivery to {platform_name}:{chat_id} failed"
-                    )
-                delivery_errors.extend(target_errors)
-                continue
             # If the interpreter is finalizing (gateway SIGTERM / restart /
             # OOM), scheduling any new delivery is futile — asyncio.run and a
             # fresh ThreadPoolExecutor both raise "cannot schedule new futures
@@ -4231,7 +4050,6 @@ def _preflight_check_delivery(job: dict) -> Optional[str]:
                 connected = {
                     p.value for p in gateway_config.get_connected_platforms()
                 }
-                connected |= _relay_fronted_delivery_platforms(connected)
             except Exception:
                 logger.debug(
                     "preflight: gateway config unavailable — skipping "
@@ -4511,7 +4329,7 @@ def run_job(
     if job.get("no_agent"):
         # Load .env before the script runs so auto-delivery can resolve home
         # channels. A standalone cron tick process typically starts WITHOUT
-        # TELEGRAM_HOME_CHANNEL/DISCORD_HOME_CHANNEL in its environment, and
+        # retained home-channel settings in its environment, and
         # the agent path's per-run dotenv reload below never executes for
         # no_agent jobs — every deliver=telegram/all script job failed with
         # "no delivery target resolved". load_hermes_dotenv does not override

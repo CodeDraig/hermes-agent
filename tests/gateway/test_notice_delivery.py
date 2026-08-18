@@ -10,7 +10,7 @@ from gateway.session import SessionSource
 
 def _make_source() -> SessionSource:
     return SessionSource(
-        platform=Platform.SLACK,
+        platform=Platform.MATTERMOST,
         chat_id="C123",
         chat_type="channel",
         user_id="U123",
@@ -22,13 +22,13 @@ def _make_runner(extra=None):
     runner = object.__new__(GatewayRunner)
     runner.config = GatewayConfig(
         platforms={
-            Platform.SLACK: PlatformConfig(enabled=True, token="***", extra=extra or {})
+            Platform.MATTERMOST: PlatformConfig(enabled=True, token="***", extra=extra or {})
         }
     )
     adapter = MagicMock()
     adapter.send = AsyncMock(return_value=SendResult(success=True, message_id="public-1"))
     adapter.send_private_notice = AsyncMock(return_value=SendResult(success=True, message_id="private-1"))
-    runner.adapters = {Platform.SLACK: adapter}
+    runner.adapters = {Platform.MATTERMOST: adapter}
     return runner, adapter
 
 

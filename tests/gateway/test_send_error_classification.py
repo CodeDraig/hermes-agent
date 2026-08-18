@@ -64,7 +64,7 @@ def test_telegram_send_failure_populates_error_kind():
     from unittest.mock import AsyncMock, MagicMock
 
     from gateway.config import PlatformConfig
-    from plugins.platforms.telegram.adapter import TelegramAdapter
+    from gateway.platforms.telegram.adapter import TelegramAdapter
 
     cfg = PlatformConfig(enabled=True, token="fake-token", extra={})
     adapter = TelegramAdapter(cfg)

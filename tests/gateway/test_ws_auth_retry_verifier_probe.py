@@ -31,7 +31,7 @@ import pytest
 # skip cleanly instead of crashing collection.
 aiohttp = pytest.importorskip("aiohttp")
 
-from plugins.platforms.mattermost.adapter import MattermostAdapter
+from gateway.platforms.mattermost import MattermostAdapter
 
 
 def _make_adapter(closing: bool = False) -> MattermostAdapter:

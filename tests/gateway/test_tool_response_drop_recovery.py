@@ -86,7 +86,7 @@ def _strip_everything(adapter, monkeypatch):
     )
 
 
-@pytest.mark.parametrize("platform", [Platform.DISCORD, Platform.TELEGRAM])
+@pytest.mark.parametrize("platform", [Platform.TELEGRAM, Platform.TELEGRAM])
 class TestExtractStripRecoveryAllPlatforms:
     """A non-empty response stripped to empty must be recovered on EVERY
     platform (the fix de-scopes the recovery from Discord-only)."""
@@ -138,7 +138,7 @@ class TestRecoveryDoesNotLeakMediaFragments:
 
     @pytest.mark.asyncio
     async def test_spaced_media_path_does_not_leak_fragment(self, monkeypatch, caplog):
-        adapter = _DummyAdapter(Platform.DISCORD)
+        adapter = _DummyAdapter(Platform.TELEGRAM)
         adapter._keep_typing = _hold_typing
 
         async def handler(_event):
@@ -154,7 +154,7 @@ class TestRecoveryDoesNotLeakMediaFragments:
             type(adapter), "filter_media_delivery_paths", staticmethod(lambda m: [])
         )
 
-        event = _make_event(Platform.DISCORD)
+        event = _make_event(Platform.TELEGRAM)
         with caplog.at_level(logging.ERROR, logger="gateway.platforms.base"):
             await adapter._process_message_background(
                 event, build_session_key(event.source)
@@ -180,7 +180,7 @@ class TestUnrecoverableDropIsLoud:
 
     @pytest.mark.asyncio
     async def test_directive_only_response_logs_dropped(self, monkeypatch, caplog):
-        adapter = _DummyAdapter(Platform.DISCORD)
+        adapter = _DummyAdapter(Platform.TELEGRAM)
         adapter._keep_typing = _hold_typing
 
         async def handler(_event):
@@ -190,7 +190,7 @@ class TestUnrecoverableDropIsLoud:
         # Extraction strips to empty AND the media path filtered out (no file).
         _strip_everything(adapter, monkeypatch)
 
-        event = _make_event(Platform.DISCORD)
+        event = _make_event(Platform.TELEGRAM)
         with caplog.at_level(logging.ERROR, logger="gateway.platforms.base"):
             await adapter._process_message_background(
                 event, build_session_key(event.source)

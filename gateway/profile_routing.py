@@ -1,17 +1,16 @@
 """Profile-based routing for the gateway with hierarchical matching.
 
-Allows a single Hermes instance to route specific Discord guilds/channels/threads
+Allows a single Hermes instance to route specific workspaces/channels/threads
 to different profiles — each with their own model, tools, memory, and persona.
 
 Matching priority (most specific first):
   1. platform + chat_id + thread_id (exact thread)  — specificity 14
   2. platform + chat_id (channel route)             — specificity 6
-  3. platform + guild_id (guild/server route)       — specificity 2
+  3. platform + scope_id (workspace/server route)   — specificity 2
   4. No match                                       → default profile
 
 Parent-chain matching:
-For Discord threads and forum posts, ``parent_chat_id`` carries the
-direct parent (the channel for a thread, the forum channel for a post).
+For threaded transports, ``parent_chat_id`` carries the direct parent.
 Routes keyed on a channel match both direct messages and messages in
 any thread/post whose parent is that channel.
 
@@ -19,19 +18,19 @@ Configuration (config.yaml):
 
     gateway:
       profile_routes:
-        - name: server-default
-          platform: discord
-          guild_id: "YOUR_GUILD_ID"
-          profile: server-profile
+        - name: workspace-default
+          platform: mattermost
+          scope_id: "YOUR_WORKSPACE_ID"
+          profile: workspace-profile
 
         - name: special-channel
-          platform: discord
-          guild_id: "YOUR_GUILD_ID"
+          platform: mattermost
+          scope_id: "YOUR_WORKSPACE_ID"
           chat_id: "YOUR_CHANNEL_ID"
           profile: channel-profile
 
         - name: thread-route
-          platform: discord
+          platform: mattermost
           chat_id: "YOUR_CHANNEL_ID"
           thread_id: "YOUR_THREAD_ID"
           profile: thread-profile
@@ -58,7 +57,7 @@ class ProfileRoute:
     name: str
     platform: str
     profile: str
-    guild_id: Optional[str] = None
+    scope_id: Optional[str] = None
     chat_id: Optional[str] = None
     thread_id: Optional[str] = None
     enabled: bool = True
@@ -67,7 +66,7 @@ class ProfileRoute:
     def specificity(self) -> int:
         """Higher value = more specific match."""
         s = 0
-        if self.guild_id:
+        if self.scope_id:
             s += 2
         if self.chat_id:
             s += 4
@@ -78,7 +77,7 @@ class ProfileRoute:
     def matches(
         self,
         platform: str,
-        guild_id: Optional[str] = None,
+        scope_id: Optional[str] = None,
         chat_id: Optional[str] = None,
         thread_id: Optional[str] = None,
         parent_chat_id: Optional[str] = None,
@@ -87,11 +86,11 @@ class ProfileRoute:
 
         All configured discriminators are matched conjunctively (AND): every
         discriminator that the route declares must hold. ``chat_id`` supports
-        hierarchical matching for Discord forums/threads:
+        hierarchical matching for threads:
         - Direct channel match: chat_id == route.chat_id
         - Thread in channel: parent_chat_id == route.chat_id
-        A route declaring both ``guild_id`` and ``chat_id`` requires both to
-        match (a chat match alone does not satisfy a guild constraint).
+        A route declaring both ``scope_id`` and ``chat_id`` requires both to
+        match (a chat match alone does not satisfy a scope constraint).
         """
         if not self.enabled:
             return False
@@ -101,7 +100,7 @@ class ProfileRoute:
             return False
         if self.chat_id and self.chat_id != chat_id and self.chat_id != parent_chat_id:
             return False
-        if self.guild_id and self.guild_id != guild_id:
+        if self.scope_id and self.scope_id != scope_id:
             return False
         return True
 
@@ -143,7 +142,7 @@ def parse_profile_routes(raw: Optional[List[Dict[str, Any]]]) -> List[ProfileRou
                 name=name,
                 platform=platform,
                 profile=profile,
-                guild_id=entry.get("guild_id"),
+                scope_id=entry.get("scope_id"),
                 chat_id=entry.get("chat_id"),
                 thread_id=entry.get("thread_id"),
                 enabled=entry.get("enabled", True),
@@ -158,13 +157,13 @@ def parse_profile_routes(raw: Optional[List[Dict[str, Any]]]) -> List[ProfileRou
 def match_profile_route(
     routes: List[ProfileRoute],
     platform: str,
-    guild_id: Optional[str] = None,
+    scope_id: Optional[str] = None,
     chat_id: Optional[str] = None,
     thread_id: Optional[str] = None,
     parent_chat_id: Optional[str] = None,
 ) -> Optional[ProfileRoute]:
     """Return the best-matching route, or None for no match."""
     for route in routes:
-        if route.matches(platform, guild_id=guild_id, chat_id=chat_id, thread_id=thread_id, parent_chat_id=parent_chat_id):
+        if route.matches(platform, scope_id=scope_id, chat_id=chat_id, thread_id=thread_id, parent_chat_id=parent_chat_id):
             return route
     return None

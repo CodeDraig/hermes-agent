@@ -1345,8 +1345,7 @@ DEFAULT_CONFIG = {
         "status_phrases": {},
         # How a reasoning/thinking summary renders when show_reasoning is on.
         # "code" (default) = 💭 fenced code block; "blockquote" = "> " lines;
-        # "subtext" = "-# " lines (Discord small grey metadata text). Discord
-        # defaults to "subtext"; override per-platform via
+        # "subtext" = visually subordinate metadata lines; override per-platform via
         # display.platforms.<platform>.reasoning_style.
         "reasoning_style": "code",
         # Auto-delete system-notice replies (e.g. "✨ New session started!",
@@ -1358,7 +1357,7 @@ DEFAULT_CONFIG = {
         # (disabled) preserves prior behavior.
         "ephemeral_system_ttl": 0,
         # Per-platform display/streaming overrides. Each key is a gateway
-        # platform ("telegram", "discord", "slack", …) mapping to a dict of
+        # platform mapping to a dict of
         # display settings that override the global value for that platform
         # only. A setting left unset here falls through to the global default.
         #
@@ -1366,18 +1365,14 @@ DEFAULT_CONFIG = {
         # per platform:
         #   - Telegram has native animated draft streaming (sendMessageDraft),
         #     which is smooth, so streaming is on by default there.
-        #   - Discord and Slack only have edit-based streaming (repeated
-        #     editMessage), which flickers and is noticeably jankier, so
-        #     streaming is off by default for both.
-        # These are gap-fillers: a user who explicitly sets, e.g.,
-        # display.platforms.discord.streaming: true keeps their value
+        # These are gap-fillers: a user who explicitly sets a platform
+        # streaming value keeps it
         # (config deep-merge has user values win over defaults). The global
         # streaming.enabled master switch still gates everything — these
         # per-platform flags only take effect once streaming is enabled.
         "platforms": {
             "telegram": {"streaming": True},
-            "discord": {"streaming": False},
-            "slack": {"streaming": False},
+            "mattermost": {"streaming": False},
         },
         # Gateway runtime-metadata footer appended to the FINAL message of a turn
         # (disabled by default to keep replies minimal). When enabled, renders
@@ -1927,119 +1922,6 @@ DEFAULT_CONFIG = {
     # Empty string means use server-local time.
     "timezone": "",
 
-    # Slack platform settings (gateway mode)
-    "slack": {
-        "require_mention": True,       # Require @mention to respond in channels
-        "free_response_channels": "",  # Comma-separated channel IDs where bot responds without mention
-        "allowed_channels": "",        # If set, bot ONLY responds in these channel IDs (whitelist)
-        # Channel IDs where @mention is ALWAYS required, even when
-        # require_mention is false globally (per-channel force-mention override).
-        "require_mention_channels": "",
-        # Ignore a channel/thread message addressed to another user (first token
-        # @mentions someone other than the bot) unless the bot is also mentioned.
-        # Opt-in; default off keeps existing behaviour. Env: SLACK_IGNORE_OTHER_USER_MENTIONS.
-        "ignore_other_user_mentions": False,
-        # If True, require @mention in Slack thread replies too.
-        "thread_require_mention": False,
-        "channel_prompts": {},         # Per-channel ephemeral system prompts
-    },
-
-    # Discord platform settings (gateway mode)
-    "discord": {
-        "require_mention": True,       # Require @mention to respond in server channels
-        "free_response_channels": "",  # Comma-separated channel IDs where bot responds without mention
-        "allowed_channels": "",        # If set, bot ONLY responds in these channel IDs (whitelist)
-        "auto_thread": True,           # Auto-create threads on @mention in channels (like Slack)
-        "thread_require_mention": False,  # If True, require @mention in threads too (multi-bot threads)
-        "bots_require_inline_mention": False,  # Multi-bot rooms: if True, another bot must type @thisbot in its message to trigger a reply; a Discord reply/quote alone won't. Prevents two bots auto-replying to each other forever. Does not affect humans.
-        "history_backfill": True,         # If True, prepend recent channel scrollback when bot is triggered (recovers messages missed while require_mention gated them out)
-        "history_backfill_limit": 50,     # Max number of recent messages to scan when assembling the backfill block
-        "missed_message_backfill": {
-            "enabled": False,             # Replay missed Discord messages after reconnect/startup
-            "channels": "",               # Comma-separated channel IDs; empty uses free_response_channels
-            "window_seconds": 21600,      # Only inspect messages from the last 6 hours
-            "limit": 100,                 # Global cap on messages scanned per reconnect
-            "max_dispatches": 10,         # Cap on recovered messages dispatched per reconnect
-        },
-        "reactions": True,             # Add 👀/✅/❌ reactions to messages during processing
-        # Discord Gateway transport health. These settings inspect the active
-        # WebSocket's ready/open/heartbeat state; they never use Discord REST as
-        # proof that Gateway events are still arriving. Set any value to 0 to
-        # disable this compatibility-safe probe during a rollback.
-        "websocket_liveness_interval_seconds": 15,
-        "websocket_liveness_failure_threshold": 2,
-        "websocket_heartbeat_ack_max_age_seconds": 60,
-        "websocket_max_latency_seconds": 30,
-        "channel_prompts": {},         # Per-channel ephemeral system prompts (forum parents apply to child threads)
-        # Opt-in DM role-based auth (#12136). By default, DISCORD_ALLOWED_ROLES
-        # authorizes only guild messages in the role's own guild — DMs require
-        # DISCORD_ALLOWED_USERS. Set dm_role_auth_guild to a guild ID to also
-        # authorize DMs from members of that one trusted guild holding the
-        # allowed role. Unset / empty / 0 = secure default (DM role-auth off).
-        "dm_role_auth_guild": "",
-        # discord / discord_admin tools: restrict which actions the agent may call.
-        # Default (empty) = all actions allowed (subject to bot privileged intents).
-        # Accepts comma-separated string ("list_guilds,list_channels,fetch_messages")
-        # or YAML list. Unknown names are dropped with a warning at load time.
-        # Actions: list_guilds, server_info, list_channels, channel_info,
-        # list_roles, member_info, search_members, fetch_messages, list_pins,
-        # pin_message, unpin_message, create_thread, add_role, remove_role.
-        "server_actions": "",
-        # DEPRECATED / no-op. Any uploaded file is now always cached and
-        # surfaced to the agent regardless of file type — authorization to
-        # message the agent is the gate, not the extension. Kept so existing
-        # configs that set it do not error. Env override:
-        # DISCORD_ALLOW_ANY_ATTACHMENT.
-        "allow_any_attachment": False,
-        # Maximum bytes per attachment the gateway will cache. The whole file
-        # is held in memory while being written, so unlimited uploads carry a
-        # real memory cost. Default 32 MiB matches the historical hardcoded
-        # cap. Set to 0 for no cap. Env override: DISCORD_MAX_ATTACHMENT_BYTES.
-        "max_attachment_bytes": 33554432,
-        # When True, Discord approval prompts mention numeric allowed users so
-        # owners notice approval requests in shared channels/threads. Env
-        # override: DISCORD_APPROVAL_MENTIONS. Default false avoids surprise
-        # pings.
-        "approval_mentions": False,
-        # Discord voice-channel inactivity timeout, in seconds. Set to 0 to
-        # keep the bot in VC until an explicit `/voice leave` / disconnect.
-        "voice_channel_inactivity_timeout_seconds": 300,
-        # Minimum seconds to wait for a VC playback before force-stopping it.
-        # The adapter also probes clip duration and extends this floor by a
-        # padding window, so long TTS readbacks are not cut at exactly 120s.
-        "voice_playback_timeout_seconds": 120,
-        # Voice-channel audio effects (the continuous mixer). OFF by default.
-        # When enabled, the bot installs a software mixer on the outgoing voice
-        # stream so a low ambient "thinking" bed, verbal acknowledgements, and
-        # TTS replies can OVERLAP (ducking the ambient under speech) instead of
-        # stop-and-swap — the Grok-voice-mode feel. discord.py ships no mixer;
-        # this is implemented in plugins/platforms/discord/voice_mixer.py.
-        "voice_fx": {
-            "enabled": False,         # master switch for the mixer subsystem
-            "ambient_enabled": True,  # play the idle "thinking" bed while tools run
-            "ambient_path": "",       # custom loop audio file; "" = synthesised pad
-            "ambient_gain": 0.18,     # idle bed loudness, 0.0–1.0
-            "duck_gain": 0.06,        # ambient loudness while speech plays
-            "speech_gain": 1.0,       # TTS / ack loudness, 0.0–1.0
-            "ack_enabled": True,      # speak a short phrase before the first tool call
-            "ack_phrases": [          # picked at random; set [] to disable phrases
-                "Let me look into that.",
-                "One moment.",
-                "Checking on that now.",
-                "Give me a sec.",
-                "On it.",
-            ],
-        },
-    },
-
-    # WhatsApp platform settings (gateway mode)
-    "whatsapp": {
-        # Reply prefix prepended to every outgoing WhatsApp message.
-        # Default (None) uses the built-in "⚕ *Hermes Agent*" header.
-        # Set to "" (empty string) to disable the header entirely.
-        # Supports \n for newlines, e.g. "🤖 *My Bot*\n──────\n"
-    },
-
     # Telegram platform settings (gateway mode)
     "telegram": {
         "reactions": False,            # Add 👀/✅/❌ reactions to messages during processing
@@ -2057,13 +1939,6 @@ DEFAULT_CONFIG = {
         "free_response_channels": "",  # Comma-separated channel IDs where bot responds without mention
         "allowed_channels": "",        # If set, bot ONLY responds in these channel IDs (whitelist)
         "channel_prompts": {},         # Per-channel ephemeral system prompts
-    },
-
-    # Matrix platform settings (gateway mode)
-    "matrix": {
-        "require_mention": True,       # Require @mention to respond in rooms
-        "free_response_rooms": "",     # Comma-separated room IDs where bot responds without mention
-        "allowed_rooms": "",           # If set, bot ONLY responds in these room IDs (whitelist)
     },
 
     # Approval mode for dangerous commands:
@@ -2130,8 +2005,8 @@ DEFAULT_CONFIG = {
         # When true, destructive session slash commands (/clear, /new, /reset,
         # /undo) ask the user to confirm before discarding conversation state.
         # Three-option prompt (Approve Once / Always Approve / Cancel) routed
-        # through tools.slash_confirm — native yes/no buttons on Telegram,
-        # Discord, and Slack; text fallback elsewhere.  Users click "Always
+        # through tools.slash_confirm — native buttons where supported and
+        # text fallback elsewhere. Users click "Always
         # Approve" to silence the prompt permanently; that flips this key to
         # false.
         "destructive_slash_confirm": True,
@@ -2144,7 +2019,7 @@ DEFAULT_CONFIG = {
 
     # Per-platform system-prompt hint overrides. Lets an admin append to or
     # replace Hermes' built-in platform hint for a single messaging platform
-    # (WhatsApp, Slack, Telegram, ...) without affecting other platforms.
+    # without affecting other platforms.
     # Useful for enterprise/managed profiles that ship platform-aware skills.
     # Each key is a platform name; the value is either:
     #   { "append": "extra text" }   — keep the default hint, append text
@@ -2152,7 +2027,7 @@ DEFAULT_CONFIG = {
     #   "extra text"                 — shorthand for { "append": ... }
     # `replace` wins over `append` if both are given. Example:
     #   platform_hints:
-    #     whatsapp:
+    #     mattermost:
     #       append: >
     #         When tabular output would be useful, invoke the
     #         table_formatting skill instead of emitting a Markdown table.
@@ -2296,15 +2171,14 @@ DEFAULT_CONFIG = {
         # `attach_to_session` overrides this for a single job.
         #
         # Behaviour is THREAD-PREFERRED, scoped to the job's origin chat:
-        #   - Thread-capable platforms (Telegram forum/DM topics, Discord
-        #     threads, Slack threads): a dedicated thread is opened for the job
+        #   - Thread-capable platforms (Telegram forum/DM topics and Mattermost
+        #     threads): a dedicated thread is opened for the job
         #     via the adapter's create_handoff_thread, the brief is delivered
         #     into it, and that thread's session is seeded so the user's reply
         #     in-thread continues with full context. Each continuable job gets
         #     its own scrollback, isolated from the parent channel.
-        #   - DM-only platforms (WhatsApp / Signal / SMS): no threads exist, so
-        #     the brief is mirrored into the origin DM session instead — the
-        #     DM itself is the continuation surface.
+        #   - If thread creation is unavailable, the brief is mirrored into the
+        #     origin conversation instead.
         # Both paths ride the shipped gateway.mirror.mirror_to_session and are
         # alternation- and cache-safe (appended at a turn boundary, never
         # mid-loop, never mutating the cached system prompt). Only the origin
@@ -2626,8 +2500,8 @@ DEFAULT_CONFIG = {
         },
     },
 
-    # Gateway settings — control how messaging platforms (Telegram, Discord,
-    # Slack, etc.) deliver agent-produced files as native attachments.
+    # Gateway settings — control how Telegram and Mattermost deliver
+    # agent-produced files as native attachments.
     "gateway": {
         # Optional named-profile allowlist for multiplex mode. None preserves
         # the historical serve-all behavior; [] serves only the default.
@@ -2643,11 +2517,8 @@ DEFAULT_CONFIG = {
         "delivery_ledger": True,
 
         # Seconds the gateway waits for a single messaging platform to finish
-        # connecting during startup (and on reconnect). Discord in particular
-        # can blow past the old fixed 30s when an account has many slash
-        # commands to sync (#19776: 90-173 skills → ~28-31s sync). Raise this
-        # if your gateway hits "discord connect timed out" / "Timeout waiting
-        # for connection to Discord" restart loops. ``0`` or negative disables
+        # connecting during startup (and on reconnect). Raise this for slow
+        # network or proxy connections. ``0`` or negative disables
         # the timeout entirely (wait indefinitely). Bridged at startup to the
         # internal HERMES_GATEWAY_PLATFORM_CONNECT_TIMEOUT env var, which still
         # works as a manual override and wins if set explicitly.
@@ -2666,18 +2537,6 @@ DEFAULT_CONFIG = {
         # external tooling and downgrade safety; set to false to stop
         # producing ~/.hermes/sessions/sessions.json entirely.
         "write_sessions_json": True,
-
-        # Scale-to-zero idle detection (Phase 0). The gateway watches for idle
-        # and, when an instance is opted in via the NAS "Labs" toggle (carried as
-        # the HERMES_SCALE_TO_ZERO env stamp) AND messaging is relay-only/absent
-        # AND a wakeUrl is registered, drives the relay transport dormant so the
-        # platform (e.g. Fly autostop:"suspend") can suspend the now-idle machine;
-        # it wakes on the connector's wakeUrl poke. This is the idle TIMEOUT only
-        # — whether the feature is enabled at all is the Labs toggle, never a
-        # config key (decisions.md D2/D11). 0/negative falls back to the default.
-        "scale_to_zero": {
-            "idle_timeout_minutes": 5,
-        },
 
         # Auto-resume restart-loop breaker (#30719, defense-3). When the
         # gateway is killed mid-turn (SIGTERM) and revived by a supervisor
@@ -2791,8 +2650,8 @@ DEFAULT_CONFIG = {
         },
     },
 
-    # Real-time token streaming to messaging platforms (Telegram, Discord,
-    # Slack, etc.). Read at the top level by the gateway; absent this block the
+    # Real-time token streaming to messaging platforms. Read at the top level
+    # by the gateway; absent this block the
     # gateway falls back to these same defaults, so adding it here only makes
     # the feature discoverable in config.yaml — it does not change behavior.
     #
@@ -2806,8 +2665,8 @@ DEFAULT_CONFIG = {
         #   "auto"  — prefer native draft streaming where the platform
         #             supports it (Telegram DMs via sendMessageDraft,
         #             Bot API 9.5+) and fall back to edit-based elsewhere.
-        #             Safe global default: platforms without draft support
-        #             (Discord, Slack, Matrix, Telegram groups) transparently
+        #             Safe global default: surfaces without draft support
+        #             transparently
         #             use the edit path, so "auto" only upgrades chats that
         #             can render the smoother native preview.
         #   "draft" — explicitly request native drafts; falls back to edit
@@ -4125,55 +3984,6 @@ OPTIONAL_ENV_VARS = {
         "password": False,
         "category": "messaging",
     },
-    "DISCORD_BOT_TOKEN": {
-        "description": "Discord bot token from Developer Portal",
-        "prompt": "Discord bot token",
-        "url": "https://discord.com/developers/applications",
-        "password": True,
-        "category": "messaging",
-    },
-    "DISCORD_ALLOWED_USERS": {
-        "description": "Comma-separated Discord user IDs allowed to use the bot",
-        "prompt": "Allowed Discord user IDs (comma-separated)",
-        "url": None,
-        "password": False,
-        "category": "messaging",
-    },
-    "DISCORD_REPLY_TO_MODE": {
-        "description": "Discord reply threading mode: 'off' (no reply references), 'first' (reply on first message only, default), 'all' (reply on every chunk)",
-        "prompt": "Discord reply mode (off/first/all)",
-        "url": None,
-        "password": False,
-        "category": "messaging",
-    },
-    "SLACK_BOT_TOKEN": {
-        "description": "Slack bot token (xoxb-). Get from OAuth & Permissions after installing your app. "
-                       "Required scopes: chat:write, app_mentions:read, channels:history, groups:history, "
-                       "im:history, im:read, im:write, mpim:history, mpim:read, users:read, files:read, files:write",
-        "prompt": "Slack Bot Token (xoxb-...)",
-        "help": "In your Slack app, add the required bot scopes, install the app to the workspace, then copy OAuth & Permissions > Bot User OAuth Token.",
-        "url": "https://api.slack.com/apps",
-        "password": True,
-        "category": "messaging",
-    },
-    "SLACK_APP_TOKEN": {
-        "description": "Slack app-level token (xapp-) for Socket Mode. Get from Basic Information → "
-                       "App-Level Tokens. Also ensure Event Subscriptions include: message.im, "
-                       "message.channels, message.groups, message.mpim, app_mention",
-        "prompt": "Slack App Token (xapp-...)",
-        "help": "In your Slack app, enable Socket Mode, then create Basic Information > App-Level Tokens with the connections:write scope.",
-        "url": "https://api.slack.com/apps",
-        "password": True,
-        "category": "messaging",
-    },
-    "SLACK_ALLOWED_USERS": {
-        "description": "Comma-separated Slack member IDs allowed to use Hermes, e.g. U01ABC2DEF3. Without this, Slack may connect but deny messages by default.",
-        "prompt": "Allowed Slack member IDs",
-        "help": "In Slack, open your profile, choose More or the three-dot menu, then Copy member ID. Add multiple IDs comma-separated.",
-        "url": "https://api.slack.com/apps",
-        "password": False,
-        "category": "messaging",
-    },
     "MATTERMOST_URL": {
         "description": "Mattermost server URL (e.g. https://mm.example.com)",
         "prompt": "Mattermost server URL",
@@ -4208,187 +4018,6 @@ OPTIONAL_ENV_VARS = {
         "url": None,
         "password": False,
         "category": "messaging",
-    },
-    "MATRIX_HOMESERVER": {
-        "description": "Matrix homeserver URL (e.g. https://matrix.example.org)",
-        "prompt": "Matrix homeserver URL",
-        "url": "https://matrix.org/ecosystem/servers/",
-        "password": False,
-        "category": "messaging",
-    },
-    "MATRIX_ACCESS_TOKEN": {
-        "description": "Matrix access token (preferred over password login)",
-        "prompt": "Matrix access token",
-        "url": None,
-        "password": True,
-        "category": "messaging",
-    },
-    "MATRIX_USER_ID": {
-        "description": "Matrix user ID (e.g. @hermes:example.org)",
-        "prompt": "Matrix user ID (@user:server)",
-        "url": None,
-        "password": False,
-        "category": "messaging",
-    },
-    "MATRIX_ALLOWED_USERS": {
-        "description": "Comma-separated Matrix user IDs allowed to use the bot (@user:server format)",
-        "prompt": "Allowed Matrix user IDs (comma-separated)",
-        "url": None,
-        "password": False,
-        "category": "messaging",
-    },
-    "MATRIX_REQUIRE_MENTION": {
-        "description": "Require @mention in Matrix rooms (default: true). Set to false to respond to all messages.",
-        "prompt": "Require @mention in rooms (true/false)",
-        "url": None,
-        "password": False,
-        "category": "messaging",
-        "advanced": True,
-    },
-    "MATRIX_FREE_RESPONSE_ROOMS": {
-        "description": "Comma-separated Matrix room IDs where bot responds without @mention",
-        "prompt": "Free-response room IDs (comma-separated)",
-        "url": None,
-        "password": False,
-        "category": "messaging",
-        "advanced": True,
-    },
-    "MATRIX_AUTO_THREAD": {
-        "description": "Auto-create threads for messages in Matrix rooms (default: true)",
-        "prompt": "Auto-create threads in rooms (true/false)",
-        "url": None,
-        "password": False,
-        "category": "messaging",
-        "advanced": True,
-    },
-    "MATRIX_DM_AUTO_THREAD": {
-        "description": "Auto-create threads for DM messages in Matrix (default: false)",
-        "prompt": "Auto-create threads in DMs (true/false)",
-        "url": None,
-        "password": False,
-        "category": "messaging",
-        "advanced": True,
-    },
-    "MATRIX_DEVICE_ID": {
-        "description": "Stable Matrix device ID for E2EE persistence across restarts (e.g. HERMES_BOT)",
-        "prompt": "Matrix device ID (stable across restarts)",
-        "url": None,
-        "password": False,
-        "category": "messaging",
-        "advanced": True,
-    },
-    "MATRIX_RECOVERY_KEY": {
-        "description": "Matrix recovery key for cross-signing verification after device key rotation (from Element: Settings → Security → Recovery Key)",
-        "prompt": "Matrix recovery key",
-        "url": None,
-        "password": True,
-        "category": "messaging",
-        "advanced": True,
-    },
-    "BLUEBUBBLES_SERVER_URL": {
-        "description": "BlueBubbles server URL for iMessage integration (e.g. http://192.168.1.10:1234)",
-        "prompt": "BlueBubbles server URL",
-        "url": "https://bluebubbles.app/",
-        "password": False,
-        "category": "messaging",
-    },
-    "BLUEBUBBLES_PASSWORD": {
-        "description": "BlueBubbles server password (from BlueBubbles Server → Settings → API)",
-        "prompt": "BlueBubbles server password",
-        "url": None,
-        "password": True,
-        "category": "messaging",
-    },
-    "BLUEBUBBLES_ALLOWED_USERS": {
-        "description": "Comma-separated iMessage addresses (email or phone) allowed to use the bot",
-        "prompt": "Allowed iMessage addresses (comma-separated)",
-        "url": None,
-        "password": False,
-        "category": "messaging",
-    },
-    "BLUEBUBBLES_ALLOW_ALL_USERS": {
-        "description": "Allow all BlueBubbles users without allowlist",
-        "prompt": "Allow All BlueBubbles Users",
-        "category": "messaging",
-    },
-    "QQ_APP_ID": {
-        "description": "QQ Bot App ID from QQ Open Platform (q.qq.com)",
-        "prompt": "QQ App ID",
-        "url": "https://q.qq.com",
-        "category": "messaging",
-    },
-    "QQ_CLIENT_SECRET": {
-        "description": "QQ Bot Client Secret from QQ Open Platform",
-        "prompt": "QQ Client Secret",
-        "password": True,
-        "category": "messaging",
-    },
-    "QQ_ALLOWED_USERS": {
-        "description": "Comma-separated QQ user IDs allowed to use the bot",
-        "prompt": "QQ Allowed Users",
-        "category": "messaging",
-    },
-    "QQ_GROUP_ALLOWED_USERS": {
-        "description": "Comma-separated QQ group IDs allowed to interact with the bot",
-        "prompt": "QQ Group Allowed Users",
-        "category": "messaging",
-    },
-    "QQ_ALLOW_ALL_USERS": {
-        "description": "Allow all QQ users without an allowlist (true/false)",
-        "prompt": "Allow All QQ Users",
-        "category": "messaging",
-    },
-    "QQBOT_HOME_CHANNEL": {
-        "description": "Default QQ channel/group for cron delivery and notifications",
-        "prompt": "QQ Home Channel",
-        "category": "messaging",
-    },
-    "QQBOT_HOME_CHANNEL_NAME": {
-        "description": "Display name for the QQ home channel",
-        "prompt": "QQ Home Channel Name",
-        "category": "messaging",
-    },
-    "QQ_SANDBOX": {
-        "description": "Enable QQ sandbox mode for development testing (true/false)",
-        "prompt": "QQ Sandbox Mode",
-        "category": "messaging",
-    },
-    "IRC_SERVER": {
-        "description": "IRC server hostname (e.g. irc.libera.chat)",
-        "prompt": "IRC server",
-        "url": None,
-        "password": False,
-        "category": "messaging",
-    },
-    "IRC_CHANNEL": {
-        "description": "IRC channel to join (e.g. #hermes)",
-        "prompt": "IRC channel",
-        "url": None,
-        "password": False,
-        "category": "messaging",
-    },
-    "IRC_NICKNAME": {
-        "description": "Bot nickname on IRC (default: hermes-bot)",
-        "prompt": "IRC nickname",
-        "url": None,
-        "password": False,
-        "category": "messaging",
-    },
-    "IRC_SERVER_PASSWORD": {
-        "description": "IRC server password (if required)",
-        "prompt": "IRC server password",
-        "url": None,
-        "password": True,
-        "category": "messaging",
-        "advanced": True,
-    },
-    "IRC_NICKSERV_PASSWORD": {
-        "description": "NickServ password for nick identification",
-        "prompt": "NickServ password",
-        "url": None,
-        "password": True,
-        "category": "messaging",
-        "advanced": True,
     },
     "GATEWAY_ALLOW_ALL_USERS": {
         "description": "Allow all users to interact with messaging bots (true/false). Default: false.",
@@ -4438,44 +4067,6 @@ OPTIONAL_ENV_VARS = {
         "category": "messaging",
         "advanced": True,
     },
-    "GATEWAY_PROXY_URL": {
-        "description": "URL of a remote Hermes API server to forward messages to (proxy mode). When set, the gateway handles platform I/O only — all agent work is delegated to the remote server. Use for Docker E2EE containers that relay to a host agent. Also configurable via gateway.proxy_url in config.yaml.",
-        "prompt": "Remote Hermes API server URL (e.g. http://192.168.1.100:8642)",
-        "url": None,
-        "password": False,
-        "category": "messaging",
-        "advanced": True,
-    },
-    "GATEWAY_PROXY_KEY": {
-        "description": "Bearer token for authenticating with the remote Hermes API server (proxy mode). Must match the API_SERVER_KEY on the remote host.",
-        "prompt": "Remote API server auth key",
-        "url": None,
-        "password": True,
-        "category": "messaging",
-        "advanced": True,
-    },
-    "WEBHOOK_ENABLED": {
-        "description": "Enable the webhook platform adapter for receiving events from GitHub, GitLab, etc.",
-        "prompt": "Enable webhooks (true/false)",
-        "url": None,
-        "password": False,
-        "category": "messaging",
-    },
-    "WEBHOOK_PORT": {
-        "description": "Port for the webhook HTTP server (default: 8644).",
-        "prompt": "Webhook port",
-        "url": None,
-        "password": False,
-        "category": "messaging",
-    },
-    "WEBHOOK_SECRET": {
-        "description": "Global HMAC secret for webhook signature validation (overridable per route in config.yaml).",
-        "prompt": "Webhook secret",
-        "url": None,
-        "password": True,
-        "category": "messaging",
-    },
-
     # ── Agent settings ──
     # NOTE: MESSAGING_CWD was removed here — use terminal.cwd in config.yaml
     # instead.  The gateway reads TERMINAL_CWD (bridged from terminal.cwd).

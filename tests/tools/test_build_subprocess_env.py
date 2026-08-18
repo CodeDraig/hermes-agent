@@ -23,10 +23,8 @@ def test_scrub_on_strips_provider_key(monkeypatch):
 
 def test_scrub_on_strips_dynamic_internal_secret(monkeypatch):
     monkeypatch.setenv("AUXILIARY_VISION_API_KEY", "sk-aux")
-    monkeypatch.setenv("GATEWAY_RELAY_FOO_TOKEN", "tok")
     env = build_subprocess_env()
     assert "AUXILIARY_VISION_API_KEY" not in env
-    assert "GATEWAY_RELAY_FOO_TOKEN" not in env
 
 
 def test_scrub_on_forwards_extra_like_sanitize_extra_env(monkeypatch):

@@ -101,7 +101,7 @@ def test_concurrent_compressions_same_session_serialize(tmp_path: Path) -> None:
     """
     db = SessionDB(db_path=tmp_path / "state.db")
     shared_sid = "SHARED_SESSION_CONCURRENT"
-    db.create_session(shared_sid, source="discord")
+    db.create_session(shared_sid, source="mattermost")
 
     agent_a = _build_agent_with_db(db, shared_sid)
     agent_b = _build_agent_with_db(db, shared_sid)

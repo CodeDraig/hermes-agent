@@ -49,10 +49,10 @@ class TestHandoffStateDB:
             self._make_session(db, sid)
 
         db.request_handoff(a, "telegram")
-        db.request_handoff(b, "discord")
+        db.request_handoff(b, "mattermost")
         db.request_handoff(c, "telegram")
         db.claim_handoff(c)  # c is now running, not pending
-        db.request_handoff(d, "slack")
+        db.request_handoff(d, "mattermost")
         db.claim_handoff(d)
         db.complete_handoff(d)  # d is terminal
 

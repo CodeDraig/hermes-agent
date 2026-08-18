@@ -507,8 +507,8 @@ async def test_concise_mode_no_interim_output_updates(monkeypatch, tmp_path):
 
 def test_parse_session_key_with_extra_parts():
     """6th part in a group key may be a user_id, not a thread_id — omit it."""
-    result = _parse_session_key("agent:main:discord:group:chan123:thread456")
-    assert result == {"platform": "discord", "chat_type": "group", "chat_id": "chan123"}
+    result = _parse_session_key("agent:main:mattermost:group:chan123:thread456")
+    assert result == {"platform": "mattermost", "chat_type": "group", "chat_id": "chan123"}
 
 
 # ---------------------------------------------------------------------------

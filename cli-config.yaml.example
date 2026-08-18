@@ -523,7 +523,7 @@ compression:
 
   # Opt-in compression progress notices on chat platforms (default: false).
   # By design, routine automatic compression is SILENT on human-facing chat
-  # gateways (Telegram, Discord, Slack, ...) — it happens in the background
+  # gateways (Telegram and Mattermost) — it happens in the background
   # with server-side logging only. Set true to also deliver the routine
   # progress statuses (compacting started, preflight/pre-API compression,
   # idle compaction, retry progress, and the compaction-complete notice) to
@@ -760,7 +760,7 @@ prompt_caching:
 #                           #     enable_thinking: false
 #
 #   # Auto-generated short session titles after the first exchange.
-#   # Each active Discord/Telegram channel can spawn a background title
+#   # Each active Telegram/Mattermost channel can spawn a background title
 #   # call.  Cap concurrency to keep retries during provider incidents
 #   # from amplifying the request burst.  Leave unset for legacy behavior
 #   # (unlimited).
@@ -818,7 +818,7 @@ memory:
 # =============================================================================
 # Session Reset Policy (Messaging Platforms)
 # =============================================================================
-# Controls when messaging sessions (Telegram, Discord, WhatsApp, Slack) are
+# Controls when messaging sessions (Telegram and Mattermost) are
 # automatically cleared. Default is "none": sessions never auto-reset —
 # conversation context lives until you /reset or /new manually, or context
 # compression kicks in. Opt in to automatic resets if you prefer sessions to
@@ -896,7 +896,7 @@ group_sessions_per_user: true
 # ─────────────────────────────────────────────────────────────────────────────
 # Stream tokens to messaging platforms in real-time. The bot sends a message
 # on first token, then progressively edits it as more tokens arrive.
-# Disabled by default — enable to try the streaming UX on Telegram/Discord/Slack.
+# Disabled by default — enable to try the streaming UX on Telegram/Mattermost.
 # For Telegram, partial edits are sent as plain text and only the final edit uses MarkdownV2.
 streaming:
   enabled: false
@@ -1003,7 +1003,7 @@ agent:
   # After the agent edits code without fresh passing verification, nudge it to
   # verify before finishing. The default "auto" enables it on interactive
   # coding surfaces (CLI and ACP) and programmatic callers, and disables
-  # it on conversational messaging surfaces (Telegram, Discord, etc.) where the
+  # it on conversational messaging surfaces (Telegram and Mattermost) where the
   # verification summary would reach a human as chat noise. Set true or false to
   # force it on or off; the HERMES_VERIFY_ON_STOP env var (1/0) takes precedence.
   # verify_on_stop: auto
@@ -1078,7 +1078,7 @@ agent:
 #   - A preset like "hermes-cli" or "hermes-telegram" (curated tool set)
 #   - A list of individual toolsets to compose your own (see list below)
 #
-# Supported platform keys: cli, telegram, discord, whatsapp, slack, qqbot, teams, google_chat
+# Supported platform keys: cli, telegram, mattermost, api_server
 #
 # Examples:
 #
@@ -1095,34 +1095,19 @@ agent:
 #   platform_toolsets:
 #     cli: [web, terminal, file, skills, todo, tts, cronjob]
 #
-#   # Restrictive: Discord gets read-only tools only:
+#   # Restrictive: Mattermost gets read-only tools only:
 #   platform_toolsets:
-#     discord: [web, vision, skills, todo]
+#     mattermost: [web, vision, skills, todo]
 #
 # If not set, defaults are:
 #   cli:           hermes-cli            (everything + cronjob management)
 #   telegram:      hermes-telegram       (terminal, file, web, vision, image, tts, browser, skills, todo, cronjob, messaging)
-#   discord:       hermes-discord        (same as telegram)
-#   whatsapp:      hermes-whatsapp       (same as telegram)
-#   slack:         hermes-slack          (same as telegram)
-#   signal:        hermes-signal         (same as telegram)
-#   homeassistant: hermes-homeassistant  (same as telegram)
-#   qqbot:            hermes-qqbot            (same as telegram)
-#   teams:            hermes-teams            (same as telegram)
-#   google_chat:      hermes-google_chat      (same as telegram)
+#   mattermost:    hermes-mattermost      (same agent capabilities as telegram)
 #
 platform_toolsets:
   cli: [hermes-cli]
   telegram: [hermes-telegram]
-  discord: [hermes-discord]
-  whatsapp: [hermes-whatsapp]
-  slack: [hermes-slack]
-  signal: [hermes-signal]
-  homeassistant: [hermes-homeassistant]
-  qqbot: [hermes-qqbot]
-  yuanbao: [hermes-yuanbao]
-  teams: [hermes-teams]
-  google_chat: [hermes-google_chat]
+  mattermost: [hermes-mattermost]
 
 # =============================================================================
 # Gateway Platform Settings
@@ -1152,26 +1137,11 @@ platform_toolsets:
 #         priority_mode: prepend
 #         priority:
 #           - my_plugin_command
-#   slack:
+#   mattermost:
 #     extra:
-#       # Render live tool calls as Slack-native plan/task cards. This explicit
-#       # opt-in works even though Slack text tool_progress defaults to off.
-#       native_task_cards: false
-#   webhook:
-#     extra:
-#       # Route scripts default to a 30 second timeout. Scripts must live under
-#       # the active profile's scripts directory and receive webhook JSON on stdin.
-#       script_timeout_seconds: 30
-#
-# Discord-specific settings (config.yaml top-level, not under platforms:):
-#
-# discord:
-#   require_mention: true            # Require @mention in server channels (default: true)
-#   auto_thread: true                # Auto-create thread on @mention (default: true)
-#   free_response_channels: ""       # Channel IDs where no mention is needed
-#   reactions: true                  # Show processing reactions (default: true)
-#   history_backfill: true           # Recover missed channel messages on mention (default: true)
-#   history_backfill_limit: 50       # Max messages to scan backwards (default: 50)
+#       require_mention: true
+#       allowed_channels: []
+#       free_response_channels: []
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Available toolsets (use these names in platform_toolsets or the toolsets list)
@@ -1200,9 +1170,7 @@ platform_toolsets:
 #   hermes-cli       - All of the above except send_message
 #   hermes-telegram  - terminal, file, web, vision, image_gen, tts, browser,
 #                      skills, todo, cronjob, send_message
-#   hermes-discord   - Same as hermes-telegram
-#   hermes-whatsapp  - Same as hermes-telegram
-#   hermes-slack     - Same as hermes-telegram
+#   hermes-mattermost - Same agent capabilities as hermes-telegram
 #
 # COMPOSITE:
 #   debugging    - terminal + web + file
@@ -1562,7 +1530,7 @@ display:
 
   # Background process notifications (gateway/messaging only).
   # Controls how chatty the process watcher is when you use
-  # terminal(background=true, notify_on_complete=true) from Telegram/Discord/etc.
+  # terminal(background=true, notify_on_complete=true) from Telegram/Mattermost.
   #   concise: One-line status message on completion; failures include a short
   #            output tail (default)
   #   off:     No watcher messages at all

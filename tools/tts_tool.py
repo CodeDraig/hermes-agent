@@ -483,10 +483,6 @@ class AudioDeliveryProfile:
 
 
 _PLATFORM_AUDIO_DEFAULTS: Dict[str, Dict[str, Any]] = {
-    "discord": {
-        "max_file_bytes": 10 * 1024 * 1024,
-        "safety_ratio": 0.85,
-    },
     "telegram": {
         "max_file_bytes": 50 * 1024 * 1024,
         "safety_ratio": 0.85,
@@ -789,16 +785,9 @@ COMMAND_TTS_OUTPUT_FORMATS = frozenset(
 )
 DEFAULT_COMMAND_TTS_MAX_TEXT_LENGTH = 5000
 
-# Platforms whose native voice-bubble delivery requires Ogg/Opus audio.
-# Previously only Telegram was recognized, so Matrix/Feishu/WhatsApp/Signal
-# voice replies were synthesized as MP3 and rendered as broken attachments
-# (#14841, #45557 and siblings).
+# Retained platform whose native voice-bubble delivery requires Ogg/Opus audio.
 OPUS_VOICE_PLATFORMS = frozenset({
     "telegram",
-    "matrix",
-    "feishu",
-    "whatsapp",
-    "signal",
 })
 
 

@@ -96,7 +96,7 @@ StandardError=journal
 
 # Environment (optional - can also use .env file)
 # Environment="TELEGRAM_BOT_TOKEN=your_token"
-# Environment="DISCORD_BOT_TOKEN=your_token"
+# Environment="MATTERMOST_TOKEN=your_token"
 
 [Install]
 WantedBy=default.target
@@ -329,8 +329,8 @@ Examples:
 Configuration:
     Set environment variables in .env file or system environment:
     - TELEGRAM_BOT_TOKEN
-    - DISCORD_BOT_TOKEN
-    - WHATSAPP_ENABLED
+    - MATTERMOST_TOKEN
+    - MATTERMOST_URL
     
     Or create ~/.hermes/gateway.json for advanced configuration.
 """

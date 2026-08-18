@@ -723,15 +723,9 @@ class TestPromptBuilderConstants:
         # Fallback guidance: plain file path in the response text.
         assert "plain" in hint.lower()
 
-    def test_markdown_converting_platform_hints_do_not_forbid_markdown(self):
-        """#12224 — WhatsApp (Baileys) and Signal adapters actively convert
-        markdown to native formatting (gateway/platforms/whatsapp_common.py
-        format_message + signal_format.markdown_to_signal: bold, italic,
-        strikethrough, headers, bullets). Their hints previously told the
-        agent "do not use markdown", which made it strip bullets/bold the
-        adapter would have rendered. The hint must affirm markdown, not
-        forbid it."""
-        for key in ("whatsapp", "signal"):
+    def test_retained_messaging_platform_hints_support_markdown(self):
+        """Retained messaging adapters render Markdown-capable responses."""
+        for key in ("telegram", "mattermost"):
             hint = PLATFORM_HINTS[key]
             assert "do not use markdown" not in hint.lower()
             assert "markdown" in hint.lower()
@@ -1010,4 +1004,3 @@ class TestParallelToolCallGuidance:
 # =========================================================================
 # Budget warning history stripping
 # =========================================================================
-

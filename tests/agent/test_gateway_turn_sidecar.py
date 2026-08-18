@@ -45,7 +45,7 @@ class _FakeAgent:
         self.base_url = "https://openrouter.ai/api/v1"
         self.api_key = "sk-x"
         self.api_mode = "chat_completions"
-        self.platform = "discord"
+        self.platform = "mattermost"
         self.quiet_mode = True
         self.max_iterations = 90
         self.tools = []
@@ -125,7 +125,7 @@ RESET_NOTE = (
     "[System note: The user's previous session expired due to inactivity. "
     "This is a fresh conversation with no prior context.]"
 )
-VC_NOTE = "[Voice channel now: dev-vc (2 members)]"
+ONE_TURN_NOTE = "[System note: retained one-turn context]"
 
 
 class TestConsumeIsOneShot:
@@ -165,14 +165,14 @@ class TestStringContentSidecarDelivery:
 
     def test_notes_append_after_plugin_context(self):
         agent = _FakeAgent()
-        agent._gateway_turn_context_notes = VC_NOTE
+        agent._gateway_turn_context_notes = ONE_TURN_NOTE
         with patch(
             "hermes_cli.plugins.invoke_hook",
             return_value=[{"context": "PLUGIN-CTX"}],
         ):
             ctx = _build(agent)
         msg = ctx.messages[ctx.current_turn_user_idx]
-        assert msg["api_content"] == "hello\n\nPLUGIN-CTX\n\n" + VC_NOTE
+        assert msg["api_content"] == "hello\n\nPLUGIN-CTX\n\n" + ONE_TURN_NOTE
 
     def test_no_notes_means_no_stamp(self):
         agent = _FakeAgent()

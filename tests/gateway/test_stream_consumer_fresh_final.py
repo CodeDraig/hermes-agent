@@ -327,7 +327,7 @@ class TestTelegramAdapterDeleteMessage:
     """Contract: Telegram adapter implements ``delete_message``."""
 
     def test_delete_message_method_exists(self):
-        telegram = pytest.importorskip("plugins.platforms.telegram.adapter")
+        telegram = pytest.importorskip("gateway.platforms.telegram.adapter")
         import inspect
         cls = telegram.TelegramAdapter
         assert hasattr(cls, "delete_message"), (

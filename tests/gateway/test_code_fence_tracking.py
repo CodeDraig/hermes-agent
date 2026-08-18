@@ -217,12 +217,12 @@ class TestSplitTextChunks:
 class TestReasoningTruncation:
     """When the model runs out of tokens mid-reasoning-block."""
 
-    DISCORD_LIMIT = 2000
+    MESSAGE_LIMIT = 2000
 
     def test_short_truncation_unfixed(self):
         """Fits in one message → truncate_message passes through unfixed."""
         truncated = "💭 **Reasoning:**\n```\nI was thinking about"
-        chunks = BasePlatformAdapter.truncate_message(truncated, self.DISCORD_LIMIT)
+        chunks = BasePlatformAdapter.truncate_message(truncated, self.MESSAGE_LIMIT)
         assert chunks == [truncated]
         assert _odd_fences(chunks[0])
 

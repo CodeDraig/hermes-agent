@@ -696,7 +696,7 @@ def execution_surface(kwargs: dict[str, Any]) -> str:
             return "gateway"
     except Exception:
         pass
-    if value in {"discord", "email", "slack", "telegram", "teams", "whatsapp"}:
+    if value in {"telegram", "mattermost"}:
         return "gateway"
     return "unknown" if value == "unknown" else "other"
 
@@ -815,8 +815,6 @@ def tool_category(kwargs: dict[str, Any]) -> str:
         return "browser"
     if toolset.startswith(("image", "tts", "video", "vision")):
         return "media"
-    if toolset.startswith("homeassistant"):
-        return "home_automation"
     if toolset in {"clarify", "kanban", "todo"}:
         return "planning"
     if toolset == "session_search":
@@ -827,9 +825,7 @@ def tool_category(kwargs: dict[str, Any]) -> str:
         return "skill"
     if toolset == "x_search":
         return "web"
-    if toolset.startswith(
-        ("discord", "email", "feishu", "hermes-yuanbao", "slack", "sms")
-    ):
+    if toolset.startswith(("telegram", "mattermost")):
         return "communication"
     return "other"
 

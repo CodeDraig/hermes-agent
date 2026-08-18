@@ -853,7 +853,7 @@ class TestSyncTurn:
         )
         p.initialize(
             session_id="session-1",
-            platform="discord",
+            platform="mattermost",
             user_id="fakeusername-123",
             user_name="fakeusername",
             chat_id="1485316232612941897",
@@ -884,7 +884,7 @@ class TestSyncTurn:
         assert content[0][1]["content"] == "Assistant (fakeassistantname): hi there"
         assert item["metadata"]["source"] == "hermes"
         assert item["metadata"]["session_id"] == "session-1"
-        assert item["metadata"]["platform"] == "discord"
+        assert item["metadata"]["platform"] == "mattermost"
         assert item["metadata"]["user_id"] == "fakeusername-123"
         assert item["metadata"]["user_name"] == "fakeusername"
         assert item["metadata"]["chat_id"] == "1485316232612941897"

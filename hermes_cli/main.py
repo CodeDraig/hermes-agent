@@ -334,14 +334,11 @@ from hermes_cli.subcommands.profile import build_profile_parser
 from hermes_cli.subcommands.model import build_model_parser
 from hermes_cli.subcommands.setup import build_setup_parser
 
-from hermes_cli.subcommands.whatsapp import build_whatsapp_parser
-from hermes_cli.subcommands.slack import build_slack_parser
 from hermes_cli.subcommands.login import build_login_parser
 from hermes_cli.subcommands.logout import build_logout_parser
 from hermes_cli.subcommands.auth import build_auth_parser
 from hermes_cli.subcommands.status import build_status_parser
 from hermes_cli.subcommands.pause import build_pause_parser
-from hermes_cli.subcommands.webhook import build_webhook_parser
 from hermes_cli.subcommands.hooks import build_hooks_parser
 from hermes_cli.subcommands.doctor import build_doctor_parser
 from hermes_cli.subcommands.verify import build_verify_parser
@@ -1951,256 +1948,8 @@ def cmd_proxy(args):
         raise SystemExit(rc)
 
 
-def cmd_whatsapp(args):
-    """Set up WhatsApp: choose mode, configure, install bridge, pair via QR."""
-    _require_tty("whatsapp")
-    from hermes_cli.config import get_env_value, save_env_value
-    from hermes_constants import find_node_executable, with_hermes_node_path
-
-    print()
-    print("⚕ WhatsApp Setup")
-    print("=" * 50)
-
-    # ── Step 1: Choose mode ──────────────────────────────────────────────
-    current_mode = get_env_value("WHATSAPP_MODE") or ""
-    if not current_mode:
-        print()
-        print("How will you use WhatsApp with Hermes?")
-        print()
-        print("  1. Separate bot number (recommended)")
-        print("     People message the bot's number directly — cleanest experience.")
-        print(
-            "     Requires a second phone number with WhatsApp installed on a device."
-        )
-        print()
-        print("  2. Personal number (self-chat)")
-        print("     You message yourself to talk to the agent.")
-        print("     Quick to set up, but the UX is less intuitive.")
-        print()
-        try:
-            choice = input("  Choose [1/2]: ").strip()
-        except (EOFError, KeyboardInterrupt):
-            print("\nSetup cancelled.")
-            return
-
-        if choice == "1":
-            save_env_value("WHATSAPP_MODE", "bot")
-            wa_mode = "bot"
-            print("  ✓ Mode: separate bot number")
-            print()
-            print("  ┌─────────────────────────────────────────────────┐")
-            print("  │  Getting a second number for the bot:           │")
-            print("  │                                                 │")
-            print("  │  Easiest: Install WhatsApp Business (free app)  │")
-            print("  │  on your phone with a second number:            │")
-            print("  │    • Dual-SIM: use your 2nd SIM slot            │")
-            print("  │    • Google Voice: free US number (voice.google) │")
-            print("  │    • Prepaid SIM: $3-10, verify once            │")
-            print("  │                                                 │")
-            print("  │  WhatsApp Business runs alongside your personal │")
-            print("  │  WhatsApp — no second phone needed.             │")
-            print("  └─────────────────────────────────────────────────┘")
-        else:
-            save_env_value("WHATSAPP_MODE", "self-chat")
-            wa_mode = "self-chat"
-            print("  ✓ Mode: personal number (self-chat)")
-    else:
-        wa_mode = current_mode
-        mode_label = (
-            "separate bot number" if wa_mode == "bot" else "personal number (self-chat)"
-        )
-        print(f"\n✓ Mode: {mode_label}")
-
-    # ── Step 2: Mode is selected, will enable WhatsApp only after pairing ──
-    # We intentionally don't write WHATSAPP_ENABLED=true here.  If the user
-    # aborts the wizard later (Ctrl+C, failed npm install, missed QR scan),
-    # we'd otherwise leave .env claiming WhatsApp is ready when the bridge
-    # has no creds.json.  Every subsequent `hermes gateway` then paid a 30s
-    # bridge-bootstrap timeout and queued WhatsApp for indefinite retries.
-    # Now: aborted setup leaves WHATSAPP_ENABLED unset → gateway skips it.
-    # Re-runs that already have WHATSAPP_ENABLED=true (from a prior
-    # successful pairing) stay enabled — we just don't write it pre-emptively.
-    print()
-    if (get_env_value("WHATSAPP_ENABLED") or "").lower() == "true":
-        print("✓ WhatsApp is already enabled")
-
-    # ── Step 3: Allowed users ────────────────────────────────────────────
-    current_users = get_env_value("WHATSAPP_ALLOWED_USERS") or ""
-    if current_users:
-        print(f"✓ Allowed users: {current_users}")
-        try:
-            response = input("\n  Update allowed users? [y/N] ").strip()
-        except (EOFError, KeyboardInterrupt):
-            response = "n"
-        if response.lower() in {"y", "yes"}:
-            if wa_mode == "bot":
-                phone = input(
-                    "  Phone numbers that can message the bot (comma-separated): "
-                ).strip()
-            else:
-                phone = input("  Your phone number (e.g. 15551234567): ").strip()
-            if phone:
-                save_env_value("WHATSAPP_ALLOWED_USERS", phone.replace(" ", ""))
-                print(f"  ✓ Updated to: {phone}")
-    else:
-        print()
-        if wa_mode == "bot":
-            print("  Who should be allowed to message the bot?")
-            phone = input(
-                "  Phone numbers (comma-separated, or * for anyone): "
-            ).strip()
-        else:
-            phone = input("  Your phone number (e.g. 15551234567): ").strip()
-        if phone:
-            save_env_value("WHATSAPP_ALLOWED_USERS", phone.replace(" ", ""))
-            print(f"  ✓ Allowed users set: {phone}")
-        else:
-            print("  ⚠ No allowlist — the agent will respond to ALL incoming messages")
-
-    # ── Step 4: Install bridge dependencies ──────────────────────────────
-    from gateway.platforms.whatsapp_common import resolve_whatsapp_bridge_dir
-    bridge_dir = resolve_whatsapp_bridge_dir()
-    bridge_script = bridge_dir / "bridge.js"
-
-    if not bridge_script.exists():
-        print(f"\n✗ Bridge script not found at {bridge_script}")
-        return
-
-    if not (bridge_dir / "node_modules").exists():
-        print(
-            "\n→ Installing WhatsApp bridge dependencies (this can take a few minutes)..."
-        )
-        npm = find_node_executable("npm")
-        if not npm:
-            print("  ✗ npm not found on PATH — install Node.js first")
-            return
-        try:
-            result = subprocess.run(
-                [npm, "install", "--no-fund", "--no-audit", "--progress=false"],
-                cwd=str(bridge_dir),
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.PIPE,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                env=with_hermes_node_path(),
-            )
-        except KeyboardInterrupt:
-            print("\n  ✗ Install cancelled")
-            return
-        if result.returncode != 0:
-            err = (result.stderr or "").strip()
-            preview = "\n".join(err.splitlines()[-30:]) if err else "(no output)"
-            print("  ✗ npm install failed:")
-            print(preview)
-            return
-        print("  ✓ Dependencies installed")
-    else:
-        print("✓ Bridge dependencies already installed")
-
-    # ── Step 5: Check for existing session ───────────────────────────────
-    session_dir = get_hermes_home() / "whatsapp" / "session"
-    session_dir.mkdir(parents=True, exist_ok=True)
-
-    if (session_dir / "creds.json").exists():
-        print("✓ Existing WhatsApp session found")
-        try:
-            response = input(
-                "\n  Re-pair? This will clear the existing session. [y/N] "
-            ).strip()
-        except (EOFError, KeyboardInterrupt):
-            response = "n"
-        if response.lower() in {"y", "yes"}:
-            shutil.rmtree(session_dir, ignore_errors=True)
-            session_dir.mkdir(parents=True, exist_ok=True)
-            print("  ✓ Session cleared")
-        else:
-            # Existing pairing — ensure WHATSAPP_ENABLED reflects that.
-            # (Older installs may have lost the env var; covers re-runs
-            # where the user picked "no, keep my session" but the var
-            # was never set or got removed.)
-            if (get_env_value("WHATSAPP_ENABLED") or "").lower() != "true":
-                save_env_value("WHATSAPP_ENABLED", "true")
-            print("\n✓ WhatsApp is configured and paired!")
-            print("  Start the gateway with: hermes gateway")
-            return
-
-    # ── Step 6: QR code pairing ──────────────────────────────────────────
-    print()
-    print("─" * 50)
-    if wa_mode == "bot":
-        print("📱 Open WhatsApp (or WhatsApp Business) on the")
-        print("   phone with the BOT's number, then scan:")
-    else:
-        print("📱 Open WhatsApp on your phone, then scan:")
-    print()
-    print("   Settings → Linked Devices → Link a Device")
-    print("─" * 50)
-    print()
-
-    try:
-        subprocess.run(
-            [
-                find_node_executable("node") or "node",
-                str(bridge_script),
-                "--pair-only",
-                "--session",
-                str(session_dir),
-            ],
-            cwd=str(bridge_dir),
-            env=with_hermes_node_path(),
-        )
-    except KeyboardInterrupt:
-        pass
-
-    # ── Step 7: Post-pairing ─────────────────────────────────────────────
-    print()
-    if (session_dir / "creds.json").exists():
-        # Only enable WhatsApp now that pairing actually succeeded.  If the
-        # user Ctrl+C'd at any earlier step, WHATSAPP_ENABLED stays unset
-        # and `hermes gateway` skips it cleanly instead of paying a 30s
-        # bridge timeout + queueing the platform for indefinite retries.
-        save_env_value("WHATSAPP_ENABLED", "true")
-        print("✓ WhatsApp paired successfully!")
-        print()
-        if wa_mode == "bot":
-            print("  Next steps:")
-            print("    1. Start the gateway:  hermes gateway")
-            print("    2. Send a message to the bot's WhatsApp number")
-            print("    3. The agent will reply automatically")
-            print()
-            print("  Tip: Agent responses are prefixed with '⚕ Hermes Agent'")
-        else:
-            print("  Next steps:")
-            print("    1. Start the gateway:  hermes gateway")
-            print("    2. Open WhatsApp → Message Yourself")
-            print("    3. Type a message — the agent will reply")
-            print()
-            print("  Tip: Agent responses are prefixed with '⚕ Hermes Agent'")
-            print("  so you can tell them apart from your own messages.")
-        print()
-        print("  Or install as a service: hermes gateway install")
-    else:
-        print("⚠ Pairing may not have completed. Run 'hermes whatsapp' to try again.")
 
 
-def cmd_whatsapp_cloud(args):
-    """Set up WhatsApp Business Cloud API (official Meta integration).
-
-    Walks the user through the Meta-side credentials (Phone Number ID,
-    Access Token, App Secret, optional App/WABA IDs) plus webhook
-    configuration. Includes field-shape validators that catch the most
-    common setup mistakes (e.g. pasting a phone number into the Phone
-    Number ID field).
-
-    Distinct from ``hermes whatsapp`` (the Baileys bridge wizard) — the
-    two adapters are complementary, not alternatives. See
-    ``hermes_cli/setup_whatsapp_cloud.py``.
-    """
-    _require_tty("whatsapp-cloud")
-    from hermes_cli.setup_whatsapp_cloud import run_whatsapp_cloud_setup
-
-    return run_whatsapp_cloud_setup()
 
 
 def cmd_setup(args):
@@ -4188,45 +3937,8 @@ def cmd_sync(args):
     return 0
 
 
-def cmd_webhook(args):
-    """Webhook subscription management."""
-    from hermes_cli.webhook import webhook_command
-
-    webhook_command(args)
 
 
-def cmd_slack(args):
-    """Slack integration helpers.
-
-    Dispatches ``hermes slack <subcommand>``. Currently supports:
-      manifest — print or write a Slack app manifest with every gateway
-                 command registered as a first-class slash.
-    """
-    sub = getattr(args, "slack_command", None)
-    if sub in {None, ""}:
-        # No subcommand — print usage hint.
-        print(
-            "usage: hermes slack <subcommand>\n"
-            "\n"
-            "subcommands:\n"
-            "  manifest   Generate a Slack app manifest with every gateway\n"
-            "             command registered as a native slash\n"
-            "\n"
-            "Run `hermes slack manifest -h` for details.",
-            file=sys.stderr,
-        )
-        return 1
-
-    if sub == "manifest":
-        from hermes_cli.slack_cli import slack_manifest_command
-
-        status = slack_manifest_command(args)
-        if status:
-            raise SystemExit(status)
-        return status
-
-    print(f"Unknown slack subcommand: {sub}", file=sys.stderr)
-    return 1
 
 
 def cmd_kanban(args):
@@ -6018,8 +5730,6 @@ def _coalesce_session_name_args(argv: list) -> list:
         "model",
         "gateway",
         "setup",
-        "whatsapp",
-        "whatsapp-cloud",
         "login",
         "logout",
         "auth",
@@ -6041,7 +5751,6 @@ def _coalesce_session_name_args(argv: list) -> list:
         "plugins",
         "security",
         "acp",
-        "webhook",
         "memory",
         "dump",
         "debug",
@@ -6730,13 +6439,6 @@ def _render_distribution_plan(plan) -> None:
         )
 
 
-def cmd_gateway_enroll(args):
-    """Enroll a self-hosted gateway with a relay connector."""
-    from hermes_cli.gateway_enroll import cmd_gateway_enroll as _impl
-
-    _impl(args)
-
-
 def cmd_completion(args, parser=None):
     """Print shell completion script."""
     from hermes_cli.completion import generate_bash, generate_zsh, generate_fish
@@ -6823,8 +6525,8 @@ _BUILTIN_SUBCOMMANDS = frozenset(
         "prompt-size",
         "resume",
         "send", "sessions", "setup",
-        "skin", "skills", "slack", "status", "sync", "tools", "uninstall", "update",
-        "version", "webhook", "whatsapp", "whatsapp-cloud", "chat", "secrets", "security",
+        "skin", "skills", "status", "sync", "tools", "uninstall", "update",
+        "version", "chat", "secrets", "security",
         "verify",
         # Help-ish invocations — plugin commands not being listed in
         # top-level --help is an acceptable trade-off for skipping an
@@ -6915,35 +6617,6 @@ def _plugin_cli_discovery_needed() -> bool:
     # prompt, argparse will route it via positional handling and the
     # extra discovery cost is amortized over a full agent run anyway.
     return True
-
-
-def _resolve_deferred_platform_cli_command(command_name: str | None) -> None:
-    """Materialize the deferred platform whose top-level CLI command matches.
-
-    Bundled platform plugins are cheap-registered as *deferred* entries to
-    avoid importing every gateway SDK during normal startup. A platform that
-    registers a top-level ``hermes <name>`` command (e.g. Photon ->
-    ``ctx.register_cli_command(name="photon", ...)``) only runs that side
-    effect when its module is imported. On the unknown-top-level-command slow
-    path, ``discover_plugins()`` records the deferred loader but does not
-    import it, so the CLI registration never happens and ``hermes photon``
-    fails with argparse ``invalid choice`` (issue #54678).
-
-    Resolving only the platform whose name matches the first positional token
-    keeps normal startup cheap while making the targeted command available.
-    """
-    if not command_name:
-        return
-    try:
-        from gateway.platform_registry import platform_registry
-
-        platform_registry.get(command_name)
-    except Exception as exc:
-        logging.getLogger(__name__).debug(
-            "Deferred platform CLI resolution failed for %s: %s",
-            command_name,
-            exc,
-        )
 
 
 _AGENT_COMMANDS = {None, "chat", "acp", "rl"}
@@ -7037,12 +6710,6 @@ def _prepare_agent_startup(args) -> None:
 
         _hooks_cfg = load_config()
         register_from_config(_hooks_cfg, accept_hooks=_accept_hooks)
-
-        from agent.outbound_webhooks import (
-            register_from_config as register_outbound_webhooks,
-        )
-
-        register_outbound_webhooks(_hooks_cfg)
     except Exception:
         logger.debug(
             "shell-hook registration failed at CLI startup",
@@ -7649,9 +7316,7 @@ def main():
     # =========================================================================
     # gateway + proxy commands  (parsers built in hermes_cli/subcommands/gateway.py)
     # =========================================================================
-    build_gateway_parser(
-        subparsers, cmd_gateway=cmd_gateway, cmd_proxy=cmd_proxy, cmd_gateway_enroll=cmd_gateway_enroll
-    )
+    build_gateway_parser(subparsers, cmd_gateway=cmd_gateway, cmd_proxy=cmd_proxy)
 
     # =========================================================================
     # lsp command
@@ -7669,31 +7334,6 @@ def main():
     # =========================================================================
     build_setup_parser(subparsers, cmd_setup=cmd_setup)
 
-
-    # =========================================================================
-    # whatsapp command  (parser built in hermes_cli/subcommands/whatsapp.py)
-    # =========================================================================
-    build_whatsapp_parser(subparsers, cmd_whatsapp=cmd_whatsapp)
-
-    # =========================================================================
-    # whatsapp-cloud command (official Meta Cloud API; complement to Baileys)
-    # =========================================================================
-    whatsapp_cloud_parser = subparsers.add_parser(
-        "whatsapp-cloud",
-        help="Set up WhatsApp Business Cloud API integration",
-        description=(
-            "Configure the official Meta WhatsApp Business Cloud API "
-            "adapter (Business account required, public webhook URL "
-            "required). Distinct from `hermes whatsapp` which sets up "
-            "the Baileys bridge for personal accounts."
-        ),
-    )
-    whatsapp_cloud_parser.set_defaults(func=cmd_whatsapp_cloud)
-
-    # =========================================================================
-    # slack command  (parser built in hermes_cli/subcommands/slack.py)
-    # =========================================================================
-    build_slack_parser(subparsers, cmd_slack=cmd_slack)
 
     # =========================================================================
     # send command — pipe shell-script output to any configured platform
@@ -7731,11 +7371,6 @@ def main():
     # =========================================================================
     build_cron_parser(subparsers, cmd_cron=cmd_cron)
     build_sync_parser(subparsers, cmd_sync=cmd_sync)
-
-    # =========================================================================
-    # webhook command  (parser built in hermes_cli/subcommands/webhook.py)
-    # =========================================================================
-    build_webhook_parser(subparsers, cmd_webhook=cmd_webhook)
 
     # =========================================================================
     # portal command — Nous Portal status + Tool Gateway routing
@@ -7911,7 +7546,6 @@ def main():
             # invoked is still only a deferred entry at this point; import it
             # so its register_cli_command side effect runs before we read
             # _cli_commands (issue #54678).
-            _resolve_deferred_platform_cli_command(_first_positional_argv())
             for cmd_info in get_plugin_manager()._cli_commands.values():
                 if cmd_info["name"] in seen_plugin_commands:
                     continue

@@ -125,7 +125,7 @@ class TestCronjobRunExecutesImmediately:
 
     def test_execute_job_now_passes_live_gateway_context_to_delivery(self):
         """Manual runs must deliver on the live gateway adapter's owning loop."""
-        adapters = {"matrix": object()}
+        adapters = {"mattermost": object()}
         gateway_loop = object()
         runner = SimpleNamespace(adapters=adapters, _gateway_loop=gateway_loop)
         completed = {"id": "job-run-1", "last_status": "ok", "last_error": None}

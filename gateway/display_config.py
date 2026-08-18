@@ -37,8 +37,7 @@ _GLOBAL_DEFAULTS: dict[str, Any] = {
     # How a reasoning/thinking summary is rendered when show_reasoning is on.
     #   "code"      -> 💭 **Reasoning:** + fenced code block (legacy default)
     #   "blockquote"-> each line prefixed with "> "
-    #   "subtext"   -> each line prefixed with "-# " (Discord small grey subtext)
-    # Discord defaults to "subtext"; everywhere else defaults to "code".
+    #   "subtext"   -> each line prefixed with "-# "
     "reasoning_style": "code",
     "tool_preview_length": 0,
     "streaming": None,  # None = follow top-level streaming config
@@ -59,13 +58,13 @@ _GLOBAL_DEFAULTS: dict[str, Any] = {
     # stale breadcrumbs. Failed runs leave bubbles in place as breadcrumbs.
     "cleanup_progress": False,
     # Live working-state status on platforms whose typing indicator renders
-    # text (Slack's assistant status line). Values:
+    # text. Values:
     #   "full" / true  -> verb + argument preview ("is running pytest…")
     #   "verb"         -> verb only ("is running…") — keeps file paths and
     #                     commands out of shared channels
     #   "off" / false  -> static text (typing_status_text or "is thinking...")
     # Independent of tool_progress: works even when progress bubbles are off
-    # (Slack's default), and costs no extra API calls — the existing typing
+    # and costs no extra API calls — the existing typing
     # refresh cadence just renders different text.
     "live_status": "full",
 }
@@ -98,26 +97,6 @@ _TIER_MEDIUM = {
     "busy_ack_detail": True,
 }
 
-_TIER_LOW = {
-    "tool_progress": "off",
-    "show_reasoning": False,
-    "tool_preview_length": 40,
-    "streaming": False,
-    "interim_assistant_messages": False,
-    "long_running_notifications": False,
-    "busy_ack_detail": False,
-}
-
-_TIER_MINIMAL = {
-    "tool_progress": "off",
-    "show_reasoning": False,
-    "tool_preview_length": 0,
-    "streaming": False,
-    "interim_assistant_messages": False,
-    "long_running_notifications": False,
-    "busy_ack_detail": False,
-}
-
 _PLATFORM_DEFAULTS: dict[str, dict[str, Any]] = {
     # Tier 1 — full edit support, personal/team use
     # Telegram is usually a mobile inbox: keep tool_progress quiet and skip
@@ -132,51 +111,8 @@ _PLATFORM_DEFAULTS: dict[str, dict[str, Any]] = {
         "tool_progress": "off",
         "busy_ack_detail": False,
     },
-    # Discord has a native "subtext" primitive (-# small grey text) that reads
-    # as metadata rather than content, so reasoning summaries default to it
-    # here instead of the fenced code block used elsewhere.
-    "discord":     {**_TIER_HIGH, "reasoning_style": "subtext"},
-
     # Tier 2 — edit support, often customer/workspace channels
-    # Slack: tool_progress off by default — Bolt posts cannot be edited like CLI;
-    # "new"/"all" spam permanent lines in channels (hermes-agent#14663).
-    "slack":           {
-        **_TIER_MEDIUM,
-        "tool_progress": "off",
-        "long_running_notifications": False,
-        "busy_ack_detail": False,
-    },
     "mattermost":      _TIER_MEDIUM,
-    "matrix":          _TIER_MEDIUM,
-    "feishu":          _TIER_MEDIUM,
-
-    # Tier 3 — no edit support, progress messages are permanent
-    "signal":          _TIER_LOW,
-    "whatsapp":        _TIER_MEDIUM,  # Baileys bridge supports /edit
-    # WhatsApp Cloud API: Meta added message editing in 2023 but the
-    # Hermes Cloud adapter doesn't implement edit_message yet, so we
-    # stay on TIER_LOW (tool_progress off) to avoid spamming each
-    # status update as a separate message. Promote to TIER_MEDIUM once
-    # Cloud's edit_message lands.
-    "whatsapp_cloud":  _TIER_LOW,
-    # Photon (managed iMessage over the gRPC sidecar) and BlueBubbles are both
-    # permanent-message iMessage inboxes with no message-edit support, so both
-    # stay TIER_LOW. This keeps tool progress, interim scratch commentary,
-    # "still working" heartbeats, and busy-ack iteration detail out of the
-    # user's iMessage thread. Without this entry Photon inherited the noisy
-    # global ("all") defaults and compacted/narrated on nearly every turn.
-    "photon":          _TIER_LOW,
-    "bluebubbles":     _TIER_LOW,
-    "weixin":          _TIER_LOW,
-    "wecom":           _TIER_LOW,
-    "wecom_callback":  _TIER_LOW,
-    "dingtalk":        _TIER_LOW,
-
-    # Tier 4 — batch or non-interactive delivery
-    "email":           _TIER_MINIMAL,
-    "sms":             _TIER_MINIMAL,
-    "webhook":         _TIER_MINIMAL,
-    "homeassistant":   _TIER_MINIMAL,
     "api_server":      {**_TIER_HIGH, "tool_preview_length": 0},
 }
 
@@ -197,7 +133,7 @@ def resolve_display_setting(
     user_config : dict
         The full parsed config.yaml dict.
     platform_key : str
-        Platform config key (e.g. ``"telegram"``, ``"slack"``).  Use
+        Platform config key (e.g. ``"telegram"``). Use
         ``_platform_config_key(source.platform)`` from gateway/run.py.
     setting : str
         Display setting name (e.g. ``"tool_progress"``, ``"show_reasoning"``).

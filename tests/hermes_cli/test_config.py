@@ -1033,7 +1033,7 @@ class TestDiscordChannelPromptsConfig:
         # File must NOT be a defaults dump — assert specific DEFAULT_CONFIG
         # top-level keys are absent (they should only appear via load_config's
         # deep-merge, not be written to the user's file by migration).
-        for default_key in ("tts", "compression", "security", "whatsapp", "bedrock"):
+        for default_key in ("tts", "compression", "security", "telegram", "bedrock"):
             assert default_key not in raw, (
                 f"{default_key} should not be in migrated config file — "
                 f"migration should use read_raw_config() to avoid defaults dump"
@@ -1164,7 +1164,7 @@ class TestMigrationWriteInvariant:
             yaml.safe_dump({
                 "_config_version": start,
                 "model": {"default": "test-model", "provider": "openrouter"},
-                "matrix": {"require_mention": False},
+                "mattermost": {"require_mention": False},
             }, sort_keys=False),
             encoding="utf-8",
         )
@@ -1175,13 +1175,13 @@ class TestMigrationWriteInvariant:
 
         assert raw["_config_version"] == latest
         # User's explicit non-default value preserved (not reset to True default).
-        assert raw["matrix"]["require_mention"] is False
-        assert loaded["matrix"]["require_mention"] is False
+        assert raw["mattermost"]["require_mention"] is False
+        assert loaded["mattermost"]["require_mention"] is False
         # No default-only top-level section the user never wrote lands on disk —
         # neither from per-version seeds nor the catch-all finalizer.
         for default_key in (
             "timezone", "curator", "auxiliary", "tts", "compression",
-            "whatsapp", "bedrock",
+            "telegram", "bedrock",
         ):
             assert default_key not in raw, (
                 f"{default_key} was materialised into a lean config by the "
@@ -1203,12 +1203,12 @@ model:
 agent:
   max_turns: 60
 platforms:
-  feishu:
+  mattermost:
     enabled: true
     extra:
       app_id: cli_xxx
       app_secret: xxx
-feishu:
+mattermost:
   require_mention: true
 """
         (tmp_path / "config.yaml").write_text(body, encoding="utf-8")
@@ -1224,8 +1224,8 @@ feishu:
             raw = yaml.safe_load((tmp_path / "config.yaml").read_text(encoding="utf-8"))
             merged = load_config()
 
-        assert raw["platforms"]["feishu"]["extra"]["app_id"] == "cli_xxx"
-        assert raw["feishu"]["require_mention"] is True
+        assert raw["platforms"]["mattermost"]["extra"]["app_id"] == "cli_xxx"
+        assert raw["mattermost"]["require_mention"] is True
         # verify_on_stop=False now equals the schema default (opt-in), so
         # strip_defaults removes it from disk; deep-merge supplies it at read.
         assert "verify_on_stop" not in raw.get("agent", {})
@@ -1242,7 +1242,7 @@ model:
 agent:
   max_turns: 60
 platforms:
-  feishu:
+  mattermost:
     enabled: true
     extra:
       app_id: cli_xxx
@@ -1256,7 +1256,7 @@ platforms:
             _persist_migration(config)
             raw = yaml.safe_load((tmp_path / "config.yaml").read_text(encoding="utf-8"))
 
-        assert raw["platforms"]["feishu"]["extra"]["app_id"] == "cli_xxx"
+        assert raw["platforms"]["mattermost"]["extra"]["app_id"] == "cli_xxx"
         # The migration-write invariant strips schema-default values, and
         # verify_on_stop=False now IS the default — so it must NOT be
         # materialised to disk by _persist_migration.
@@ -1273,12 +1273,12 @@ model:
 agent:
   max_turns: 60
 platforms:
-  feishu:
+  mattermost:
     enabled: true
     extra:
       app_id: cli_xxx
       app_secret: xxx
-feishu:
+mattermost:
   require_mention: true
 """
         (tmp_path / "config.yaml").write_text(body, encoding="utf-8")
@@ -1286,8 +1286,8 @@ feishu:
             migrate_config(interactive=False, quiet=True)
             raw = yaml.safe_load((tmp_path / "config.yaml").read_text(encoding="utf-8"))
 
-        assert raw["platforms"]["feishu"]["extra"]["app_id"] == "cli_xxx"
-        assert raw["feishu"]["require_mention"] is True
+        assert raw["platforms"]["mattermost"]["extra"]["app_id"] == "cli_xxx"
+        assert raw["mattermost"]["require_mention"] is True
 
 
 class TestVerifyOnStopMigration:

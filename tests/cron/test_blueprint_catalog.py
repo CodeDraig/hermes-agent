@@ -83,8 +83,8 @@ class TestValidation:
         # deliver is a non-strict enum: its options are suggestions, the real
         # set of valid platforms depends on the user's configured gateways and
         # is validated downstream by the cron scheduler.
-        spec = fill_blueprint(get_blueprint("morning-brief"), {"time": "08:00", "deliver": "slack"})
-        assert spec["deliver"] == "slack"
+        spec = fill_blueprint(get_blueprint("morning-brief"), {"time": "08:00", "deliver": "mattermost"})
+        assert spec["deliver"] == "mattermost"
 
     def test_unknown_slot_name_rejected(self):
         # A typo'd slot must NOT silently create a job with the default value.

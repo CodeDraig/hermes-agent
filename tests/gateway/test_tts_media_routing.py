@@ -140,7 +140,7 @@ class _DiscordMediaFailureAdapter(BasePlatformAdapter):
     """Minimal adapter to exercise non-streaming MEDIA failure notification."""
 
     def __init__(self):
-        super().__init__(PlatformConfig(enabled=True, token="test"), Platform.DISCORD)
+        super().__init__(PlatformConfig(enabled=True, token="test"), Platform.TELEGRAM)
         self.notices: list[str] = []
 
     async def connect(self, *, is_reconnect: bool = False):
@@ -184,7 +184,7 @@ class _DiscordMediaFailureAdapter(BasePlatformAdapter):
     """Minimal adapter to exercise non-streaming MEDIA failure notification."""
 
     def __init__(self):
-        super().__init__(PlatformConfig(enabled=True, token="test"), Platform.DISCORD)
+        super().__init__(PlatformConfig(enabled=True, token="test"), Platform.TELEGRAM)
         self.notices: list[str] = []
 
     async def connect(self, *, is_reconnect: bool = False):

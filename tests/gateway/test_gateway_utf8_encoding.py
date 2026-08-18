@@ -1,5 +1,5 @@
-"""Static guard: every ``read_text`` / ``write_text`` call in the gateway and
-bundled update-response adapters must pass an explicit ``encoding=`` keyword
+"""Static guard: every ``read_text`` / ``write_text`` call in the gateway
+must pass an explicit ``encoding=`` keyword
 argument so non-UTF-8 Windows locales don't corrupt file IPC.  Mirrors the
 AST-based guard pattern in
 ``tests/tools/test_windows_compat.py``.
@@ -11,14 +11,7 @@ import pytest
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 GATEWAY_DIR = REPO_ROOT / "gateway"
-UPDATE_RESPONSE_FILES = (
-    REPO_ROOT / "plugins/platforms/discord/adapter.py",
-    REPO_ROOT / "plugins/platforms/telegram/adapter.py",
-    REPO_ROOT / "plugins/platforms/feishu/adapter.py",
-    REPO_ROOT / "plugins/platforms/whatsapp/adapter.py",
-    REPO_ROOT / "plugins/platforms/google_chat/adapter.py",
-    REPO_ROOT / "plugins/platforms/google_chat/oauth.py",
-)
+UPDATE_RESPONSE_FILES = ()
 METHODS = {"read_text", "write_text"}
 SUPPRESSION = "# gateway-utf8: ok"
 

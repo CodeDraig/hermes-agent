@@ -20,8 +20,7 @@ from gateway.run import (
 # copies were near-duplicate parametrizations.
 CHAT_PLATFORMS = [
     "telegram",
-    "slack",
-    "feishu",
+    "mattermost",
 ]
 
 NOISY_STATUS_MESSAGES = [
@@ -121,14 +120,14 @@ def test_telegram_status_suppresses_auxiliary_and_retry_noise():
 
 
 def test_programmatic_surfaces_keep_raw_status():
-    """Programmatic surfaces (local/api/webhook) must keep raw diagnostics.
+    """Programmatic surfaces (local/API) must keep raw diagnostics.
 
     Negative case for the invariant: the chat-noise filter must not touch
-    CLI/TUI diagnostics, API JSON, or webhook payloads.
+    CLI diagnostics or API JSON.
     """
     message = "⏳ Retrying in 4.2s (attempt 1/3)..."
 
-    for platform in ("local", "api_server", "webhook", "msgraph_webhook"):
+    for platform in ("local", "api_server"):
         assert (
             _prepare_gateway_status_message(platform, "lifecycle", message) == message
         )
@@ -177,7 +176,7 @@ def test_manual_compress_feedback_and_failure_notices_stay_visible(platform, mes
     assert _prepare_gateway_status_message(platform, "warn", message) == message
 
 
-@pytest.mark.parametrize("platform", ["slack", "matrix"])
+@pytest.mark.parametrize("platform", ["telegram", "mattermost"])
 def test_chat_gateways_redact_secret_in_provider_error(platform):
     """Provider-error bodies carrying secrets must never reach chat users.
 
@@ -199,7 +198,7 @@ def test_chat_gateways_redact_secret_in_provider_error(platform):
     assert "provider" in sanitized.lower()
 
 
-@pytest.mark.parametrize("platform", ["slack", "matrix"])
+@pytest.mark.parametrize("platform", ["telegram", "mattermost"])
 def test_chat_gateways_redact_secret_in_non_error_body(platform):
     """Secrets must be redacted even when no provider-error rewrite fires.
 
@@ -235,7 +234,7 @@ def test_plugin_platform_string_suppresses_noise():
     """Unknown/plugin chat platforms fail closed to the chat-filter path."""
     message = "⏳ Retrying in 4.2s (attempt 1/3)..."
 
-    assert _prepare_gateway_status_message("irc", "warn", message) is None
+    assert _prepare_gateway_status_message("unsupported", "warn", message) is None
 
 
 @pytest.mark.parametrize("platform", CHAT_PLATFORMS)

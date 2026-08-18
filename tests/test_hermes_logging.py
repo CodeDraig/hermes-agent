@@ -168,7 +168,7 @@ class TestGatewayMode:
         """gateway.log captures records from gateway.* loggers."""
         hermes_logging.setup_logging(hermes_home=hermes_home, mode="gateway")
 
-        gw_logger = logging.getLogger("plugins.platforms.telegram.adapter")
+        gw_logger = logging.getLogger("gateway.platforms.telegram.adapter")
         gw_logger.info("telegram connected")
 
         hermes_logging.flush_log_queue()

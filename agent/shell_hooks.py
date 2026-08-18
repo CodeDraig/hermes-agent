@@ -110,7 +110,7 @@ emitted by each built-in hook site.
 ``on_session_start`` (emitted from ``agent/conversation_loop.py``)::
 
     model           – model name (e.g. "claude-sonnet-4-20250514")
-    platform        – platform identifier (e.g. "cli", "whatsapp")
+    platform        – platform identifier (e.g. "cli", "telegram")
 
 ``on_session_end`` (emitted from ``agent/turn_finalizer.py``)::
 
@@ -383,11 +383,8 @@ def _parse_hooks_block(hooks_cfg: Any) -> List[ShellHookSpec]:
     specs: List[ShellHookSpec] = []
 
     for event_name, entries in hooks_cfg.items():
-        # Reserved sub-keys that aren't event names — skip silently. These
-        # are config sub-sections nested under `hooks:` for related
-        # functionality (e.g. output-spill budgets, outbound webhooks —
-        # the latter parsed by agent/outbound_webhooks.py).
-        if event_name in ("output_spill", "outbound"):
+        # Reserved sub-keys that aren't event names.
+        if event_name == "output_spill":
             continue
         if event_name in SHELL_UNSUPPORTED_HOOKS:
             # Registering would "succeed" while the hook's return value is

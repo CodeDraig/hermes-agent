@@ -25,7 +25,7 @@ from gateway.session import SessionSource
 class ProgressCaptureAdapter(BasePlatformAdapter):
     """Records every send so the test can assert nothing leaked."""
 
-    def __init__(self, platform=Platform.SLACK):
+    def __init__(self, platform=Platform.MATTERMOST):
         super().__init__(PlatformConfig(enabled=True, token="***"), platform)
         self.sent = []
         self.edits = []
@@ -130,7 +130,7 @@ async def test_clarify_tool_never_renders_progress_bubble(monkeypatch, tmp_path,
     gateway_run = _install_fakes(monkeypatch, mode)
     monkeypatch.setattr(gateway_run, "_hermes_home", tmp_path)
 
-    source = SessionSource(platform=Platform.SLACK, chat_id="C1", chat_type="dm")
+    source = SessionSource(platform=Platform.MATTERMOST, chat_id="C1", chat_type="dm")
 
     result = await runner._run_agent(
         message="hello",

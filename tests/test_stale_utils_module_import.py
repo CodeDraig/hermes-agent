@@ -69,7 +69,6 @@ class TestStaleUtilsModuleImport:
 
         monkeypatch.delattr(utils, "env_float")
 
-        # plugins/platforms/discord/adapter.py:106
         with pytest.raises(ImportError, match=r"cannot import name 'env_float' from 'utils'"):
             _import_fresh_consumer(
                 "stale_discord_consumer",

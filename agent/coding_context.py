@@ -67,7 +67,7 @@ logger = logging.getLogger("hermes.coding_context")
 CODING_TOOLSET = "coding"
 
 # Surfaces where a coding posture makes sense under ``auto``. Messaging
-# platforms (telegram, discord, slack, …) are intentionally absent — a chat bot
+# messaging transports are intentionally absent — a chat bot
 # in a group is not pair-programming.
 INTERACTIVE_CODING_PLATFORMS = {"cli", "acp", ""}
 
@@ -305,7 +305,6 @@ _NON_CODING_SKILL_CATEGORIES = (
     "apple", "communication", "cooking", "creative", "email", "finance",
     "gaming", "gifs", "health", "media", "music", "note-taking",
     "productivity", "shopping", "smart-home", "social-media", "travel",
-    "yuanbao",
 )
 
 

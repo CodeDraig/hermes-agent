@@ -22,7 +22,7 @@ class TestQuerySessionListingSearch:
         db = SessionDB(db_path=tmp_path / "state.db")
         db.create_session("sess_an94", "telegram", user_id="1", chat_id="2")
         db.set_session_title("sess_an94", "AN-94 Prestige Barrel Build #2")
-        db.create_session("sess_winton", "whatsapp", user_id="1", chat_id="2")
+        db.create_session("sess_winton", "mattermost", user_id="1", chat_id="2")
         db.set_session_title("sess_winton", "Winton Email Sheet Update #3")
         db.create_session("sess_untitled", "telegram", user_id="1", chat_id="2")
         yield db
@@ -35,7 +35,7 @@ class TestQuerySessionListingSearch:
 
     def test_source_scoping(self, db):
         assert self._ids(db, source="telegram", search_query="winton") == []
-        assert self._ids(db, source="whatsapp", search_query="winton") == ["sess_winton"]
+        assert self._ids(db, source="mattermost", search_query="winton") == ["sess_winton"]
 
 
     def test_search_matches_compression_root_title(self, tmp_path):

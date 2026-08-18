@@ -37,12 +37,12 @@ def test_38798_corruption_warns_and_suggests_correct_name():
 
 
 def test_mixed_valid_and_invalid_flags_only_the_invalid():
-    cfg = {"cli": ["hermes-cli"], "discord": ["bogus"]}
+    cfg = {"cli": ["hermes-cli"], "mattermost": ["bogus"]}
     warnings = validate_platform_toolsets(cfg, _is_valid)
     # One valid entry exists, so no zero-valid warning.
     assert not any("zero valid toolsets" in w for w in warnings)
     assert len(warnings) == 1
-    assert "platform 'discord'" in warnings[0]
+    assert "platform 'mattermost'" in warnings[0]
     assert "unknown toolset 'bogus'" in warnings[0]
 
 

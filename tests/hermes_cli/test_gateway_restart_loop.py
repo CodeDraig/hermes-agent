@@ -222,8 +222,10 @@ class TestGatewaySelfTargetingGuard:
         def _sentinel(*a, **k):
             raise _Reached()
 
-        monkeypatch.setattr(gw, "_dispatch_via_service_manager_if_s6", _sentinel)
-        monkeypatch.setattr(gw, "_dispatch_all_via_service_manager_if_s6", _sentinel)
+        monkeypatch.setattr(gw, "supports_systemd_services", lambda: False)
+        monkeypatch.setattr(gw, "is_macos", lambda: False)
+        monkeypatch.setattr(gw, "is_windows", lambda: False)
+        monkeypatch.setattr(gw, "stop_profile_gateway", _sentinel)
         args = Namespace(gateway_command="stop", all=False, system=False)
         with pytest.raises(_Reached):
             gw.gateway_command(args)

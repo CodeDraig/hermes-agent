@@ -91,12 +91,12 @@ class TestCronContextDeliveryResolution:
         assert result["deliver"] == "telegram:-100123456:17"
 
     def test_no_thread_id_omits_thread_segment(self, temp_cron_home):
-        tokens, extra = _enter_cron_context("slack", "C0ABC")
+        tokens, extra = _enter_cron_context("mattermost", "C0ABC")
         try:
             result = _create(deliver="origin")
         finally:
             _exit_cron_context(tokens, extra)
-        assert result["deliver"] == "slack:C0ABC"
+        assert result["deliver"] == "mattermost:C0ABC"
 
     def test_creator_without_delivery_target_falls_back_to_local(self, temp_cron_home):
         # Creator job delivers nowhere concrete (deliver='local' run):

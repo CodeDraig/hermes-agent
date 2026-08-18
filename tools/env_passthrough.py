@@ -81,9 +81,9 @@ def _is_hermes_provider_credential(name: str) -> bool:
         )
         return True
     # Dynamically-generated Hermes-internal secrets (AUXILIARY_*_API_KEY /
-    # _BASE_URL side-LLM credentials, GATEWAY_RELAY_* relay-auth) are provider
+    # _BASE_URL side-LLM credentials) are provider
     # credentials the static blocklist can't enumerate — they're injected per
-    # task/relay at gateway startup. A skill must not be able to register them
+    # task startup. A skill must not be able to register them
     # as passthrough and tunnel them into an execute_code / terminal child.
     if _is_hermes_internal_secret(name):
         return True

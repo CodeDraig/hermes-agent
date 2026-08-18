@@ -264,34 +264,7 @@ _CONFIG_LOCK = threading.RLock()
 _EXTRA_ENV_KEYS = frozenset({
     "OPENAI_API_KEY", "OPENAI_BASE_URL",
     "ANTHROPIC_API_KEY", "ANTHROPIC_TOKEN",
-    "DISCORD_HOME_CHANNEL", "DISCORD_HOME_CHANNEL_NAME",
     "TELEGRAM_HOME_CHANNEL", "TELEGRAM_HOME_CHANNEL_NAME",
-    "SLACK_HOME_CHANNEL", "SLACK_HOME_CHANNEL_NAME",
-    "SIGNAL_ACCOUNT", "SIGNAL_HTTP_URL",
-    "SIGNAL_ALLOWED_USERS", "SIGNAL_GROUP_ALLOWED_USERS",
-    "SIGNAL_HOME_CHANNEL", "SIGNAL_HOME_CHANNEL_NAME",
-    "SMS_HOME_CHANNEL", "SMS_HOME_CHANNEL_NAME",
-    "DINGTALK_CLIENT_ID", "DINGTALK_CLIENT_SECRET",
-    "DINGTALK_HOME_CHANNEL", "DINGTALK_HOME_CHANNEL_NAME",
-    "FEISHU_APP_ID", "FEISHU_APP_SECRET", "FEISHU_ENCRYPT_KEY", "FEISHU_VERIFICATION_TOKEN",
-    "FEISHU_HOME_CHANNEL", "FEISHU_HOME_CHANNEL_NAME",
-    "YUANBAO_HOME_CHANNEL", "YUANBAO_HOME_CHANNEL_NAME",
-    "WECOM_BOT_ID", "WECOM_SECRET",
-    "WECOM_CALLBACK_CORP_ID", "WECOM_CALLBACK_CORP_SECRET", "WECOM_CALLBACK_AGENT_ID",
-    "WECOM_CALLBACK_TOKEN", "WECOM_CALLBACK_ENCODING_AES_KEY",
-    "WECOM_CALLBACK_HOST", "WECOM_CALLBACK_PORT",
-    "WECOM_HOME_CHANNEL", "WECOM_HOME_CHANNEL_NAME",
-    "WEIXIN_ACCOUNT_ID", "WEIXIN_TOKEN", "WEIXIN_BASE_URL", "WEIXIN_CDN_BASE_URL",
-    "WEIXIN_HOME_CHANNEL", "WEIXIN_HOME_CHANNEL_NAME", "WEIXIN_DM_POLICY", "WEIXIN_GROUP_POLICY",
-    "WEIXIN_ALLOWED_USERS", "WEIXIN_GROUP_ALLOWED_USERS", "WEIXIN_ALLOW_ALL_USERS",
-    "BLUEBUBBLES_SERVER_URL", "BLUEBUBBLES_PASSWORD",
-    "BLUEBUBBLES_HOME_CHANNEL", "BLUEBUBBLES_HOME_CHANNEL_NAME",
-    "QQ_APP_ID", "QQ_CLIENT_SECRET", "QQBOT_HOME_CHANNEL", "QQBOT_HOME_CHANNEL_NAME",
-    "QQ_HOME_CHANNEL", "QQ_HOME_CHANNEL_NAME",  # legacy aliases (pre-rename, still read for back-compat)
-    "QQ_ALLOWED_USERS", "QQ_GROUP_ALLOWED_USERS", "QQ_ALLOW_ALL_USERS", "QQ_MARKDOWN_SUPPORT",
-    "QQ_STT_API_KEY", "QQ_STT_BASE_URL", "QQ_STT_MODEL",
-    "IRC_SERVER", "IRC_PORT", "IRC_NICKNAME", "IRC_CHANNEL",
-    "IRC_USE_TLS", "IRC_SERVER_PASSWORD", "IRC_NICKSERV_PASSWORD",
     "TERMINAL_ENV", "TERMINAL_SSH_KEY", "TERMINAL_SSH_PORT",
     # HERMES_TOOL_PROGRESS_MODE is deprecated (replaced by display.tool_progress
     # in config.yaml) but STILL READ at runtime by the gateway as a back-compat
@@ -300,11 +273,7 @@ _EXTRA_ENV_KEYS = frozenset({
     # support floor retired its only consumer (the v3→4 migration): it is no
     # longer listed here and doctor flags it as ignored.
     "HERMES_TOOL_PROGRESS_MODE",
-    "WHATSAPP_MODE", "WHATSAPP_ENABLED",
     "MATTERMOST_HOME_CHANNEL", "MATTERMOST_HOME_CHANNEL_NAME", "MATTERMOST_REPLY_MODE",
-    "MATRIX_PASSWORD", "MATRIX_ENCRYPTION", "MATRIX_DEVICE_ID", "MATRIX_HOME_ROOM",
-    "MATRIX_REQUIRE_MENTION", "MATRIX_FREE_RESPONSE_ROOMS", "MATRIX_AUTO_THREAD", "MATRIX_DM_AUTO_THREAD",
-    "MATRIX_RECOVERY_KEY",
     # Langfuse observability plugin — optional tuning keys + standard SDK vars.
     # Activation is via plugins.enabled (opt-in through `hermes plugins enable
     # observability/langfuse` or `hermes tools → Langfuse`); credentials gate
@@ -638,8 +607,6 @@ from hermes_cli.config_defaults import DEFAULT_CONFIG, OPTIONAL_ENV_VARS  # noqa
 ENV_VARS_BY_VERSION: Dict[int, List[str]] = {
     3: ["FIRECRAWL_API_KEY", "BROWSERBASE_API_KEY", "BROWSERBASE_PROJECT_ID", "FAL_KEY"],
     4: ["VOICE_TOOLS_OPENAI_KEY", "ELEVENLABS_API_KEY"],
-    5: ["WHATSAPP_ENABLED", "WHATSAPP_MODE", "WHATSAPP_ALLOWED_USERS",
-        "SLACK_BOT_TOKEN", "SLACK_APP_TOKEN", "SLACK_ALLOWED_USERS"],
     10: ["TAVILY_API_KEY"],
     11: ["TERMINAL_MODAL_MODE"],
 }
@@ -847,9 +814,9 @@ def _is_env_config_key(key: str) -> bool:
         'FIRECRAWL_GATEWAY_URL', 'TOOL_GATEWAY_DOMAIN', 'TOOL_GATEWAY_SCHEME',
         'TOOL_GATEWAY_USER_TOKEN', 'TAVILY_API_KEY',
         'BROWSERBASE_API_KEY', 'BROWSERBASE_PROJECT_ID', 'BROWSER_USE_API_KEY',
-        'FAL_KEY', 'TELEGRAM_BOT_TOKEN', 'DISCORD_BOT_TOKEN',
+        'FAL_KEY', 'TELEGRAM_BOT_TOKEN', 'MATTERMOST_TOKEN',
         'TERMINAL_SSH_HOST', 'TERMINAL_SSH_USER', 'TERMINAL_SSH_KEY',
-        'SUDO_PASSWORD', 'SLACK_BOT_TOKEN', 'SLACK_APP_TOKEN',
+        'SUDO_PASSWORD',
         'GITHUB_TOKEN', 'HONCHO_API_KEY',
     ]
     return (
@@ -1651,7 +1618,6 @@ _EXTRA_KNOWN_ROOT_KEYS = {
     "platforms",             # top-level per-platform map merged by gateway/config.py
     "require_mention",       # top-level convenience form honored by the gateway (#3979)
     "unauthorized_dm_behavior",  # top-level form read by gateway/config.py
-    "signal",            # Signal settings bridged to env vars by gateway/config.py
     "timeouts",          # unified timeout resolution section (agent/deadline.py, #85125)
 }
 _KNOWN_ROOT_KEYS = frozenset(DEFAULT_CONFIG.keys()) | _EXTRA_KNOWN_ROOT_KEYS
@@ -4326,10 +4292,10 @@ def show_config():
     print(color("◆ Messaging Platforms", Colors.CYAN, Colors.BOLD))
     
     telegram_token = get_env_value('TELEGRAM_BOT_TOKEN')
-    discord_token = get_env_value('DISCORD_BOT_TOKEN')
+    mattermost_token = get_env_value('MATTERMOST_TOKEN')
     
     print(f"  Telegram:     {'configured' if telegram_token else color('not configured', Colors.DIM)}")
-    print(f"  Discord:      {'configured' if discord_token else color('not configured', Colors.DIM)}")
+    print(f"  Mattermost:   {'configured' if mattermost_token else color('not configured', Colors.DIM)}")
     
     # Skill config
     try:
@@ -4708,9 +4674,7 @@ _OPEN_DICT_TOP_LEVEL_KEYS = frozenset({
 # etc.). For these we validate the FIRST segment but accept anything below.
 _SCHEMA_DEFINED_DICT_KEYS = frozenset({
     # Platform configs — PlatformConfig dataclass + dynamic extras
-    "discord", "telegram", "slack", "whatsapp", "signal", "mattermost",
-    "matrix", "feishu", "wecom", "weixin", "bluebubbles", "qqbot", "yuanbao",
-    "email", "sms", "dingtalk",
+    "telegram", "mattermost",
     # MCP server template / dynamic auth dicts
     "sessions", "checkpoints",
     # Plugin settings — enable/disable lists plus index_url override
@@ -4776,11 +4740,11 @@ def _validate_config_key(key: str) -> tuple[bool, Optional[str]]:
     at any segment that hits an open-dict container (mcp_servers,
     providers, hooks, etc.) where users define the inner keys themselves.
 
-    Headline case from #34067: ``gateway.discord.gateway_restart_notification``
+    Headline case from #34067: ``gateway.mattermost.gateway_restart_notification``
     was silently written, even though ``gateway`` only has 4 known sub-keys
     (``strict``, ``media_delivery_allow_dirs``, ``trust_recent_files``,
     ``trust_recent_files_seconds``). The correct path is
-    ``discord.gateway_restart_notification`` (platform configs live at the
+    ``mattermost.gateway_restart_notification`` (platform configs live at the
     top level, not under a ``platforms`` namespace).
     """
     if not key:
@@ -4828,7 +4792,7 @@ def _validate_config_key(key: str) -> tuple[bool, Optional[str]]:
     #   - An unknown sub-key (return False with a same-level suggestion)
     if top in _OPEN_DICT_TOP_LEVEL_KEYS or top in _DYNAMIC_TOP_LEVEL_KEYS or top in _SCHEMA_DEFINED_DICT_KEYS:
         # Any path below these is accepted — the user defines the inner
-        # shape themselves (mcp_servers.<name>.command, discord.<extras>,
+        # shape themselves (mcp_servers.<name>.command, mattermost.<extras>,
         # providers.<name>.api_key, etc.).
         return True, None
 
@@ -4939,7 +4903,7 @@ def set_config_value(key: str, value: str, force: bool = False):
     # Unknown-key notice (#34067): the key is still written (arbitrary keys
     # are supported — top-level scalars are bridged into os.environ for
     # skills and external apps), but a plausible-but-wrong dotted path like
-    # ``gateway.discord.gateway_restart_notification`` previously reported
+    # ``gateway.mattermost.gateway_restart_notification`` previously reported
     # bare success and left the user debugging behavior that never changed.
     # Warn after the write so the user gets immediate feedback plus a
     # "did you mean" hint, without blocking legitimate unknown keys.
@@ -5437,100 +5401,3 @@ def _inject_profile_env_vars() -> None:
 
 # Eagerly inject so that OPTIONAL_ENV_VARS is fully populated at import time.
 _inject_profile_env_vars()
-
-
-# ── Platform-plugin env var injection ────────────────────────────────────────
-# Bundled platform plugins under ``plugins/platforms/*/plugin.yaml`` declare
-# their required env vars via ``requires_env``.  This mirror of
-# ``_inject_profile_env_vars`` surfaces them in ``hermes config`` UI so users
-# can configure Teams / IRC / Google Chat without the core repo ever needing
-# to know they exist.
-#
-# Each ``requires_env`` entry may be a bare string (name only) or a dict:
-#
-#   requires_env:
-#     - TEAMS_CLIENT_ID                          # minimal
-#     - name: TEAMS_CLIENT_SECRET                # rich
-#       description: "Teams bot client secret"
-#       url: "https://portal.azure.com/"
-#       password: true
-#       prompt: "Teams client secret"
-#
-# An optional ``optional_env`` block surfaces non-required vars the same way
-# (e.g. allowlist, home channel).
-
-_platform_plugin_env_vars_injected = False
-
-
-def _inject_platform_plugin_env_vars() -> None:
-    """Populate OPTIONAL_ENV_VARS from bundled platform plugin manifests.
-
-    Called once at module load time. Idempotent — repeated calls are no-ops.
-    Failures are swallowed so a malformed plugin.yaml can't break CLI import.
-    """
-    global _platform_plugin_env_vars_injected
-    if _platform_plugin_env_vars_injected:
-        return
-    _platform_plugin_env_vars_injected = True
-    try:
-        import yaml  # type: ignore
-
-        # Resolve the bundled plugins dir from this file's location so the
-        # injector works regardless of CWD.
-        repo_root = Path(__file__).resolve().parents[1]
-        platforms_dir = repo_root / "plugins" / "platforms"
-        if not platforms_dir.is_dir():
-            return
-        for child in platforms_dir.iterdir():
-            if not child.is_dir():
-                continue
-            manifest_path = child / "plugin.yaml"
-            if not manifest_path.exists():
-                manifest_path = child / "plugin.yml"
-            if not manifest_path.exists():
-                continue
-            try:
-                with open(manifest_path, "r", encoding="utf-8") as f:
-                    manifest = fast_safe_load(f) or {}
-            except Exception:
-                continue
-            label = manifest.get("label") or manifest.get("name") or child.name
-            # Merge required + optional env var declarations.
-            entries = list(manifest.get("requires_env") or [])
-            entries.extend(manifest.get("optional_env") or [])
-            for entry in entries:
-                if isinstance(entry, str):
-                    name = entry
-                    meta: dict = {}
-                elif isinstance(entry, dict) and entry.get("name"):
-                    name = entry["name"]
-                    meta = entry
-                else:
-                    continue
-                if name in OPTIONAL_ENV_VARS:
-                    continue  # hardcoded entry wins (back-compat)
-                # Heuristic: anything named *TOKEN, *SECRET, *KEY, *PASSWORD
-                # is a password field unless explicitly overridden.
-                name_upper = name.upper()
-                is_secret = bool(meta.get("password") or meta.get("secret"))
-                if not is_secret and not meta.get("password") is False:
-                    is_secret = any(
-                        name_upper.endswith(suf)
-                        for suf in ("_TOKEN", "_SECRET", "_KEY", "_PASSWORD", "_JSON")
-                    )
-                OPTIONAL_ENV_VARS[name] = {
-                    "description": (
-                        meta.get("description")
-                        or f"{label} configuration"
-                    ),
-                    "prompt": meta.get("prompt") or name,
-                    "url": meta.get("url") or None,
-                    "password": is_secret,
-                    "category": meta.get("category") or "messaging",
-                }
-    except Exception:
-        pass
-
-
-# Eagerly inject so that platform plugin env vars show up in the setup wizard.
-_inject_platform_plugin_env_vars()

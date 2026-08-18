@@ -178,12 +178,38 @@ class TestHonchoDoctorConfigDetection:
 
 
 def test_doctor_reports_vercel_backend_diagnostics(monkeypatch, tmp_path):
+    hermes_home = tmp_path / ".hermes"
+    hermes_home.mkdir()
+    (hermes_home / ".env").write_text("OPENAI_API_KEY=test\n", encoding="utf-8")
+    (hermes_home / "config.yaml").write_text(
+        "model:\n"
+        "  provider: openai\n"
+        "terminal:\n"
+        "  backend: vercel_sandbox\n"
+        "  vercel_runtime: python3.13\n"
+        "  container_disk: 2048\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+    monkeypatch.setattr(doctor_mod, "HERMES_HOME", hermes_home)
     monkeypatch.setenv("TERMINAL_ENV", "vercel_sandbox")
     monkeypatch.setenv("TERMINAL_VERCEL_RUNTIME", "python3.13")
     monkeypatch.setenv("TERMINAL_CONTAINER_DISK", "2048")
     monkeypatch.setenv("VERCEL_TOKEN", "super-secret-value")
     monkeypatch.delenv("VERCEL_PROJECT_ID", raising=False)
     monkeypatch.setenv("VERCEL_TEAM_ID", "team")
+    real_getenv = os.getenv
+    terminal_values = {
+        "TERMINAL_ENV": "vercel_sandbox",
+        "TERMINAL_VERCEL_RUNTIME": "python3.13",
+        "TERMINAL_CONTAINER_DISK": "2048",
+    }
+    monkeypatch.setattr(
+        doctor_mod.os,
+        "getenv",
+        lambda key, default=None: terminal_values.get(key, real_getenv(key, default)),
+    )
+    monkeypatch.setattr("hermes_constants.is_container", lambda: False)
     monkeypatch.setattr(doctor_mod.importlib.util, "find_spec", lambda name: object() if name == "vercel" else None)
 
     fake_model_tools = types.SimpleNamespace(
@@ -296,7 +322,6 @@ def test_run_doctor_termux_treats_docker_and_browser_warnings_as_expected(monkey
     assert "3) agent-browser install" in out
     assert "Termux compatibility fallbacks:" in out
     assert "use .[termux-all] for broad compatibility" in out
-    assert "Matrix E2EE extra is excluded on Termux" in out
     assert "Local faster-whisper extra is excluded on Termux" in out
     assert "STT fallback: use Groq Whisper (set GROQ_API_KEY) or OpenAI Whisper (set VOICE_TOOLS_OPENAI_KEY)." in out
     assert "docker not found (optional)" not in out
@@ -1418,8 +1443,6 @@ class TestDoctorDeprecatedConfigAndEnv:
             "HERMES_TOOL_PROGRESS_MODE",
             "TERMINAL_CWD",
             "MESSAGING_CWD",
-            "QQ_HOME_CHANNEL",
-            "QQ_HOME_CHANNEL_NAME",
         ):
             monkeypatch.delenv(k, raising=False)
 
