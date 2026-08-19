@@ -1381,7 +1381,7 @@ def cmd_sessions(args, sessions_parser=None):
         msgs = db.message_count()
         print(f"Total sessions: {total}")
         print(f"Total messages: {msgs}")
-        for src in ["cli", "telegram", "mattermost", "api_server"]:
+        for src in ["cli", "telegram", "mattermost"]:
             c = db.session_count(source=src)
             if c > 0:
                 print(f"  {src}: {c} sessions")

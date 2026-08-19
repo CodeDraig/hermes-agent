@@ -20,7 +20,7 @@ domain reads the same resolved object instead of probing git/config itself:
     under the opt-in ``focus`` mode: the default posture is prompt-only and
     never touches the user's configured toolsets (toolsets like messaging /
     smart-home / music are off-by-default anyway, and someone who explicitly
-    enabled image-gen or Spotify shouldn't lose it for being in a git repo).
+    enabled image generation shouldn't lose it for being in a git repo).
   * **Delegation** — subagents inherit the parent's toolset and run through the
     same prompt builder, so the coding posture propagates to children for free.
   * **Model / memory / compression** — declared on the profile

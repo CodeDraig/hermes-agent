@@ -585,10 +585,8 @@ def resolve_persist_behavior(
 #
 # Historically each surface (cli.py, gateway/slash_commands.py,
 # gateway/slash_commands.py) re-implemented flag parsing + conflict checks, and
-# each resolution surface (gateway/run.py, gateway/platforms/api_server.py)
-# re-implemented the session-override > channel/session > global precedence.
-# Commit 7dd00bb47d had to re-fix the api_server discarding session-persisted
-# models precisely because the precedence rule lived in two places.  The
+# gateway runtime also re-implemented the session-override > channel/session
+# > global precedence. The
 # helpers below are the ONE owner; surfaces map error codes to their own
 # user-facing copy but never re-derive the semantics.
 
@@ -720,11 +718,8 @@ def resolve_effective_model(
 ) -> str:
     """Resolve the effective model: session override > channel > global.
 
-    The single owner of the precedence rule that gateway/run.py
-    (``_resolve_model_for_channel`` / ``_apply_session_model_override``) and
-    gateway/platforms/api_server.py (``_create_agent``'s session-override /
-    session-persisted-model branches) each encoded independently — the
-    divergence commit 7dd00bb47d had to close.  A user-issued ``/model``
+    The single owner of the precedence rule formerly duplicated in the gateway
+    runtime. A user-issued ``/model``
     (session override) always wins over per-channel/session-persisted
     configuration, which wins over the global default.
 

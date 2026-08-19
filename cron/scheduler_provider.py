@@ -1,22 +1,4 @@
-"""CronScheduler provider interface (Axis B — the trigger).
-
-⚠️ EXPERIMENTAL — this interface is validated by exactly ONE consumer (the
-built-in) until an external provider (Chronos, Phase 4) shakes it out. Until
-then the module path, method signatures, and start() kwargs MAY change without
-a deprecation cycle. Once a second provider validates the shape it becomes
-stable. Any growth MUST be additive (new optional method with a default), never
-a changed signature on start() or a new abstractmethod.
-
-A CronScheduler decides *when* a due job fires. It does NOT decide what firing
-means: execution + delivery stay in cron.scheduler.run_job / _deliver_result,
-shared by all providers. Providers must never reimplement agent construction or
-delivery.
-
-The built-in InProcessCronScheduler runs the historical 60s daemon-thread
-ticker. Alternative providers (e.g. Chronos, a NAS-mediated managed-cron
-provider for scale-to-zero deployments) live under plugins/cron_providers/<name>/ and are
-selected via the `cron.provider` config key (empty = built-in).
-"""
+"""Built-in in-process cron scheduler."""
 from __future__ import annotations
 
 import inspect
@@ -77,7 +59,7 @@ class CronScheduler(ABC):
     @property
     @abstractmethod
     def name(self) -> str:
-        """Short identifier, e.g. 'builtin', 'chronos'."""
+        """Short provider identifier, such as ``builtin``."""
 
     def is_available(self) -> bool:
         """Whether this provider can run in the current environment.
@@ -117,8 +99,7 @@ class CronScheduler(ABC):
 
     def on_jobs_changed(self) -> None:
         """Called after a successful store mutation (create/update/remove/
-        pause/resume). External providers reconcile their registry here (e.g.
-        Chronos re-provisions/cancels the affected one-shot via NAS).
+        pause/resume). External providers reconcile their registry here.
         Built-in: no-op (it re-reads jobs.json on every tick)."""
         return None
 
@@ -273,8 +254,7 @@ def provider_supports_split_fire(provider: Any) -> bool:
     if claim_fire_impl is not None and claim_fire_impl is not CronScheduler.claim_fire:
         return True
     # Overriding the second phase is also proof of split-awareness (the
-    # provider composes with the inherited claim path) — e.g. Chronos keeps
-    # its re-arm logic in ``fire_claimed`` only.
+    # provider composes with the inherited claim path).
     if fire_claimed_impl is not None and fire_claimed_impl is not CronScheduler.fire_claimed:
         return True
     if fire_due_impl is None or fire_due_impl is CronScheduler.fire_due:
@@ -300,64 +280,7 @@ def provider_supports_fire_cancel(provider: Any) -> bool:
 
 
 def resolve_cron_scheduler() -> "CronScheduler":
-    """Return the active cron scheduler provider.
-
-    Reads ``cron.provider`` from config. Empty/absent → built-in. A named
-    provider that is missing, fails to load, or reports ``is_available() ==
-    False`` falls back to the built-in with a warning — cron must never be left
-    without a trigger.
-    """
-    import logging
-
-    logger = logging.getLogger("cron.scheduler_provider")
-
-    name = ""
-    try:
-        from hermes_cli.config import cfg_get, load_config
-        name = (cfg_get(load_config(), "cron", "provider", default="") or "").strip()
-    except Exception:
-        pass
-
-    if not name or name in ("builtin", "in-process", "inprocess"):
-        return InProcessCronScheduler()
-
-    try:
-        from plugins.cron_providers import load_cron_scheduler
-        provider = load_cron_scheduler(name)
-        if provider is None:
-            logger.warning("cron.provider '%s' not found; using built-in ticker", name)
-            return InProcessCronScheduler()
-        if not provider.is_available():
-            logger.warning("cron.provider '%s' not available; using built-in ticker", name)
-            return InProcessCronScheduler()
-        logger.info("Using cron scheduler provider: %s", provider.name)
-        return provider
-    except Exception as e:
-        logger.warning(
-            "Failed to load cron.provider '%s' (%s); using built-in ticker", name, e
-        )
-        return InProcessCronScheduler()
-
-
-def scheduler_for_profile_mode(
-    provider: "CronScheduler", *, multiplex_profiles: bool
-) -> "CronScheduler":
-    """Return a scheduler that can safely serve the gateway's profile mode.
-
-    External providers currently own one unscoped remote registry/client and
-    therefore cannot safely reconcile several profile stores from one process.
-    Fail closed to the built-in multiplex ticker until the provider API carries
-    explicit profile identity through lifecycle and webhook calls.
-    """
-    if not multiplex_profiles or isinstance(provider, InProcessCronScheduler):
-        return provider
-
-    import logging
-
-    logging.getLogger("cron.scheduler_provider").warning(
-        "cron.provider '%s' does not support multiplex_profiles; using built-in ticker",
-        provider.name,
-    )
+    """Return the sole built-in scheduler."""
     return InProcessCronScheduler()
 
 

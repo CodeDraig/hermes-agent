@@ -16,8 +16,7 @@ The active provider is chosen by configuration with this precedence:
 2. ``web.backend`` (shared fallback).
 3. If exactly one capability-eligible provider is registered AND available,
    use it.
-4. Legacy preference order — ``firecrawl`` → ``parallel`` → ``tavily`` →
-   ``exa`` → ``searxng`` → ``brave-free`` → ``ddgs`` — filtered by
+4. Preference order — ``tavily`` → ``searxng`` → ``brave-free`` → ``ddgs`` — filtered by
    availability. Matches the historic ``tools.web_tools._get_backend()``
    candidate order so installs that never set a config key keep landing
    on the same provider they did before the plugin migration.
@@ -157,10 +156,7 @@ def _read_config_key(*path: str) -> Optional[str]:
 # a free tier on upgrade). Filtered by ``is_available()`` at walk time so
 # we don't surface a provider the user has no credentials for.
 _LEGACY_PREFERENCE = (
-    "firecrawl",
-    "parallel",
     "tavily",
-    "exa",
     "searxng",
     "brave-free",
     "ddgs",
@@ -183,9 +179,8 @@ def _resolve(configured: Optional[str], *, capability: str) -> Optional[WebSearc
     2. **Single-provider shortcut.** When only one registered provider
        supports *capability* AND ``is_available()`` reports True, return it.
 
-    3. **Legacy preference walk, filtered by availability.** Walk the
-       :data:`_LEGACY_PREFERENCE` order (firecrawl → parallel → tavily →
-       exa → searxng → brave-free → ddgs) looking for a provider whose
+    3. **Preference walk, filtered by availability.** Walk the
+       :data:`_LEGACY_PREFERENCE` order looking for a provider whose
        ``supports_<capability>()`` is True AND whose ``is_available()`` is
        True. Matches the historic ``tools.web_tools._get_backend()``
        candidate order so users with credentials but no explicit config
@@ -261,9 +256,8 @@ def _disabled_web_plugin_for(configured: Optional[str] = None, *, capability: Op
     """Return the plugin key of a *disabled* bundled web plugin that would
     have provided the configured backend, or None.
 
-    When a user sets ``web.extract_backend: firecrawl`` (or the search
-    equivalent) but also lists ``web-firecrawl`` in ``plugins.disabled``,
-    the provider never registers and the dispatcher would otherwise emit a
+    When a configured bundled provider is also listed in ``plugins.disabled``,
+    it never registers and the dispatcher would otherwise emit a
     misleading "No web extract provider configured. Set web.extract_backend
     to ..." error — even though the backend IS configured correctly. The
     real fix is to re-enable the plugin. This helper detects that case so
@@ -280,8 +274,8 @@ def _disabled_web_plugin_for(configured: Optional[str] = None, *, capability: Op
 
     Matching is by convention: bundled web plugins live under the
     ``web/<vendor>`` key with the provider ``name`` differing only in
-    hyphen/underscore (``brave-free`` provider ⇄ ``web/brave_free`` key,
-    ``firecrawl`` ⇄ ``web/firecrawl``). We normalize both sides before
+    hyphen/underscore (``brave-free`` provider ⇄ ``web/brave_free`` key).
+    We normalize both sides before
     comparing so every bundled provider is covered without hardcoding a
     per-vendor table.
     """

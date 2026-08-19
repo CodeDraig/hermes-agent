@@ -14,7 +14,6 @@ Import chain (circular-import safe):
     run_agent.py, cli.py, batch_runner.py, etc.
 """
 
-import ast
 import functools
 import importlib
 import json
@@ -22,7 +21,6 @@ import logging
 import sys
 import threading
 import time
-from pathlib import Path
 from typing import Callable, Dict, List, Optional, Set
 
 from hermes_constants import hermes_home_key
@@ -65,140 +63,41 @@ def _bound_json_error_result(result: str) -> str:
     if not isinstance(payload, dict):
         return result
     error = payload.get("error")
-    if not isinstance(error, str) or len(error) <= _MAX_TOOL_ERROR_CHARS:
-        return result
-    payload["error"] = _bound_error_text(error)
-    return json.dumps(payload, ensure_ascii=False)
+BUILTIN_TOOL_MODULES = (
+    "tools.browser_cdp_tool",
+    "tools.browser_dialog_tool",
+    "tools.browser_tool",
+    "tools.browser_use_cli",
+    "tools.clarify_tool",
+    "tools.code_execution_tool",
+    "tools.computer_use_tool",
+    "tools.cronjob_tools",
+    "tools.delegate_tool",
+    "tools.file_tools",
+    "tools.kanban_tools",
+    "tools.mcp_tool",
+    "tools.memory_tool",
+    "tools.process_registry",
+    "tools.session_search_tool",
+    "tools.skill_manager_tool",
+    "tools.skills_tool",
+    "tools.terminal_tool",
+    "tools.todo_tool",
+    "tools.vision_tools",
+    "tools.web_tools",
+)
 
 
-def _is_registry_register_call(node: ast.AST) -> bool:
-    """Return True when *node* is a ``registry.register(...)`` call expression."""
-    if not isinstance(node, ast.Expr) or not isinstance(node.value, ast.Call):
-        return False
-    func = node.value.func
-    return (
-        isinstance(func, ast.Attribute)
-        and func.attr == "register"
-        and isinstance(func.value, ast.Name)
-        and func.value.id == "registry"
-    )
-
-
-def _module_registers_tools(module_path: Path) -> bool:
-    """Return True when the module contains a top-level ``registry.register(...)`` call.
-
-    Only inspects module-body statements so that helper modules which happen
-    to call ``registry.register()`` inside a function are not picked up.
-
-    A cheap text prefilter avoids the ``ast.parse`` cost for files that do not
-    mention both ``registry`` and ``register`` — a necessary condition for a
-    top-level ``registry.register()`` call to exist.
-    """
-    try:
-        source = module_path.read_text(encoding="utf-8")
-    except OSError:
-        return False
-    if "registry" not in source or "register" not in source:
-        return False
-    try:
-        tree = ast.parse(source, filename=str(module_path))
-    except SyntaxError:
-        return False
-
-    return any(_is_registry_register_call(stmt) for stmt in tree.body)
-
-
-def discover_builtin_tools(tools_dir: Optional[Path] = None) -> List[str]:
-    """Import built-in self-registering tool modules and return their module names.
-
-    The per-file AST scan (:func:`_module_registers_tools`) costs ~145 ms over
-    ~100 files on a warm cache, so verdicts are memoized on disk keyed by
-    ``(mtime_ns, size)``. A file whose mtime_ns+size match the cached entry is
-    trusted without re-reading; any mismatch (or a corrupt/missing cache file)
-    falls back to a fresh scan for that file. The cache write is best-effort
-    and atomic, so concurrent processes can race harmlessly.
-    """
-    tools_path = Path(tools_dir) if tools_dir is not None else Path(__file__).resolve().parent
-
-    cache = _load_discovery_cache()
-    fresh_cache: Dict[str, list] = {}
-    cache_dirty = False
-
-    module_names: List[str] = []
-    for path in sorted(tools_path.glob("*.py")):
-        if path.name in {"__init__.py", "registry.py", "mcp_tool.py"}:
-            continue
-        abs_path = str(path.resolve())
-        try:
-            st = path.stat()
-            stat_key = (st.st_mtime_ns, st.st_size)
-        except OSError:
-            continue
-        cached = cache.get(abs_path)
-        if (
-            isinstance(cached, (list, tuple))
-            and len(cached) == 3
-            and (cached[0], cached[1]) == stat_key
-        ):
-            registers = bool(cached[2])
-        else:
-            registers = _module_registers_tools(path)
-            cache_dirty = True
-        fresh_cache[abs_path] = [stat_key[0], stat_key[1], registers]
-        if registers:
-            module_names.append(f"tools.{path.stem}")
-
-    # Drop entries for files that no longer exist; rewrite only when changed.
-    if cache_dirty or set(fresh_cache) != set(cache):
-        _save_discovery_cache(fresh_cache)
-
+def discover_builtin_tools() -> List[str]:
+    """Import the fixed retained tool set once at process startup."""
     imported: List[str] = []
-    for mod_name in module_names:
+    for module_name in BUILTIN_TOOL_MODULES:
         try:
-            importlib.import_module(mod_name)
-            imported.append(mod_name)
-        except Exception as e:
-            logger.warning("Could not import tool module %s: %s", mod_name, e)
+            importlib.import_module(module_name)
+            imported.append(module_name)
+        except Exception as exc:
+            logger.warning("Could not import tool module %s: %s", module_name, exc)
     return imported
-
-
-def _discovery_cache_path() -> Optional[Path]:
-    """Path of the tool-discovery verdict cache, or None if unresolvable."""
-    try:
-        # Deferred import keeps tools/registry.py a no-deps leaf at module
-        # import time (hermes_constants itself is stdlib-only, so no cycle).
-        from hermes_constants import get_hermes_home
-
-        return Path(get_hermes_home()) / "cache" / "tool_discovery_cache.json"
-    except Exception:
-        return None
-
-
-def _load_discovery_cache() -> Dict[str, list]:
-    """Read the discovery cache; any error → empty dict (full scan)."""
-    path = _discovery_cache_path()
-    if path is None:
-        return {}
-    try:
-        with open(path, "r", encoding="utf-8") as fh:
-            data = json.load(fh)
-        return data if isinstance(data, dict) else {}
-    except (OSError, ValueError):
-        return {}
-
-
-def _save_discovery_cache(cache: Dict[str, list]) -> None:
-    """Best-effort atomic write of the discovery cache. Never raises."""
-    path = _discovery_cache_path()
-    if path is None:
-        return
-    try:
-        from utils import atomic_json_write  # stdlib+yaml only; no cycle
-
-        path.parent.mkdir(parents=True, exist_ok=True)
-        atomic_json_write(path, cache, indent=0)
-    except Exception as e:
-        logger.debug("Could not write tool discovery cache %s: %s", path, e)
 
 
 class ToolEntry:
@@ -747,17 +646,9 @@ class ToolRegistry:
         emoji: str = "",
         max_result_size_chars: int | float | None = None,
         dynamic_schema_overrides: Callable = None,
-        override: bool = False,
         scope: Optional[str] = None,
     ):
-        """Register a tool.  Called at module-import time by each tool file.
-
-        ``override=True`` is an explicit opt-in for plugins that intend to
-        replace an existing built-in tool implementation (e.g. swap the
-        default browser tool for a headed-Chrome CDP backend). Without it,
-        registrations that would shadow an existing tool from a different
-        toolset are rejected to prevent accidental overwrites.
-        """
+        """Register a tool. Plugins may not replace any existing tool name."""
         handler_owner = self._plugin_owner_of(handler)
         caller_owner = self._plugin_namespace_of_module(self._caller_module())
         owner = caller_owner or handler_owner
@@ -781,57 +672,20 @@ class ToolRegistry:
                 and name in self._tools
             )
             if shadows_global:
-                if not override:
-                    logger.error(
-                        "Tool registration REJECTED: plugin %r attempted to "
-                        "shadow global tool %r without override=True",
-                        owner,
-                        name,
-                    )
-                    return
-                if not self._plugin_override_allowed(scope, owner):
-                    raise PermissionError(
-                        f"Plugin module {owner!r} cannot override built-in "
-                        f"tool {name!r} without operator opt-in "
-                        f"(allow_tool_override)."
-                    )
+                raise ValueError(
+                    f"Plugin {owner!r} cannot replace existing tool {name!r}"
+                )
+            if owner is not None and existing is not None:
+                raise ValueError(
+                    f"Plugin {owner!r} cannot replace existing tool {name!r}"
+                )
             if existing and existing.toolset != toolset:
-                if override:
-                    if owner is not None and not self._plugin_override_allowed(
-                        scope, owner
-                    ):
-                        logger.error(
-                            "Tool registration REJECTED: plugin %r attempted to "
-                            "override built-in tool %r (existing toolset %r) without "
-                            "operator opt-in. Set "
-                            "plugins.entries.<plugin_id>.allow_tool_override: true "
-                            "in config.yaml to allow it.",
-                            owner, name, existing.toolset,
-                        )
-                        raise PermissionError(
-                            f"Plugin module {owner!r} cannot override built-in "
-                            f"tool {name!r} without operator opt-in "
-                            f"(allow_tool_override)."
-                        )
-                    # Explicit opt-in (or non-plugin caller): replace the tool.
-                    # Logged at INFO so the override is auditable in agent.log.
-                    logger.info(
-                        "Tool '%s': toolset '%s' overriding existing toolset '%s' "
-                        "(override=True opt-in)",
-                        name, toolset, existing.toolset,
-                    )
-                else:
-                    # Reject every cross-toolset shadow, including MCP-to-MCP
-                    # collisions. Legitimate MCP reconnect/refresh re-registers
-                    # within the same canonical toolset and remains allowed.
-                    logger.error(
-                        "Tool registration REJECTED: '%s' (toolset '%s') would "
-                        "shadow existing tool from toolset '%s'. Pass "
-                        "override=True to register() if the replacement is "
-                        "intentional, or deregister the existing tool first.",
-                        name, toolset, existing.toolset,
-                    )
-                    return
+                logger.error(
+                    "Tool registration rejected: %r already belongs to %r",
+                    name,
+                    existing.toolset,
+                )
+                return
             target[name] = ToolEntry(
                 name=name,
                 toolset=toolset,

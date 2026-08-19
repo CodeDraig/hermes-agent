@@ -685,8 +685,6 @@ def execution_surface(kwargs: dict[str, Any]) -> str:
     )
     if value in EXECUTION_SURFACES:
         return value
-    if value == "api_server":
-        return "api"
     if value in {"cron", "scheduler", "scheduled"}:
         return "scheduled_task"
     try:

@@ -25,18 +25,13 @@ from typing import List, Optional
 from agent.runtime_cwd import resolve_agent_cwd
 from agent.skill_utils import (
     EXCLUDED_SKILL_DIRS,
-    ORG_ACTIVE_MARKER,
-    ORG_MIRROR_DIR_NAME,
-    ORG_PROVENANCE_FILE,
     SKILL_SUPPORT_DIRS,
     extract_skill_conditions,
     extract_skill_description,
     get_all_skills_dirs,
     get_disabled_skill_names,
     iter_skill_index_files,
-    org_id_of_path,
     parse_frontmatter,
-    read_active_org_id,
     skill_matches_environment,
     skill_matches_platform,
     skill_matches_platform_list,
@@ -789,19 +784,6 @@ PLATFORM_HINTS = {
         "attachments, audio and video as file attachments. "
         "Image URLs in markdown format ![alt](url) are rendered as inline previews automatically."
     ),
-    "api_server": (
-        "You're responding through an API server. The rendering layer is unknown — "
-        "assume plain text. No markdown formatting (no asterisks, bullets, headers, "
-        "code fences). Treat this like a conversation, not a document. Keep responses "
-        "brief and natural. "
-        "File/media delivery: images referenced as MEDIA:/absolute/path tags "
-        "(.png/.jpg/.jpeg/.gif/.webp/.bmp, up to 5MB) are inlined as base64 data "
-        "URLs in responses on the chat, completions, and responses endpoints. "
-        "Non-image files are NOT intercepted anywhere, and the runs endpoint "
-        "intercepts nothing — a MEDIA: tag there renders as literal text exposing "
-        "a raw host filesystem path. For those cases, state the plain file path "
-        "in your response text instead of a MEDIA: tag."
-    ),
 }
 
 # Telegram rich-messages extension — only injected when the user has opted in
@@ -1276,32 +1258,13 @@ def clear_skills_system_prompt_cache(*, clear_snapshot: bool = False) -> None:
 
 
 def _build_skills_manifest(skills_dir: Path) -> dict[str, list[int]]:
-    """Build an mtime/size manifest of all SKILL.md and DESCRIPTION.md files.
-
-    Org mirrors (M2): only the ACTIVE org's mirror participates, and the
-    ``.active_org`` marker itself is included — so switching/leaving an org
-    invalidates the snapshot even when no SKILL.md changed.
-    """
+    """Build an mtime/size manifest of all SKILL.md and DESCRIPTION.md files."""
     manifest: dict[str, list[int]] = {}
     skills_dir_str = str(skills_dir)
     base = os.path.join(skills_dir_str, "")
     prefix_len = len(base)
-    active_org = read_active_org_id(skills_dir)
-    org_root = os.path.join(skills_dir_str, ORG_MIRROR_DIR_NAME)
-    marker_path = os.path.join(org_root, ORG_ACTIVE_MARKER)
-    try:
-        st = os.stat(marker_path)
-        manifest[ORG_MIRROR_DIR_NAME + "/" + ORG_ACTIVE_MARKER] = [
-            int(st.st_mtime), int(st.st_size),
-        ]
-    except OSError:
-        pass
     for root, dirs, files in os.walk(skills_dir_str, followlinks=True):
         has_skill_md = "SKILL.md" in files
-        if root == skills_dir_str and ORG_MIRROR_DIR_NAME in dirs and active_org is None:
-            dirs.remove(ORG_MIRROR_DIR_NAME)
-        elif root == org_root:
-            dirs[:] = [d for d in dirs if d == active_org]
         dirs[:] = [
             d
             for d in dirs
@@ -1367,14 +1330,6 @@ def _build_snapshot_entry(
     rel_path = skill_file.relative_to(skills_dir)
     parts = rel_path.parts
 
-    # M2 org mirror: strip the `_org/<org_id>/` prefix so category/name derive
-    # from the path WITHIN the mirror (same shape the org tree was built
-    # from), and record provenance for labeling + fail-loud collisions.
-    org_id: str | None = None
-    if len(parts) >= 3 and parts[0] == ORG_MIRROR_DIR_NAME:
-        org_id = parts[1]
-        parts = parts[2:]
-
     if len(parts) >= 2:
         skill_name = parts[-2]
         category = "/".join(parts[:-2]) if len(parts) > 2 else parts[0]
@@ -1394,21 +1349,6 @@ def _build_snapshot_entry(
         "platforms": [str(p).strip() for p in platforms if str(p).strip()],
         "conditions": extract_skill_conditions(frontmatter),
     }
-    if org_id:
-        entry["org_id"] = org_id
-        # Author from the pull-time provenance sidecar (token-verified at
-        # push by the plane's author_mismatch guard). Best-effort.
-        try:
-            import json as _json
-
-            prov_path = (
-                skills_dir / ORG_MIRROR_DIR_NAME / org_id / ORG_PROVENANCE_FILE
-            )
-            prov = _json.loads(prov_path.read_text(encoding="utf-8"))
-            device = str(prov.get("author_device") or "")
-            entry["org_author"] = device or str(prov.get("author_user_id") or "")
-        except Exception:
-            entry["org_author"] = ""
     return entry
 
 
@@ -1811,72 +1751,6 @@ def _build_skills_system_prompt_inner(
             _SKILLS_PROMPT_CACHE.popitem(last=False)
 
     return result
-
-
-def build_nous_subscription_prompt(valid_tool_names: "set[str] | None" = None) -> str:
-    """Build a compact Nous subscription capability block for the system prompt."""
-    try:
-        from hermes_cli.nous_subscription import get_nous_subscription_features
-        from tools.tool_backend_helpers import managed_nous_tools_enabled
-    except Exception as exc:
-        logger.debug("Failed to import Nous subscription helper: %s", exc)
-        return ""
-
-    if not managed_nous_tools_enabled():
-        return ""
-
-    valid_names = set(valid_tool_names or set())
-    relevant_tool_names = {
-        "web_search",
-        "web_extract",
-        "browser_navigate",
-        "browser_snapshot",
-        "browser_click",
-        "browser_type",
-        "browser_scroll",
-        "browser_console",
-        "browser_press",
-        "browser_get_images",
-        "browser_vision",
-        "image_generate",
-        "text_to_speech",
-        "terminal",
-        "process",
-        "execute_code",
-    }
-
-    if valid_names and not (valid_names & relevant_tool_names):
-        return ""
-
-    features = get_nous_subscription_features()
-
-    def _status_line(feature) -> str:
-        if feature.managed_by_nous:
-            return f"- {feature.label}: active via Nous subscription"
-        if feature.active:
-            current = feature.current_provider or "configured provider"
-            return f"- {feature.label}: currently using {current}"
-        if feature.included_by_default and features.nous_auth_present:
-            return f"- {feature.label}: included with Nous subscription, not currently selected"
-        if feature.key == "modal" and features.nous_auth_present:
-            return f"- {feature.label}: optional via Nous subscription"
-        return f"- {feature.label}: not currently available"
-
-    lines = [
-        "# Nous Subscription",
-        "Nous subscription includes managed web tools (Firecrawl), image generation (FAL), OpenAI TTS, OpenAI Whisper STT, and browser automation (Browser Use) by default. Modal execution is optional.",
-        "Current capability status:",
-    ]
-    lines.extend(_status_line(feature) for feature in features.items())
-    lines.extend(
-        [
-            "When a Nous-managed feature is active, do not ask the user for Firecrawl, FAL, OpenAI TTS, OpenAI Whisper, or Browser-Use API keys.",
-            "If the user is not subscribed and asks for a capability that Nous subscription would unlock or simplify, suggest Nous subscription as one option alongside direct setup or local alternatives.",
-            "Do not mention subscription unless the user asks about it or it directly solves the current missing capability.",
-            "Useful commands: hermes setup, hermes setup tools, hermes setup terminal, hermes status.",
-        ]
-    )
-    return "\n".join(lines)
 
 
 # =========================================================================

@@ -19,12 +19,6 @@ from gateway.config import (
     platform_binds_port as _platform_binds_port,
 )
 from gateway.history import _float_env
-from gateway.profile_routing import (
-    MultiplexConfigError,
-    SecondaryPortBindingConfigError,
-    _multiplex_profile_homes,
-    _profile_runtime_scope,
-)
 from gateway.runtime_config import _load_gateway_runtime_config
 from gateway.platforms.base import BasePlatformAdapter
 from gateway.session import SessionSource
@@ -74,8 +68,7 @@ async def _dispose_unused_adapter(adapter: "BasePlatformAdapter | None") -> None
     retryable error, exception during connect) — the adapter is dropped
     without ever being installed, so nothing else will call its
     ``disconnect()``. Any resources the adapter opened in ``__init__``
-    (e.g. ``APIServerAdapter`` opens a SQLite ``ResponseStore`` that
-    holds 2 fds — the db file and its WAL sidecar) stay open until
+    (for example a database-backed adapter) stay open until
     garbage collection sweeps the unreachable object, which Python's
     cyclic GC does not do promptly for asyncio-bound objects with
     native handles. The cumulative leak is 2 fds × every retry at the
@@ -99,8 +92,7 @@ async def _dispose_unused_adapter(adapter: "BasePlatformAdapter | None") -> None
     try:
         await adapter.disconnect()
     except Exception:
-        # Half-constructed adapters (e.g. APIServerAdapter that
-        # crashed during aiohttp app setup) can raise from
+        # Half-constructed adapters can raise from
         # disconnect() on objects that never finished initializing.
         # We must not let that escape and abort the watcher loop.
         #
@@ -140,7 +132,6 @@ def _reconnect_needs_attention(info: dict, now: float) -> bool:
     return (now - queued_at) >= _RECONNECT_ATTENTION_AFTER_SECONDS
 
 class PlatformRuntime:
-    _VOICE_MODE_PATH = get_hermes_home() / "gateway_voice_mode.json"
 
     def _warn_if_docker_media_delivery_is_risky(self) -> None:
         """Warn when Docker-backed gateways lack an explicit export mount.
@@ -155,7 +146,7 @@ class PlatformRuntime:
             return
 
         connected = self.config.get_connected_platforms()
-        messaging_platforms = [p for p in connected if p not in {Platform.LOCAL, Platform.API_SERVER}]
+        messaging_platforms = [p for p in connected if p != Platform.LOCAL]
         if not messaging_platforms:
             return
 
@@ -196,121 +187,6 @@ class PlatformRuntime:
             return _find_skill("hermes-agent-setup") is not None
         except Exception:
             return False
-
-    def _voice_key(self, platform: Platform, chat_id: str) -> str:
-        """Return a platform-namespaced key for voice mode state."""
-        return f"{platform.value}:{chat_id}"
-
-    def _load_voice_modes(self) -> Dict[str, str]:
-        try:
-            data = json.loads(self._VOICE_MODE_PATH.read_text(encoding="utf-8"))
-        except (FileNotFoundError, json.JSONDecodeError, OSError):
-            return {}
-
-        if not isinstance(data, dict):
-            return {}
-
-        valid_modes = {"off", "voice_only", "all"}
-        result = {}
-        for chat_id, mode in data.items():
-            if mode not in valid_modes:
-                continue
-            key = str(chat_id)
-            # Skip legacy unprefixed keys (warn and skip)
-            if ":" not in key:
-                logger.warning(
-                    "Skipping legacy unprefixed voice mode key %r during migration. "
-                    "Re-enable voice mode on that chat to rebuild the prefixed key.",
-                    key,
-                )
-                continue
-            result[key] = mode
-        return result
-
-    def _save_voice_modes(self) -> None:
-        try:
-            self._VOICE_MODE_PATH.parent.mkdir(parents=True, exist_ok=True)
-            self._VOICE_MODE_PATH.write_text(
-                json.dumps(self._voice_mode, indent=2), encoding="utf-8"
-            )
-        except OSError as e:
-            logger.warning("Failed to save voice modes: %s", e)
-
-    def _set_adapter_auto_tts_disabled(self, adapter, chat_id: str, disabled: bool) -> None:
-        """Update an adapter's in-memory auto-TTS suppression set if present."""
-        disabled_chats = getattr(adapter, "_auto_tts_disabled_chats", None)
-        if not isinstance(disabled_chats, set):
-            return
-        if disabled:
-            disabled_chats.add(chat_id)
-            # ``/voice off`` also clears any explicit enable — it's a hard override.
-            enabled_chats = getattr(adapter, "_auto_tts_enabled_chats", None)
-            if isinstance(enabled_chats, set):
-                enabled_chats.discard(chat_id)
-        else:
-            disabled_chats.discard(chat_id)
-
-    def _set_adapter_auto_tts_enabled(self, adapter, chat_id: str, enabled: bool) -> None:
-        """Update an adapter's per-chat auto-TTS opt-in set if present.
-
-        Used for ``/voice on``/``/voice tts`` where the user explicitly wants
-        auto-TTS even when ``voice.auto_tts`` is False globally.
-        """
-        enabled_chats = getattr(adapter, "_auto_tts_enabled_chats", None)
-        if not isinstance(enabled_chats, set):
-            return
-        if enabled:
-            enabled_chats.add(chat_id)
-            # An explicit opt-in clears any stale /voice off for this chat.
-            disabled_chats = getattr(adapter, "_auto_tts_disabled_chats", None)
-            if isinstance(disabled_chats, set):
-                disabled_chats.discard(chat_id)
-        else:
-            enabled_chats.discard(chat_id)
-
-    def _sync_voice_mode_state_to_adapter(self, adapter) -> None:
-        """Restore persisted /voice state into a live platform adapter.
-
-        Populates three fields from config + ``self._voice_mode``:
-          - ``_auto_tts_default``: global default from ``voice.auto_tts``
-          - ``_auto_tts_enabled_chats``: chats with mode ``voice_only``/``all``
-          - ``_auto_tts_disabled_chats``: chats with mode ``off``
-        """
-        platform = getattr(adapter, "platform", None)
-        if not isinstance(platform, Platform):
-            return
-
-        disabled_chats = getattr(adapter, "_auto_tts_disabled_chats", None)
-        enabled_chats = getattr(adapter, "_auto_tts_enabled_chats", None)
-        if not isinstance(disabled_chats, set) and not isinstance(enabled_chats, set):
-            return
-
-        # Push the global voice.auto_tts default (config.yaml) onto the adapter.
-        # Lazy import to avoid adding a module-level dep from gateway → hermes_cli.
-        try:
-            from hermes_cli.config import load_config as _load_full_config
-            _full_cfg = _load_full_config()
-            _auto_tts_default = bool(
-                (_full_cfg.get("voice") or {}).get("auto_tts", False)
-            )
-        except Exception:
-            _auto_tts_default = False
-        if hasattr(adapter, "_auto_tts_default"):
-            adapter._auto_tts_default = _auto_tts_default
-
-        prefix = f"{platform.value}:"
-        if isinstance(disabled_chats, set):
-            disabled_chats.clear()
-            disabled_chats.update(
-                key[len(prefix):] for key, mode in self._voice_mode.items()
-                if mode == "off" and key.startswith(prefix)
-            )
-        if isinstance(enabled_chats, set):
-            enabled_chats.clear()
-            enabled_chats.update(
-                key[len(prefix):] for key, mode in self._voice_mode.items()
-                if mode in {"voice_only", "all"} and key.startswith(prefix)
-            )
 
     async def _await_adapter_cleanup_with_timeout(
         self, awaitable: Awaitable[Any], timeout: float
@@ -1011,7 +887,6 @@ class PlatformRuntime:
                     )
                     if success:
                         self.adapters[platform] = adapter
-                        self._sync_voice_mode_state_to_adapter(adapter)
                         self.delivery_router.adapters = self.adapters
                         del self._failed_platforms[platform]
                         self._update_platform_runtime_status(
@@ -1061,8 +936,7 @@ class PlatformRuntime:
                         # without ever being installed on self.adapters, so
                         # nothing else will call disconnect() on it. We must
                         # dispose it here, otherwise the resource owners it
-                        # constructed in __init__ (ResponseStore for
-                        # APIServerAdapter, etc.) leak 2 fds each. The
+                        # constructed in __init__ can leak descriptors. The
                         # gateway hits the 2560-fd limit after ~12h of
                         # failed reconnects at the 300s backoff cap (#37011).
                         await _dispose_unused_adapter(adapter)
@@ -1129,486 +1003,8 @@ class PlatformRuntime:
                     return
                 await asyncio.sleep(1)
 
-    async def _cancel_secondary_profile_reconnect_tasks(self) -> None:
-        """Cancel profile-scoped reconnects before tearing down their registry.
-
-        A reconnect can be waiting in adapter setup while shutdown begins. It
-        must not republish an adapter after the secondary registry is drained.
-        Waiting is bounded by the same adapter-cleanup budget; if a task does
-        not finish in time, the stopped runner state still prevents it from
-        installing an adapter when it eventually resumes.
-        """
-        pending = self._profile_failed_platforms
-        if not isinstance(pending, dict):
-            return
-        current = asyncio.current_task()
-        tasks: list[asyncio.Task] = []
-        for profile_pending in pending.values():
-            if not isinstance(profile_pending, dict):
-                continue
-            for task in profile_pending.values():
-                if isinstance(task, asyncio.Task) and task is not current and not task.done():
-                    tasks.append(task)
-        for task in tasks:
-            task.cancel()
-        timeout = self._adapter_disconnect_timeout_secs()
-        if tasks and timeout > 0:
-            _done, unfinished = await asyncio.wait(tasks, timeout=timeout)
-            if unfinished:
-                logger.warning(
-                    "Timed out waiting for %d secondary profile reconnect task(s) during shutdown",
-                    len(unfinished),
-                )
-        pending.clear()
-
-    async def _start_secondary_profile_adapters(self) -> int:
-        """Bring up adapters for every non-active profile this gateway serves.
-
-        Returns the number of secondary adapters that connected. No-op (returns
-        0) unless ``gateway.multiplex_profiles`` is on.
-
-        Each profile's adapters are created and connected under that profile's
-        HERMES_HOME + secret scope (``_profile_runtime_scope``), stored in
-        ``self._profile_adapters[profile]``, and given a message handler that
-        stamps ``source.profile`` before delegating to the shared
-        ``_handle_message`` — so the agent turn resolves that profile's config,
-        skills, and credentials. Same-platform credential collisions (two
-        profiles polling the same bot token) are detected and refused here, the
-        only point that sees every profile's resolved credentials together.
-        """
-        if not getattr(self.config, "multiplex_profiles", False):
-            return 0
-
-        try:
-            from hermes_cli.profiles import get_active_profile_name
-        except Exception:
-            return 0
-
-        active = get_active_profile_name() or "default"
-        connected = 0
-        # Credential claim -> profile that owns it, preventing two profiles
-        # from polling the same account.
-        claimed: Dict[tuple, str] = {}
-        for _plat, _ad in self.adapters.items():
-            fp = self._adapter_credential_fingerprint(_ad)
-            if fp is not None:
-                claimed[(_plat, fp)] = active
-        # A retryable primary still owns its configured credential.
-        # Reserve it while queued so a secondary cannot take the account
-        # before the reconnect watcher retries the primary adapter.
-        for retry_info in getattr(self, "_failed_platforms", {}).values():
-            retry_claim = retry_info.get("credential_claim")
-            if isinstance(retry_claim, tuple):
-                claimed[retry_claim] = active
-
-        profile_homes = _multiplex_profile_homes(self.config)
-        for profile_name, profile_home in profile_homes:
-            if profile_name == active:
-                continue  # handled by the primary startup loop
-            try:
-                connected += await self._start_one_profile_adapters(
-                    profile_name, profile_home, claimed
-                )
-            except SecondaryPortBindingConfigError as e:
-                logger.warning(
-                    "Skipping secondary profile '%s' due to port-binding config error: %s",
-                    profile_name,
-                    e,
-                )
-            except MultiplexConfigError:
-                raise
-            except Exception as e:
-                logger.error(
-                    "Failed to start adapters for profile '%s': %s",
-                    profile_name, e, exc_info=True,
-                )
-
-        # Record the authoritative served set in runtime status for `hermes status`.
-        # "Served" means eligible for shared routing, HTTP prefixes, cron, and
-        # profile runtime scope; it is intentionally broader than profiles with a
-        # successfully connected secondary adapter (or any adapter configured).
-        try:
-            from gateway.status import write_runtime_status
-            from gateway.pairing import PairingStore
-            served = [active] + sorted(
-                name for name, _home in profile_homes if name != active
-            )
-            # Per-profile PairingStores so authz_mixin can route pairing
-            # checks to the right whitelist. The active profile gets a store
-            # at its HERMES_HOME; additional served profiles resolve from
-            # their own profile homes. See gateway.pairing.PairingStore.
-            for name in served:
-                if name and name not in self.pairing_stores:
-                    self.pairing_stores[name] = (
-                        self.pairing_store
-                        if name == active
-                        else PairingStore(profile=name)
-                    )
-            write_runtime_status(served_profiles=served)
-        except Exception:
-            logger.debug("could not record served_profiles", exc_info=True)
-
-        return connected
-
-    async def _start_one_profile_adapters(
-        self, profile_name: str, profile_home: "Path", claimed: Dict[tuple, str]
-    ) -> int:
-        """Create+connect one profile's adapters under its runtime scope."""
-        from gateway.config import load_gateway_config
-
-        with _profile_runtime_scope(profile_home):
-            profile_runtime_cfg = _load_gateway_runtime_config()
-            from hermes_cli.plugins import discover_plugins
-
-            discover_plugins()
-            profile_cfg = load_gateway_config()
-        self._snapshot_profile_busy_modes(profile_name, profile_runtime_cfg)
-        port_binding_platforms = sorted(
-            platform.value
-            for platform, platform_config in profile_cfg.platforms.items()
-            if platform_config.enabled
-            and _platform_binds_port(platform.value, platform_config.extra)
-        )
-        if port_binding_platforms:
-            joined = ", ".join(port_binding_platforms)
-            raise SecondaryPortBindingConfigError(
-                f"Profile '{profile_name}' enables port-binding platform(s) "
-                f"{joined}, but gateway.multiplex_profiles is on. The default "
-                f"profile owns the single shared HTTP listener and serves every "
-                f"profile through the /p/{profile_name}/ URL prefix. Remove "
-                f"these platform entries from profile '{profile_name}'s config.yaml "
-                f"or configure them only on the default profile."
-            )
-
-        profile_map = self._profile_adapters.setdefault(profile_name, {})
-        connected = 0
-        for platform, platform_config in profile_cfg.platforms.items():
-            if not platform_config.enabled:
-                continue
-            try:
-                with _profile_runtime_scope(profile_home):
-                    adapter = self._create_adapter(platform, platform_config)
-            except Exception as e:
-                logger.error(
-                    "[MULTIPLEX] Profile '%s': _create_adapter('%s') raised %s",
-                    profile_name,
-                    platform.value,
-                    e,
-                    exc_info=True,
-                )
-                continue
-            if not adapter:
-                logger.warning(
-                    "[MULTIPLEX] Profile '%s': skipping platform '%s' - adapter creation returned None",
-                    profile_name,
-                    platform.value,
-                )
-                continue
-
-            # Same-token conflict detection — refuse a duplicate poll.
-            credential_claim = self._adapter_credential_claim(platform, adapter)
-            if credential_claim is not None:
-                owner = claimed.get(credential_claim)
-                if owner is not None:
-                    message = (
-                        f"Profile '{owner}' and '{profile_name}' both configure "
-                        f"{platform.value} with the same credential. Give each "
-                        f"profile its own {platform.value} credential."
-                    )
-                    logger.error(
-                        "Profile '%s' and '%s' both configure %s with the same "
-                        "credential — refusing to start the duplicate (one "
-                        "credential cannot be consumed twice). Give each profile "
-                        "its own %s credential.",
-                        owner, profile_name, platform.value, platform.value,
-                    )
-                    self._update_platform_runtime_status(
-                        f"{profile_name}:{platform.value}",
-                        platform_state="fatal",
-                        error_code="duplicate_credential",
-                        error_message=message,
-                    )
-                    # This adapter has not connected and therefore owns no
-                    # resources to clean up. Calling disconnect here can mutate
-                    # the shared platform state.
-                    continue
-
-            self._configure_profile_adapter(adapter, profile_name, platform)
-
-            try:
-                with _profile_runtime_scope(profile_home):
-                    success = await self._connect_initial_adapter_with_timeout(
-                        adapter, platform
-                    )
-                if success:
-                    profile_map[platform] = adapter
-                    if credential_claim is not None:
-                        claimed[credential_claim] = profile_name
-                    connected += 1
-                    logger.info("✓ %s connected (profile: %s)", platform.value, profile_name)
-                else:
-                    logger.warning("✗ %s failed to connect (profile: %s)", platform.value, profile_name)
-                    await self._safe_adapter_disconnect(adapter, platform)
-            except Exception as e:
-                logger.error("✗ %s error (profile: %s): %s", platform.value, profile_name, e)
-                await self._safe_adapter_disconnect(adapter, platform)
-        return connected
-
-    def _configure_profile_adapter(
-        self,
-        adapter: BasePlatformAdapter,
-        profile_name: str,
-        platform: Platform,
-    ) -> None:
-        """Install the profile-scoped handlers shared by startup and reconnect."""
-        # Runtime status is process-scoped even while message/config work is
-        # profile-scoped.  Preserve both dimensions in the key so dashboard
-        # and NAS health aggregation can see which secondary profile failed.
-        adapter._runtime_status_platform_key = f"{profile_name}:{platform.value}"
-        adapter.set_message_handler(self._make_profile_message_handler(profile_name))
-        adapter.set_fatal_error_handler(
-            self._make_profile_fatal_error_handler(profile_name, platform)
-        )
-        adapter.set_session_store(self.session_store)
-        adapter.set_busy_session_handler(
-            self._make_profile_busy_session_handler(profile_name)
-        )
-        _set_reaction = getattr(adapter, "set_reaction_handler", None)
-        if callable(_set_reaction):
-            _set_reaction(self._handle_reaction_event)
-        adapter.set_topic_recovery_fn(self._recover_telegram_topic_thread_id)
-        adapter.set_authorization_check(
-            self._make_adapter_auth_check(platform, profile_name=profile_name)
-        )
-        adapter.set_platform_event_handler(
-            self._make_profile_platform_event_handler(profile_name)
-        )
-        adapter._busy_input_mode = self._busy_input_modes_by_profile.get(
-            profile_name, self._busy_input_mode
-        )
-
-    async def _run_secondary_profile_reconnect(
-        self, profile_name: str, platform: Platform
-    ) -> None:
-        """Reconnect a retryable secondary adapter under its own profile scope."""
-        attempts = 0
-        current_task = asyncio.current_task()
-        try:
-            while self._running:
-                adapter = None
-                try:
-                    from hermes_cli.profiles import get_profile_dir
-                    from gateway.config import load_gateway_config
-
-                    profile_home = get_profile_dir(profile_name)
-                    with _profile_runtime_scope(profile_home):
-                        profile_config = load_gateway_config().platforms.get(platform)
-                        if profile_config is None or not profile_config.enabled:
-                            return
-                        adapter = self._create_adapter(platform, profile_config)
-                        if adapter is None:
-                            logger.warning(
-                                "Secondary %s reconnect skipped: adapter unavailable (profile: %s)",
-                                platform.value,
-                                profile_name,
-                            )
-                            return
-                        self._configure_profile_adapter(
-                            adapter, profile_name, platform
-                        )
-                        success = await self._connect_adapter_with_timeout(
-                            adapter, platform, is_reconnect=True
-                        )
-
-                    if success and self._running:
-                        profile_map = self._profile_adapters.setdefault(profile_name, {})
-                        if platform not in profile_map:
-                            profile_map[platform] = adapter
-                            self._sync_voice_mode_state_to_adapter(adapter)
-                            logger.info(
-                                "✓ %s reconnected (profile: %s)",
-                                platform.value,
-                                profile_name,
-                            )
-                            return
-                        # A newer reconnect already won the slot while this
-                        # attempt was awaiting connect; do not replace it.
-                        await self._safe_adapter_disconnect(adapter, platform)
-                        return
-
-                    # Shutdown can begin while connect() is in flight. Do not
-                    # republish a newly connected adapter after the registry has
-                    # been drained; release its partial resources instead.
-                    if success:
-                        await self._safe_adapter_disconnect(adapter, platform)
-                        return
-
-                    await self._safe_adapter_disconnect(adapter, platform)
-                    if (
-                        getattr(adapter, "has_fatal_error", False)
-                        and not getattr(adapter, "fatal_error_retryable", True)
-                    ):
-                        return
-                except asyncio.CancelledError:
-                    if adapter is not None:
-                        await self._safe_adapter_disconnect(adapter, platform)
-                    raise
-                except Exception:
-                    if adapter is not None:
-                        await self._safe_adapter_disconnect(adapter, platform)
-                    logger.debug(
-                        "Secondary %s reconnect attempt failed (profile: %s)",
-                        platform.value,
-                        profile_name,
-                        exc_info=True,
-                    )
-
-                if not self._running:
-                    return
-                attempts += 1
-                backoff = _reconnect_backoff(attempts)
-                logger.info(
-                    "Secondary %s reconnect retry in %ds (profile: %s)",
-                    platform.value,
-                    backoff,
-                    profile_name,
-                )
-                await asyncio.sleep(backoff)
-        finally:
-            pending = self._profile_failed_platforms
-            if isinstance(pending, dict):
-                profile_pending = pending.get(profile_name)
-                task = profile_pending.get(platform) if isinstance(profile_pending, dict) else None
-                if not isinstance(task, asyncio.Task) or task is current_task:
-                    if isinstance(profile_pending, dict):
-                        profile_pending.pop(platform, None)
-                        if not profile_pending:
-                            pending.pop(profile_name, None)
-
-    def _schedule_secondary_profile_reconnect(
-        self, profile_name: str, platform: Platform, adapter: BasePlatformAdapter
-    ) -> None:
-        """Schedule one runner-owned reconnect without sharing primary secrets."""
-        if not self._running or not adapter.fatal_error_retryable:
-            return
-        pending = self._profile_failed_platforms
-        if not isinstance(pending, dict):
-            pending = {}
-            self._profile_failed_platforms = pending
-        profile_pending = pending.setdefault(profile_name, {})
-        if platform in profile_pending:
-            return
-        task = asyncio.create_task(
-            self._run_secondary_profile_reconnect(profile_name, platform),
-            name=f"secondary-reconnect:{profile_name}:{platform.value}",
-        )
-        profile_pending[platform] = task
-        background_tasks = getattr(self, "_background_tasks", None)
-        if not isinstance(background_tasks, set):
-            background_tasks = set()
-            self._background_tasks = background_tasks
-        background_tasks.add(task)
-        task.add_done_callback(background_tasks.discard)
-
-    def _make_profile_fatal_error_handler(
-        self, profile_name: str, platform: Platform
-    ) -> Callable[[BasePlatformAdapter], Awaitable[None]]:
-        """Route a secondary-profile fatal error to that profile's reconnect slot."""
-        async def _handler(adapter: BasePlatformAdapter) -> None:
-            await self._handle_profile_adapter_fatal_error(profile_name, platform, adapter)
-
-        return _handler
-
-    async def _handle_profile_adapter_fatal_error(
-        self,
-        profile_name: str,
-        platform: Platform,
-        adapter: BasePlatformAdapter,
-    ) -> None:
-        """Remove a failed multiplexed adapter without touching the primary slot.
-
-        Secondary adapters are owned by ``_profile_adapters`` rather than
-        ``self.adapters``. The primary-only fatal handler intentionally ignores
-        them; without this route, a fatal secondary Discord client stayed live
-        forever after its liveness sampler stopped.
-        """
-        profile_map = getattr(self, "_profile_adapters", {}).get(profile_name)
-        if not isinstance(profile_map, dict) or profile_map.get(platform) is not adapter:
-            logger.debug(
-                "Ignoring stale fatal error from secondary %s adapter (profile: %s)",
-                platform.value,
-                profile_name,
-            )
-            return
-        profile_map.pop(platform, None)
-        await self._safe_adapter_disconnect(adapter, platform)
-        if not self._running:
-            return
-        self._schedule_secondary_profile_reconnect(profile_name, platform, adapter)
-        logger.error(
-            "Fatal %s adapter error for multiplexed profile %s (%s)",
-            platform.value,
-            profile_name,
-            adapter.fatal_error_code or "unknown",
-        )
-
-    def _make_profile_message_handler(self, profile_name: str):
-        """Return a message handler that stamps source.profile then delegates.
-
-        Auth runs inside ``_handle_message`` *before* the agent-turn scope is
-        installed. For secondary profiles under multiplex, wrap the whole
-        handler in ``_profile_runtime_scope`` so allowlists/tokens from that
-        profile's ``.env`` are visible to ``get_secret`` / authz.
-        """
-        from hermes_cli.profiles import get_profile_dir
-
-        try:
-            profile_home = get_profile_dir(profile_name)
-        except Exception:
-            profile_home = None
-
-        async def _handler(event):
-            try:
-                if getattr(event, "source", None) is not None and not event.source.profile:
-                    event.source.profile = profile_name
-            except Exception:
-                pass
-            if profile_home is not None:
-                with _profile_runtime_scope(profile_home):
-                    return await self._handle_message(event)
-            return await self._handle_message(event)
-
-        return _handler
-
-    def _make_profile_busy_session_handler(self, profile_name: str):
-        """Stamp an owning adapter's profile before resolving busy policy."""
-        async def _handler(event, _session_key):
-            try:
-                if getattr(event, "source", None) is not None and not event.source.profile:
-                    event.source.profile = profile_name
-            except Exception:
-                pass
-            routed_session_key = self._session_key_for_source(event.source)
-            return await self._handle_active_session_busy_message(
-                event, routed_session_key
-            )
-
-        return _handler
-
-    def _make_default_profile_message_handler(self):
-        """Scope a multiplexed default-profile message from ingress onward."""
-        profile_home = Path(get_hermes_home())
-
-        async def _handler(event):
-            with _profile_runtime_scope(profile_home):
-                return await self._handle_message(event)
-
-        return _handler
-
     def _primary_message_handler(self):
-        """Return the correctly scoped handler for a primary adapter."""
-        if getattr(self.config, "multiplex_profiles", False):
-            return self._make_default_profile_message_handler()
+        """Return the single profile's message handler."""
         return self._handle_message
 
     async def _handle_gateway_platform_event(self, event: dict, source) -> None:
@@ -1625,37 +1021,7 @@ class PlatformRuntime:
             # Observer failures must never break the adapter's update loop.
             logger.debug("gateway_platform_event hook dispatch failed", exc_info=True)
 
-    def _make_profile_platform_event_handler(self, profile_name: str):
-        """Bind platform-event auth and hook dispatch to one multiplex profile."""
-        from hermes_cli.profiles import get_profile_dir
-
-        try:
-            profile_home = get_profile_dir(profile_name)
-        except Exception:
-            profile_home = None
-
-        async def _handler(event, source):
-            if getattr(source, "profile", None) is None:
-                source.profile = profile_name
-            if profile_home is not None:
-                with _profile_runtime_scope(profile_home):
-                    return await self._handle_gateway_platform_event(event, source)
-            return await self._handle_gateway_platform_event(event, source)
-
-        return _handler
-
-    def _make_default_profile_platform_event_handler(self):
-        """Scope primary-transport events to their routed multiplex profile."""
-
-        async def _handler(event, source):
-            with _profile_runtime_scope(self._resolve_profile_home_for_source(source)):
-                return await self._handle_gateway_platform_event(event, source)
-
-        return _handler
-
     def _primary_platform_event_handler(self):
-        if getattr(self.config, "multiplex_profiles", False):
-            return self._make_default_profile_platform_event_handler()
         return self._handle_gateway_platform_event
 
     @staticmethod
@@ -1747,12 +1113,6 @@ class PlatformRuntime:
                 logger.warning("Mattermost: URL or token is not configured")
                 return None
             adapter = MattermostAdapter(config)
-        elif platform == Platform.API_SERVER:
-            from gateway.platforms.api_server import APIServerAdapter, check_api_server_requirements
-            if not check_api_server_requirements():
-                logger.warning("API Server: aiohttp not installed")
-                return None
-            adapter = APIServerAdapter(config)
         if adapter is not None:
             adapter.gateway_runner = self
         return adapter

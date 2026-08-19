@@ -28,7 +28,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional, Union
 
-from agent.account_usage import fetch_account_usage, render_account_usage_lines
 from agent.i18n import t
 from agent.turn_context import extract_api_content_sidecar
 from gateway.config import HomeChannel, Platform, PlatformConfig, persist_home_channel
@@ -352,31 +351,11 @@ class GatewaySlashCommandsMixin:
         from hermes_constants import display_hermes_home
         from hermes_cli.slash_exec import CommandContext, execute_command
 
-        multiplexed = getattr(
-            getattr(self, "config", None), "multiplex_profiles", False
-        )
-        source = getattr(event, "source", None)
-
-        profile_name = ""
-        display = ""
-        if multiplexed:
-            profile_name = (getattr(source, "profile", "") or "").strip()
-            try:
-                from gateway.profile_routing import _profile_runtime_scope
-
-                profile_home = self._resolve_profile_home_for_source(source)
-                with _profile_runtime_scope(profile_home):
-                    display = display_hermes_home()
-            except Exception:
-                display = display_hermes_home()
-
-        # Shared executor resolves process-level fallbacks; the multiplexed
-        # per-source overrides (when any) ride in via options.
         reply = execute_command(
             "profile",
             CommandContext(
                 surface="gateway",
-                options={"profile_name": profile_name, "home_display": display},
+                options={"profile_name": "", "home_display": display_hermes_home()},
             ),
         )
 
@@ -1683,10 +1662,6 @@ class GatewaySlashCommandsMixin:
         raw_args = event.get_command_args().strip()
         source = event.source
         _command_profile_home = None
-        if getattr(getattr(self, "config", None), "multiplex_profiles", False):
-            _command_profile_home = getattr(
-                self, "_resolve_profile_home_for_source"
-            )(source)
 
         # Parse --provider, --global, --session, --once, and --refresh flags
         # via the shared single-owner parser (hermes_cli.model_switch).
@@ -1800,8 +1775,6 @@ class GatewaySlashCommandsMixin:
                     _cur_provider = current_provider
                     _cur_base_url = current_base_url
                     _cur_api_key = current_api_key
-                    _picker_profile_home = _command_profile_home
-
                     async def _on_model_selected_scoped(
                         _chat_id: str, model_id: str, provider_slug: str
                     ) -> str:
@@ -2054,16 +2027,9 @@ class GatewaySlashCommandsMixin:
                     async def _on_model_selected(
                         _chat_id: str, model_id: str, provider_slug: str
                     ) -> str:
-                        if _picker_profile_home is None:
-                            return await _on_model_selected_scoped(
-                                _chat_id, model_id, provider_slug
-                            )
-                        from gateway.profile_routing import _profile_runtime_scope
-
-                        with _profile_runtime_scope(_picker_profile_home):
-                            return await _on_model_selected_scoped(
-                                _chat_id, model_id, provider_slug
-                            )
+                        return await _on_model_selected_scoped(
+                            _chat_id, model_id, provider_slug
+                        )
 
                     metadata = self._thread_metadata_for_source(source, self._reply_anchor_for_event(event))
                     result = await adapter.send_model_picker(
@@ -3100,61 +3066,6 @@ class GatewaySlashCommandsMixin:
 
         return t("gateway.set_home.success", name=chat_name, chat_id=chat_id)
 
-    async def _handle_voice_command(self, event: MessageEvent) -> str:
-        """Handle /voice [on|off|tts|status] command."""
-        args = event.get_command_args().strip().lower()
-        chat_id = event.source.chat_id
-        platform = event.source.platform
-        voice_key = self._voice_key(platform, chat_id)
-
-        adapter = self.adapters.get(platform)
-
-        if args in {"on", "enable"}:
-            self._voice_mode[voice_key] = "voice_only"
-            self._save_voice_modes()
-            if adapter:
-                self._set_adapter_auto_tts_enabled(adapter, chat_id, enabled=True)
-            return t("gateway.voice.enabled_voice_only")
-        elif args in {"off", "disable"}:
-            self._voice_mode[voice_key] = "off"
-            self._save_voice_modes()
-            if adapter:
-                self._set_adapter_auto_tts_disabled(adapter, chat_id, disabled=True)
-            return t("gateway.voice.disabled_text")
-        elif args == "tts":
-            self._voice_mode[voice_key] = "all"
-            self._save_voice_modes()
-            if adapter:
-                self._set_adapter_auto_tts_enabled(adapter, chat_id, enabled=True)
-            return t("gateway.voice.tts_enabled")
-        elif args == "status":
-            mode = self._voice_mode.get(voice_key, "off")
-            labels = {
-                "off": t("gateway.voice.label_off"),
-                "voice_only": t("gateway.voice.label_voice_only"),
-                "all": t("gateway.voice.label_all"),
-            }
-            return t("gateway.voice.status_mode", label=labels.get(mode, mode))
-        else:
-            # Toggle: off → on, on/all → off
-            current = self._voice_mode.get(voice_key, "off")
-            if current == "off":
-                self._voice_mode[voice_key] = "voice_only"
-                self._save_voice_modes()
-                if adapter:
-                    self._set_adapter_auto_tts_enabled(adapter, chat_id, enabled=True)
-                toggle_line = t("gateway.voice.enabled_short")
-            else:
-                self._voice_mode[voice_key] = "off"
-                self._save_voice_modes()
-                if adapter:
-                    self._set_adapter_auto_tts_disabled(adapter, chat_id, disabled=True)
-                toggle_line = t("gateway.voice.disabled_short")
-            # Bare /voice still toggles, but append an explainer so users
-            # discover the on/off/tts/status subcommands. The toggle result is
-            # shown first via the {toggle} placeholder.
-            return t("gateway.voice.help", toggle=toggle_line, channels="")
-
     async def _handle_rollback_command(self, event: MessageEvent) -> str:
         """Handle /rollback command — list or restore filesystem checkpoints."""
         from gateway.runtime_config import _checkpoint_agent_kwargs, _load_gateway_config
@@ -3986,26 +3897,8 @@ class GatewaySlashCommandsMixin:
         return t("gateway.footer.saved", state=state, example=example)
 
     async def _handle_compress_command(self, event: MessageEvent) -> str:
-        """Profile-scoping wrapper around manual /compress.
-
-        Multiplexed gateways resolve credentials through the fail-closed
-        per-profile secret scope (``agent.secret_scope``, Workstream A). The
-        agent turn installs it via ``_run_agent``'s wrapper, but slash-command
-        dispatch does not — so manual /compress reached the compressor's
-        provider resolution unscoped and died with ``UnscopedSecretError``
-        (``get_secret('OPENROUTER_BASE_URL') called with no profile secret
-        scope active``). Install the source profile's scope around the whole
-        handler, mirroring ``_run_agent``. Single-profile gateways skip this
-        — zero behavior change.
-        """
-        if not getattr(getattr(self, "config", None), "multiplex_profiles", False):
-            return await self._handle_compress_command_inner(event)
-
-        from gateway.profile_routing import _profile_runtime_scope
-
-        profile_home = self._resolve_profile_home_for_source(event.source)
-        with _profile_runtime_scope(profile_home):
-            return await self._handle_compress_command_inner(event)
+        """Run manual compression in the process profile."""
+        return await self._handle_compress_command_inner(event)
 
     async def _handle_compress_command_inner(self, event: MessageEvent) -> str:
         """Handle /compress command -- manually compress conversation context.
@@ -4975,39 +4868,6 @@ class GatewaySlashCommandsMixin:
         key = "gateway.branch.branched_one" if msg_count == 1 else "gateway.branch.branched_many"
         return t(key, title=branch_title, count=msg_count, parent=parent_session_id, new=new_session_id)
 
-    async def _handle_topup_command(self, event: MessageEvent) -> str:
-        """Handle /topup -- show the Nous balance and hand off to the portal.
-
-        Renders the balance block + identity line + a tappable portal URL that
-        opens the billing page. Remote spending is managed on the portal: this
-        messaging command does NOT charge, confirm, or track payment here —
-        everything happens in the browser and the next /topup shows the new balance. The
-        tappable URL is the affordance and works on every platform (button-capable
-        or plain text like SMS/email). Fetched off the event loop; fail-open.
-        """
-        from agent.account_usage import build_credits_view
-
-        try:
-            view = await asyncio.to_thread(build_credits_view, markdown=True)
-        except Exception:
-            view = None
-
-        if view is None or not view.logged_in:
-            return t("gateway.credits.not_logged_in")
-
-        lines: list[str] = ["💳 **Nous balance**"]
-        for line in view.balance_lines:
-            if line.lstrip().startswith("📈"):
-                continue  # drop the helper's header; we print our own
-            lines.append(line)
-        if view.identity_line:
-            lines.append("")
-            lines.append(view.identity_line)
-        if view.topup_url:
-            lines.append("")
-            lines.append(f"Manage billing on the portal: {view.topup_url}")
-            lines.append("Top up and manage billing in the browser — your balance updates here after.")
-        return "\n".join(lines)
 
     def _context_breakdown_block(self, agent, source, expanded: bool) -> list[str]:
         """Render the /context per-category block (plain text, no grid).
@@ -5088,189 +4948,66 @@ class GatewaySlashCommandsMixin:
             return []
 
     async def _handle_usage_command(self, event: MessageEvent) -> str:
-        """Handle /usage command -- show token usage for the current session.
-
-        Checks both _running_agents (mid-turn) and _agent_cache (between turns)
-        so that rate limits, cost estimates, and detailed token breakdowns are
-        available whenever the user asks, not only while the agent is running.
-        """
+        """Show local token and context usage for the current session."""
         import agent.status_output as status_output
-        from gateway.session_state import AGENT_PENDING as _AGENT_PENDING_SENTINEL
+        from gateway.session_state import AGENT_PENDING as pending_agent
+
+        if event.get_command_args().strip():
+            return t("gateway.usage.unknown_subcommand", args=event.get_command_args().strip())
         source = event.source
         session_key = self._session_key_for_source(source)
-
-        # `/usage reset [--force]` — redeem one banked Codex rate-limit reset
-        # credit. Parsed before the display path so it never mixes with the
-        # stats rendering below.
-        raw_args = event.get_command_args().strip()
-        args = [a.lower() for a in raw_args.split()] if raw_args else []
-        wants_reset = bool(args) and args[0] == "reset"
-        if args and not wants_reset:
-            return t("gateway.usage.unknown_subcommand", args=raw_args)
-
-        # Try running agent first (mid-turn), then cached agent (between turns)
         state = self.sessions.peek(session_key)
         agent = state.turn.agent if state is not None else None
-        if not agent or agent is _AGENT_PENDING_SENTINEL:
-            _cache_lock = self.agent_cache.lock
-            _cache = self.agent_cache.entries
-            if _cache_lock and _cache is not None:
-                with _cache_lock:
-                    cached = _cache.get(session_key)
-                    if cached:
-                        agent = cached.agent
-
-        # Resolve provider/base_url/api_key for the account-usage fetch.
-        # Prefer the live agent; fall back to persisted billing data on the
-        # SessionDB row so `/usage` still returns account info between turns
-        # when no agent is resident.
-        provider = getattr(agent, "provider", None) if agent and agent is not _AGENT_PENDING_SENTINEL else None
-        base_url = getattr(agent, "base_url", None) if agent and agent is not _AGENT_PENDING_SENTINEL else None
-        api_key = getattr(agent, "api_key", None) if agent and agent is not _AGENT_PENDING_SENTINEL else None
-        if not provider and getattr(self, "_session_db", None) is not None:
-            try:
-                _entry_for_billing = await self.async_session_store.get_or_create_session(source)
-                persisted = await self._session_db.get_session(_entry_for_billing.session_id) or {}
-                route = await self._session_db.get_dominant_session_model_route(
-                    _entry_for_billing.session_id
-                )
-                persisted_route = route if isinstance(route, dict) else {}
-            except Exception:
-                persisted = {}
-                persisted_route = {}
-            if persisted_route.get("billing_provider"):
-                provider = persisted_route["billing_provider"]
-                base_url = persisted_route.get("billing_base_url")
-            else:
-                provider = persisted.get("billing_provider")
-                base_url = persisted.get("billing_base_url")
-
-        if wants_reset:
-            normalized_provider = str(provider or "").strip().lower()
-            if normalized_provider != "openai-codex":
-                return t("gateway.usage.reset_wrong_provider")
-            force = "--force" in args[1:]
-            from agent.account_usage import redeem_codex_reset_credit
-
-            result = await asyncio.to_thread(
-                redeem_codex_reset_credit,
-                base_url=base_url,
-                api_key=api_key,
-                force=force,
-            )
-            return result.message
-
-        # Fetch account usage off the event loop so slow provider APIs don't
-        # block the gateway. Failures are non-fatal -- account_lines stays [].
-        account_lines: list[str] = []
-        credits_lines: list[str] = []
-        if provider:
-            try:
-                account_snapshot = await asyncio.to_thread(
-                    fetch_account_usage,
-                    provider,
-                    base_url=base_url,
-                    api_key=api_key,
-                )
-            except Exception:
-                account_snapshot = None
-            if account_snapshot:
-                account_lines = render_account_usage_lines(account_snapshot, markdown=True)
-
-        # ── Nous credits magnitudes + monthly-grant % gauge ─────────────
-        # Shared with the CLI / TUI /usage block via nous_credits_lines(): a single
-        # auth-gate + portal-fetch + render path (which also honors the dev fixture).
-        # Run off the event loop. The helper gates on "a Nous account is logged in"
-        # — NOT the inference provider and NOT nested under `if provider:` — so a
-        # Nous-credentialled user running inference elsewhere (or with none resident)
-        # still sees their balance. NO recovery trigger: messaging binds no notice
-        # consumer, so /usage only displays. Fail-open: never break /usage.
-        try:
-            from agent.account_usage import nous_credits_lines
-
-            credits_lines = await asyncio.to_thread(nous_credits_lines, markdown=True)
-        except Exception:
-            credits_lines = []  # fail-open: never break /usage
-
-        if agent and hasattr(agent, "session_total_tokens") and agent.session_api_calls > 0:
-            lines = []
-
-            # Rate limits (when available from provider headers)
-            rl_state = status_output.get_rate_limit_state(agent)
-            if rl_state and rl_state.has_data:
+        if not agent or agent is pending_agent:
+            with self.agent_cache.lock:
+                cached = self.agent_cache.entries.get(session_key)
+                agent = cached.agent if cached else None
+        if agent and getattr(agent, "session_api_calls", 0) > 0:
+            lines: list[str] = []
+            rate_limits = status_output.get_rate_limit_state(agent)
+            if rate_limits and rate_limits.has_data:
                 from agent.rate_limit_tracker import format_rate_limit_compact
-                lines.append(t("gateway.usage.rate_limits", state=format_rate_limit_compact(rl_state)))
-                lines.append("")
 
-            # Session token usage — detailed breakdown matching CLI
-            input_tokens = getattr(agent, "session_input_tokens", 0) or 0
-            output_tokens = getattr(agent, "session_output_tokens", 0) or 0
-
-            lines.append(t("gateway.usage.header_session"))
-            lines.append(t("gateway.usage.label_model", model=agent.model))
-            lines.append(t("gateway.usage.label_input_tokens", count=f"{input_tokens:,}"))
-            lines.append(t("gateway.usage.label_output_tokens", count=f"{output_tokens:,}"))
-            lines.append(t("gateway.usage.label_total", count=f"{agent.session_total_tokens:,}"))
-            lines.append(t("gateway.usage.label_api_calls", count=agent.session_api_calls))
-
-            # Context window and compressions
-            ctx = agent.context_compressor
-            _lpt = ctx.last_prompt_tokens if ctx.last_prompt_tokens > 0 else 0
-            if _lpt:
-                pct = min(100, _lpt / ctx.context_length * 100) if ctx.context_length else 0
-                lines.append(t("gateway.usage.label_context", used=f"{_lpt:,}", total=f"{ctx.context_length:,}", pct=f"{pct:.0f}"))
-            if ctx.compression_count:
-                lines.append(t("gateway.usage.label_compressions", count=ctx.compression_count))
-
-            # Per-category context breakdown (estimated — chars/4 heuristic).
-            # Same engine the desktop popover uses (PR #54907). The system
-            # prompt / tools / skills / memory slices read off the live agent;
-            # the conversation slice is estimated from the session transcript.
-            breakdown_lines = await asyncio.to_thread(
-                self._context_breakdown_lines, agent, source
-            )
-            if breakdown_lines:
-                lines.append("")
-                lines.extend(breakdown_lines)
-
-            if account_lines:
-                lines.append("")
-                lines.extend(account_lines)
-            if credits_lines:
-                lines.append("")
-                lines.extend(credits_lines)
-
+                lines.extend([
+                    t("gateway.usage.rate_limits", state=format_rate_limit_compact(rate_limits)),
+                    "",
+                ])
+            lines.extend([
+                t("gateway.usage.header_session"),
+                t("gateway.usage.label_model", model=agent.model),
+                t("gateway.usage.label_input_tokens", count=f"{getattr(agent, 'session_input_tokens', 0):,}"),
+                t("gateway.usage.label_output_tokens", count=f"{getattr(agent, 'session_output_tokens', 0):,}"),
+                t("gateway.usage.label_total", count=f"{agent.session_total_tokens:,}"),
+                t("gateway.usage.label_api_calls", count=agent.session_api_calls),
+            ])
+            compressor = agent.context_compressor
+            prompt_tokens = max(0, compressor.last_prompt_tokens)
+            if prompt_tokens:
+                percent = min(100, prompt_tokens / compressor.context_length * 100) if compressor.context_length else 0
+                lines.append(t("gateway.usage.label_context", used=f"{prompt_tokens:,}", total=f"{compressor.context_length:,}", pct=f"{percent:.0f}"))
+            if compressor.compression_count:
+                lines.append(t("gateway.usage.label_compressions", count=compressor.compression_count))
+            breakdown = await asyncio.to_thread(self._context_breakdown_lines, agent, source)
+            if breakdown:
+                lines.extend(["", *breakdown])
             return "\n".join(lines)
 
-        # No agent at all -- check session history for a rough count
-        session_entry = await self.async_session_store.get_or_create_session(source)
-        history = await self.async_session_store.load_transcript(session_entry.session_id)
-        if history:
-            from agent.model_metadata import estimate_messages_tokens_rough
-            msgs = [m for m in history if m.get("role") in {"user", "assistant"} and m.get("content")]
-            approx = estimate_messages_tokens_rough(msgs)
-            lines = [
-                t("gateway.usage.header_session_info"),
-                t("gateway.usage.label_messages", count=len(msgs)),
-                t("gateway.usage.label_estimated_context", count=f"{approx:,}"),
-                t("gateway.usage.detailed_after_first"),
-            ]
-            if account_lines:
-                lines.append("")
-                lines.extend(account_lines)
-            if credits_lines:
-                lines.append("")
-                lines.extend(credits_lines)
-            return "\n".join(lines)
-        if account_lines or credits_lines:
-            # account-only, credits-only, or both — joined with a blank divider.
-            parts = list(account_lines)
-            if credits_lines:
-                if parts:
-                    parts.append("")
-                parts.extend(credits_lines)
-            return "\n".join(parts)
-        return t("gateway.usage.no_data")
+        entry = await self.async_session_store.get_or_create_session(source)
+        history = await self.async_session_store.load_transcript(entry.session_id)
+        messages = [
+            message for message in history
+            if message.get("role") in {"user", "assistant"} and message.get("content")
+        ]
+        if not messages:
+            return t("gateway.usage.no_data")
+        from agent.model_metadata import estimate_messages_tokens_rough
+
+        return "\n".join([
+            t("gateway.usage.header_session_info"),
+            t("gateway.usage.label_messages", count=len(messages)),
+            t("gateway.usage.label_estimated_context", count=f"{estimate_messages_tokens_rough(messages):,}"),
+            t("gateway.usage.detailed_after_first"),
+        ])
 
     async def _handle_insights_command(self, event: MessageEvent) -> str:
         """Handle /insights command -- show usage insights and analytics."""

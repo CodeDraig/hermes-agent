@@ -1,4 +1,6 @@
 name: openai-codex-provider
+manifest_version: 2
+api_version: 2
 kind: model-provider
 version: 1.0.0
 description: OpenAI Codex (Responses API)

@@ -43,10 +43,8 @@ from gateway.platforms.base import (
     MessageEvent,
     MessageType,
     _reply_anchor_for_event,
-    build_auto_tts_output_path,
     merge_pending_message_event,
 )
-from gateway.profile_routing import _multiplex_profile_homes, _profile_runtime_scope
 from gateway.runtime_config import (
     _checkpoint_agent_kwargs,
     _credential_pool_for_provider,
@@ -182,33 +180,8 @@ class TurnExecution:
         ("checkpoints", "max_total_size_mb"),
         ("checkpoints", "max_file_size_mb"),
     )
-    _HONCHO_CACHE_BUSTING_KEYS = (
-        "honcho.peer_name",
-        "honcho.ai_peer",
-        "honcho.pin_peer_name",
-        "honcho.runtime_peer_prefix",
-        "honcho.user_peer_aliases",
-    )
-    _HONCHO_CACHE_BUSTING_MEMO: dict[tuple[str, int | None], dict[str, Any]] = {}
-
     def _reset_notice_session_info(self, source: SessionSource) -> str:
-        """Session-info block for the auto-reset notice, profile-scoped.
-
-        When multiplexing, resolve model/provider/context inside the profile
-        serving ``source`` — otherwise the banner advertises the base config's
-        model while the session actually runs on the profile's (#59003).
-        Mirrors ``_run_agent``'s gating so single-profile gateways never
-        enter the scope.
-
-        Call via ``asyncio.to_thread`` from async handlers: under the scope,
-        resolution can do blocking work (credential refresh, context-length
-        HTTP probes) that must not run on the event loop. The scope is entered
-        inside this method, so contextvars behave correctly in the worker
-        thread.
-        """
-        if getattr(getattr(self, "config", None), "multiplex_profiles", False):
-            with _profile_runtime_scope(self._resolve_profile_home_for_source(source)):
-                return self._format_session_info()
+        """Return session information for the process profile."""
         return self._format_session_info()
 
     def _format_session_info(self) -> str:
@@ -1059,162 +1032,6 @@ class TurnExecution:
                 logger.debug("loop wakeup watcher error: %s", exc)
             await asyncio.sleep(interval)
 
-    def _should_send_voice_reply(
-        self,
-        event: MessageEvent,
-        response: str,
-        agent_messages: list,
-        already_sent: bool = False,
-    ) -> bool:
-        """Decide whether the runner should send a TTS voice reply.
-
-        Returns False when:
-        - voice_mode is off for this chat
-        - response is empty or an error
-        - agent already called text_to_speech tool (dedup)
-        - voice input and base adapter auto-TTS already handled it (skip_double)
-          UNLESS streaming already consumed the response (already_sent=True),
-          in which case the base adapter won't have text for auto-TTS so the
-          runner must handle it.
-        """
-        if not response or response.startswith("Error:"):
-            return False
-
-        chat_id = event.source.chat_id
-        voice_key = self._voice_key(event.source.platform, chat_id)
-        voice_mode = self._voice_mode.get(voice_key)
-        is_voice_input = (event.message_type == MessageType.VOICE)
-
-        adapter = self.adapters.get(event.source.platform)
-        adapter_auto_tts = False
-        if adapter and hasattr(adapter, "_should_auto_tts_for_chat"):
-            try:
-                adapter_auto_tts = bool(adapter._should_auto_tts_for_chat(chat_id))
-            except Exception:
-                adapter_auto_tts = False
-
-        should = (
-            (voice_mode == "all")
-            or (voice_mode == "voice_only" and is_voice_input)
-            # ``voice.auto_tts`` is synced into the adapter on gateway startup.
-            # It is the fallback only when the chat has no explicit mode;
-            # otherwise the chat-level all/voice_only/off choice takes precedence.
-            or (voice_mode is None and adapter_auto_tts)
-        )
-        if not should:
-            logger.debug(
-                "Auto voice reply skipped: mode=%s adapter_auto_tts=%s chat=%s platform=%s",
-                voice_mode, adapter_auto_tts, chat_id, event.source.platform.value,
-            )
-            return False
-
-        # Dedup: agent already called TTS tool in THIS turn only
-        last_user_idx = None
-        for i, msg in enumerate(reversed(agent_messages)):
-            if msg.get("role") == "user":
-                last_user_idx = len(agent_messages) - 1 - i; break
-        turn_messages = agent_messages[last_user_idx:] if last_user_idx is not None else agent_messages
-        has_agent_tts = any(
-            msg.get("role") == "assistant"
-            and any(
-                (tc.get("function") or {}).get("name") == "text_to_speech"
-                for tc in (msg.get("tool_calls") or [])
-            )
-            for msg in turn_messages
-        )
-        if has_agent_tts:
-            return False
-
-        # Dedup: base adapter auto-TTS already handles voice input
-        # (play_tts plays in VC when connected, so runner can skip).
-        # When streaming already delivered the text (already_sent=True),
-        # the base adapter will receive None and can't run auto-TTS,
-        # so the runner must take over.
-        if is_voice_input and not already_sent:
-            return False
-
-        return True
-
-    def _should_echo_stt_transcripts(self) -> bool:
-        """Return whether inbound voice/STT transcripts should be echoed to chat."""
-        return bool(getattr(self.config, "stt_echo_transcripts", True))
-
-    async def _send_voice_reply(self, event: MessageEvent, text: str) -> None:
-        """Generate TTS audio and send as a voice message before the text reply."""
-        audio_path = None
-        actual_paths: List[str] = []
-        try:
-            from tools.tts_tool import text_to_speech_tool, _strip_markdown_for_tts
-
-            tts_text = _strip_markdown_for_tts(text)
-            if not tts_text:
-                return
-
-            # Telegram voice bubbles require Ogg/Opus; the TTS tool's central
-            # container repair guarantees real Ogg/Opus bytes. Other retained
-            # adapters keep their selected output format.
-            audio_path = build_auto_tts_output_path(event.source.platform)
-
-            result_json = await asyncio.to_thread(
-                text_to_speech_tool, text=tts_text, output_path=audio_path
-            )
-            try:
-                result = json.loads(result_json)
-            except (json.JSONDecodeError, TypeError):
-                logger.warning("Auto voice reply TTS returned invalid JSON: %s", result_json[:200] if result_json else result_json)
-                return
-
-            # Final delivery may be one combined file or multiple separately
-            # valid files when combination is unavailable or would exceed a
-            # platform limit. Preserve legacy single-file results.
-            actual_paths = result.get("file_paths") or [
-                result.get("file_path", audio_path)
-            ]
-            actual_paths = [
-                str(path) for path in actual_paths
-                if path and os.path.isfile(path)
-            ]
-            if not result.get("success") or not actual_paths:
-                logger.warning("Auto voice reply TTS failed: %s", result.get("error"))
-                return
-
-            adapter = self._adapter_for_source(event.source)
-
-            send_voice = getattr(adapter, "send_voice", None)
-            reply_anchor = self._reply_anchor_for_event(event)
-            thread_meta = self._thread_metadata_for_source(event.source, reply_anchor)
-            if callable(send_voice):
-                # Mark the auto voice reply as notify-worthy.  Mirrors the
-                # final-text path in gateway/platforms/base.py which sets
-                # ``notify=True`` so platform adapters that gate push
-                # notifications (Telegram "important" mode) deliver the
-                # final voice reply as a normal notification instead of a
-                # silent message.  Clone first so we don't mutate metadata
-                # shared with concurrent typing-indicator state.
-                if thread_meta is not None:
-                    thread_meta = dict(thread_meta)
-                    thread_meta["notify"] = True
-                else:
-                    thread_meta = {"notify": True}
-            for actual_path in actual_paths:
-                if callable(send_voice):
-                    send_voice_call = cast(Callable[..., Awaitable[Any]], send_voice)
-                    send_kwargs: Dict[str, Any] = {
-                        "chat_id": event.source.chat_id,
-                        "audio_path": actual_path,
-                        "reply_to": reply_anchor,
-                        "metadata": thread_meta,
-                    }
-                    await send_voice_call(**send_kwargs)
-        except Exception as e:
-            logger.warning("Auto voice reply failed: %s", e, exc_info=True)
-        finally:
-            for p in ({audio_path, *actual_paths} - {None}):
-                try:
-                    os.unlink(p)
-                except OSError:
-                    pass
-
     async def _deliver_media_from_response(
         self,
         response: str,
@@ -1380,23 +1197,10 @@ class TurnExecution:
         media_urls: Optional[List[str]] = None,
         media_types: Optional[List[str]] = None,
     ) -> None:
-        """Profile-scoping wrapper around the background agent task.
-
-        When multiplexing is active, resolve the inbound source's profile and
-        run the whole task inside ``_profile_runtime_scope`` so credentials
-        resolve from that profile's secret scope. Mirrors the pattern in
-        ``_run_agent``.
-        """
-        if not getattr(getattr(self, "config", None), "multiplex_profiles", False):
-            return await self._run_background_task_inner(
-                prompt, source, task_id, event_message_id, media_urls, media_types,
-            )
-
-        profile_home = self._resolve_profile_home_for_source(source)
-        with _profile_runtime_scope(profile_home):
-            return await self._run_background_task_inner(
-                prompt, source, task_id, event_message_id, media_urls, media_types,
-            )
+        """Run a background agent task in the process profile."""
+        return await self._run_background_task_inner(
+            prompt, source, task_id, event_message_id, media_urls, media_types,
+        )
 
     def _resolve_enabled_toolsets(
         self,
@@ -3036,8 +2840,7 @@ class TurnExecution:
         # Propagate the adapter's async-delivery capability so async tools
         # (terminal notify_on_complete / watch_patterns, delegate_task
         # background=True) know whether this channel can wake a later turn.
-        # Default True keeps CLI / unknown paths working; stateless adapters
-        # (api_server) declare supports_async_delivery=False. Use getattr so
+        # Default True keeps CLI / unknown paths working. Use getattr so
         # bare runners built via object.__new__ (tests) without self.adapters
         # don't blow up — they simply default to supported.
         _adapters = getattr(self, "adapters", None) or {}
@@ -3260,306 +3063,58 @@ class TurnExecution:
             return prefix
         return user_text
 
-    async def _enrich_message_with_transcription(
+    async def _enrich_message_with_audio_paths(
         self,
         user_text: str,
         audio_paths: List[str],
     ) -> tuple[str, List[str]]:
-        """
-        Auto-transcribe user voice/audio messages using the configured STT provider
-        and prepend the transcript to the message text.
+        """Expose inbound audio as ordinary local attachments without STT."""
+        from tools.credential_files import to_agent_visible_cache_path
 
-        Args:
-            user_text:   The user's original caption / message text.
-            audio_paths: List of local file paths to cached audio files.
-
-        Returns:
-            A tuple of ``(enriched_text, successful_transcripts)``:
-              - ``enriched_text``: the message string with transcription wrappers
-                prepended (same as before).
-              - ``successful_transcripts``: the raw transcript strings for audio
-                clips that were successfully transcribed, in input order. Empty
-                list if every clip failed or STT is disabled. Callers can use
-                this to echo transcripts back to the user before the agent loop.
-        """
-        seen = set()
-        audio_paths = [p for p in audio_paths if p not in seen and not seen.add(p)]
-        if not getattr(self.config, "stt_enabled", True):
-            notes = []
-            for path in audio_paths:
-                abs_path = os.path.abspath(path)
-                duration_str = await _probe_audio_duration(abs_path)
-                if duration_str:
-                    notes.append(
-                        f"[The user sent a voice message: {abs_path} (duration: {duration_str})]"
-                    )
-                else:
-                    notes.append(f"[The user sent a voice message: {abs_path}]")
-            if not notes:
-                return user_text, []
-            prefix = "\n\n".join(notes)
-            _placeholder = "(The user sent a message with no text content)"
-            if user_text and user_text.strip() == _placeholder:
-                return prefix, []
-            if user_text:
-                return f"{prefix}\n\n{user_text}", []
-            return prefix, []
-
-        try:
-            from tools.transcription_tools import (
-                transcribe_audio,
-                transcribe_audio_local_fallback,
-            )
-        except ModuleNotFoundError as e:
-            logger.error("Transcription module unavailable: %s", e)
-            unavailable_note = "[voice message could not be transcribed]"
-            _placeholder = "(The user sent a message with no text content)"
-            if user_text and user_text.strip() == _placeholder:
-                return unavailable_note, []
-            if user_text:
-                return f"{unavailable_note}\n\n{user_text}", []
-            return unavailable_note, []
-
-        enriched_parts = []
-        successful_transcripts: List[str] = []
+        seen: set[str] = set()
+        notes: List[str] = []
         for path in audio_paths:
-            try:
-                logger.debug("Transcribing user voice: %s", path)
-                result = await asyncio.to_thread(
-                    transcribe_audio, path, None, "gateway",
-                )
-                if not result.get("success"):
-                    fallback = await asyncio.to_thread(
-                        transcribe_audio_local_fallback,
-                        path,
-                    )
-                    if fallback.get("success"):
-                        logger.info(
-                            "Configured STT failed for %s; recovered with local STT",
-                            path,
-                        )
-                        result = fallback
-                if result["success"]:
-                    transcript = result["transcript"]
-                    # Speech-to-text can return success=True with an empty or
-                    # whitespace-only transcript on silence, cut-off, or
-                    # inaudible audio. Emitting empty quotes ('""') makes the
-                    # agent reply to nothing and can loop, so that case gets a
-                    # clear sentinel note instead (#41603).
-                    if not (transcript or "").strip():
-                        enriched_parts.append(
-                            "[The user sent a voice message but it came through "
-                            "empty or inaudible — speech-to-text returned no "
-                            "words. Do not guess at the content; ask the user "
-                            "to resend or type it out.]"
-                        )
-                        continue
-                    successful_transcripts.append(transcript)
-                    # Pass the transcript through as a plain quoted line. The
-                    # earlier wording ("The user sent a voice message~ Here's
-                    # what they said: ...") read as a meta-instruction and made
-                    # the LLM volunteer commentary about voice mode rather than
-                    # reply to the content.
-                    enriched_parts.append(f'"{transcript}"')
-                else:
-                    error = result.get("error", "unknown error")
-                    # All failure branches: a single, minimal, neutral marker.
-                    # Do NOT mention "no STT provider configured", "setup
-                    # instructions", or the "hermes-agent-setup" skill, and do
-                    # NOT claim a direct message was sent — those phrases get
-                    # persisted in conversation history and poison every later
-                    # turn, so the model keeps volunteering STT-setup advice
-                    # even after transcription starts working. The cause is
-                    # logged for operator diagnosis but kept out of the
-                    # LLM-visible prompt.
-                    logger.info("Voice transcription failed for %s: %s", path, error)
-                    from tools.credential_files import to_agent_visible_cache_path
-
-                    agent_path = to_agent_visible_cache_path(os.path.abspath(path))
-                    enriched_parts.append(
-                        "[voice message could not be transcribed automatically; "
-                        f"the audio is available at: {agent_path}]"
-                    )
-            except Exception as e:
-                logger.error("Transcription error: %s", e)
-                from tools.credential_files import to_agent_visible_cache_path
-
-                agent_path = to_agent_visible_cache_path(os.path.abspath(path))
-                enriched_parts.append(
-                    "[voice message could not be transcribed automatically; "
-                    f"the audio is available at: {agent_path}]"
-                )
-
-        if enriched_parts:
-            prefix = "\n\n".join(enriched_parts)
-            # Strip the empty-content placeholder from the Discord adapter
-            # when we successfully transcribed the audio — it's redundant.
-            _placeholder = "(The user sent a message with no text content)"
-            if user_text and user_text.strip() == _placeholder:
-                return prefix, successful_transcripts
-            if user_text:
-                return f"{prefix}\n\n{user_text}", successful_transcripts
-            return prefix, successful_transcripts
-        return user_text, successful_transcripts
+            if path in seen:
+                continue
+            seen.add(path)
+            absolute = os.path.abspath(path)
+            duration = await _probe_audio_duration(absolute)
+            visible = to_agent_visible_cache_path(absolute)
+            suffix = f" (duration: {duration})" if duration else ""
+            notes.append(f"[Audio attachment: {visible}{suffix}]")
+        if not notes:
+            return user_text, []
+        prefix = "\n\n".join(notes)
+        placeholder = "(The user sent a message with no text content)"
+        if not user_text or user_text.strip() == placeholder:
+            return prefix, []
+        return f"{prefix}\n\n{user_text}", []
 
     def _pending_event_audio_paths(self, event) -> List[str]:
-        """Return STT-eligible paths from a pending voice message."""
-        audio_paths: List[str] = []
-        media_urls = getattr(event, "media_urls", None) or []
-        for i, path in enumerate(media_urls):
-            if _event_media_is_stt_input(event, i):
-                audio_paths.append(path)
-        return audio_paths
+        """Return ordinary audio attachment paths from a pending event."""
+        paths: List[str] = []
+        for index, path in enumerate(getattr(event, "media_urls", None) or []):
+            if _event_media_is_stt_input(event, index):
+                paths.append(path)
+        return paths
 
-    async def _transcribe_pending_audio_event_once(
+    async def _prepare_pending_audio_event_once(
         self,
         event,
-        user_text: Optional[str] = None,
-    ) -> tuple[str | None, List[str]]:
-        """Transcribe a pending audio event once and cache the result on the event.
-
-        Voice follow-ups can be inspected first by the interrupt monitor and
-        later consumed by the pending-drain path.  Both need the same transcript,
-        but only one STT call and one transcript echo should happen for the
-        platform message.
-        """
-        if hasattr(event, "_gateway_pending_stt_text"):
-            cached_text = getattr(event, "_gateway_pending_stt_text")
-            cached_transcripts = getattr(event, "_gateway_pending_stt_transcripts", []) or []
-            return cached_text, list(cached_transcripts)
-
-        audio_paths = self._pending_event_audio_paths(event)
-        if not audio_paths:
-            return user_text if user_text is not None else (getattr(event, "text", None) or None), []
-
-        text = user_text if user_text is not None else (getattr(event, "text", "") or "")
-        enriched_text, successful_transcripts = await self._enrich_message_with_transcription(
-            text,
-            audio_paths,
-        )
-        setattr(event, "_gateway_pending_stt_text", enriched_text)
-        setattr(event, "_gateway_pending_stt_transcripts", list(successful_transcripts))
-        return enriched_text, successful_transcripts
-
-    async def _echo_pending_stt_transcripts_once(
-        self,
-        event,
-        adapter,
-        source,
-        transcripts: List[str],
-        *,
-        metadata=None,
-        log_context: str = "Transcript",
-    ) -> None:
-        """Echo pending-event STT transcripts to the chat at most once.
-
-        The already-echoed transcripts are tracked as a COUNT rather than a
-        single boolean.  ``merge_pending_message_event`` can append a second
-        voice note to an event whose first transcript was already echoed and
-        invalidates the transcription cache; the re-run transcription then
-        returns the earlier transcripts as a prefix of the new list, so
-        echoing only the unsent tail suppresses the repeat while still
-        surfacing the newly merged note.  A count rather than a set of seen
-        values because two separate notes that transcribe identically are two
-        distinct deliveries and both must be echoed.
-        """
-        if (
-            not transcripts
-            or not self._should_echo_stt_transcripts()
-            or adapter is None
-        ):
-            return
-        already_echoed = int(getattr(event, "_gateway_pending_stt_echoed", 0) or 0)
-        unsent = transcripts[already_echoed:]
-        setattr(event, "_gateway_pending_stt_echoed", already_echoed + len(unsent))
-        for tx in unsent:
-            try:
-                await adapter.send(
-                    source.chat_id,
-                    f'🎙️ "{tx}"',
-                    metadata=metadata,
-                )
-            except Exception as echo_exc:
-                logger.debug("%s echo failed (non-fatal): %s", log_context, echo_exc)
-
-    async def _transcribe_and_echo_pending_voice(
-        self,
-        event,
-        adapter,
-        source,
-        text: str,
-        *,
-        log_context: str,
-        metadata=_UNSET,
+        adapter=None,
+        source=None,
+        text: str = "",
+        **_ignored,
     ) -> tuple[str, List[str]]:
-        """Transcribe a pending voice event and echo transcripts once.
-
-        Unified helper for all interrupt/monitor/backup/drain paths that need
-        to transcribe a pending voice event and echo the transcript to chat.
-        Returns ``(enriched_text, transcripts)`` so the caller can feed the
-        enriched text into ``interruption.interrupt(agent)`` or the pending-drain flow.
-
-        If the event has no STT-eligible media, returns ``(text, [])`` unchanged.
-        The caller is responsible for the ``_build_media_placeholder`` fallback
-        when ``text`` is empty and the event has non-audio media.
-        """
-        if not self._pending_event_audio_paths(event):
-            return text, []
-        try:
-            enriched_text, transcripts = await self._transcribe_pending_audio_event_once(
-                event,
-                text,
-            )
-            echo_meta = self._thread_metadata_for_source(
-                source,
-                self._reply_anchor_for_event(event),
-            ) if metadata is _UNSET else metadata
-            await self._echo_pending_stt_transcripts_once(
-                event,
-                adapter,
-                source,
-                transcripts,
-                metadata=echo_meta,
-                log_context=log_context,
-            )
-            return enriched_text or text, transcripts
-        except Exception as trans_exc:
-            logger.warning("%s transcription failed: %s", log_context, trans_exc)
-            return text, []
-
-    @classmethod
-    def _empty_honcho_cache_busting_config(cls) -> dict[str, Any]:
-        return {key: None for key in cls._HONCHO_CACHE_BUSTING_KEYS}
-
-    @classmethod
-    def _extract_honcho_cache_busting_config(cls) -> dict[str, Any]:
-        """Extract Honcho identity keys, memoized by honcho.json mtime."""
-        try:
-            from plugins.memory.honcho.client import HonchoClientConfig, resolve_config_path
-
-            path = resolve_config_path()
-            try:
-                mtime_ns = path.stat().st_mtime_ns
-            except OSError:
-                mtime_ns = None
-            memo_key = (str(path), mtime_ns)
-            cached = cls._HONCHO_CACHE_BUSTING_MEMO.get(memo_key)
-            if cached is not None:
-                return dict(cached)
-
-            hcfg = HonchoClientConfig.from_global_config(config_path=path)
-            aliases = hcfg.user_peer_aliases or {}
-            values = {
-                "honcho.peer_name": hcfg.peer_name,
-                "honcho.ai_peer": hcfg.ai_peer,
-                "honcho.pin_peer_name": bool(hcfg.pin_peer_name),
-                "honcho.runtime_peer_prefix": hcfg.runtime_peer_prefix or "",
-                "honcho.user_peer_aliases": sorted(aliases.items()) if isinstance(aliases, dict) else [],
-            }
-            cls._HONCHO_CACHE_BUSTING_MEMO = {memo_key: values}
-            return dict(values)
-        except Exception:
-            return cls._empty_honcho_cache_busting_config()
+        """Attach audio-path notes once for interrupt and queue consumers."""
+        if hasattr(event, "_gateway_pending_audio_text"):
+            return getattr(event, "_gateway_pending_audio_text"), []
+        base_text = text if text is not None else (getattr(event, "text", "") or "")
+        enriched, _ = await self._enrich_message_with_audio_paths(
+            base_text, self._pending_event_audio_paths(event)
+        )
+        setattr(event, "_gateway_pending_audio_text", enriched)
+        return enriched, []
 
     @classmethod
     def _extract_cache_busting_config(cls, user_config: dict | None) -> dict:
@@ -3594,14 +3149,6 @@ class TurnExecution:
         except Exception:
             out["tools.registry_generation"] = None
 
-        # Honcho identity-mapping keys live in honcho.json, not user_config.
-        # Only read that file when Honcho is the active memory provider.
-        provider = cfg_get(cfg, "memory", "provider")
-        if isinstance(provider, str) and provider.lower() == "honcho":
-            out.update(cls._extract_honcho_cache_busting_config())
-        else:
-            out.update(cls._empty_honcho_cache_busting_config())
-
         return out
 
     @staticmethod
@@ -3628,19 +3175,8 @@ class TurnExecution:
         edits to model.context_length / compression.* in config.yaml are
         picked up on the next gateway message without a manual restart.
 
-        ``user_id`` and ``user_id_alt`` are the runtime user identities
-        carried by the current message's gateway source.  They participate
-        in the cache key because the Honcho memory provider freezes them
-        into ``HonchoSessionManager`` at first-message init (see
-        ``plugins/memory/honcho/__init__.py::_do_session_init``).  Without
-        them in the signature, a shared-thread session_key (one in which
-        ``build_session_key`` intentionally omits the participant ID,
-        e.g. ``thread_sessions_per_user=False``) would reuse the cached
-        create_agent across distinct users, causing the second user's messages
-        to be attributed to the first user's resolved Honcho peer.  This
-        broke #27371's per-user-peer contract in multi-user gateways.
-        Per-user agent rebuilds in shared threads trade prompt-cache
-        warmth for correct memory attribution.
+        ``user_id`` and ``user_id_alt`` keep provider-scoped memory identity
+        isolated when a shared-thread session key spans multiple users.
         """
         import hashlib, json as _j
 
@@ -4184,163 +3720,17 @@ class TurnExecution:
         persist_user_display_kind: Optional[str] = None,
         message_type: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Profile-scoping wrapper around the agent run.
-
-        When multiplexing is active, resolve the inbound source's profile and
-        run the whole turn inside ``_profile_runtime_scope`` so config/skills/
-        memory resolve to that profile's home AND credentials resolve from that
-        profile's secret scope (never the process-global ``os.environ``). When
-        multiplexing is off this is a transparent pass-through — zero behavior
-        change for single-profile gateways.
-        """
-        if not getattr(getattr(self, "config", None), "multiplex_profiles", False):
-            return await self._run_agent_inner(
-                message, context_prompt, history, source, session_id,
-                session_key=session_key, run_generation=run_generation,
-                _interrupt_depth=_interrupt_depth, event_message_id=event_message_id,
-                channel_prompt=channel_prompt, moa_config=moa_config,
-                persist_user_message=persist_user_message,
-                persist_user_timestamp=persist_user_timestamp,
-                persist_user_display_kind=persist_user_display_kind,
-                message_type=message_type,
-            )
-
-        profile_home = self._resolve_profile_home_for_source(source)
-        with _profile_runtime_scope(profile_home):
-            return await self._run_agent_inner(
-                message, context_prompt, history, source, session_id,
-                session_key=session_key, run_generation=run_generation,
-                _interrupt_depth=_interrupt_depth, event_message_id=event_message_id,
-                channel_prompt=channel_prompt, moa_config=moa_config,
-                persist_user_message=persist_user_message,
-                persist_user_timestamp=persist_user_timestamp,
-                persist_user_display_kind=persist_user_display_kind,
-                message_type=message_type,
-            )
-
-    def _profile_name_for_source(self, source: SessionSource) -> Optional[str]:
-        """Resolve the profile name for an inbound source via configured routes.
-
-        Returns ``None`` when multiplexing is off, no routes are configured, or
-        no route matches. Callers (``build_source``,
-        ``_resolve_profile_home_for_source``) treat ``None`` as "use the
-        default/active profile". When ``gateway.profile_routes`` is configured,
-        the most specific matching route wins (scope < channel < thread). See
-        :mod:`gateway.profile_routing` for matching rules.
-
-        Gated on ``gateway.multiplex_profiles``: routing stamps
-        ``source.profile``, which selects the session-key namespace and batch
-        keys — but the profile-scoped agent run only activates under
-        multiplexing. Without this gate, a configured route with multiplexing
-        off would namespace batch/session keys by profile while the agent
-        still runs in ``agent:main``, splitting the two out of agreement.
-        """
-        config = getattr(self, "config", None)
-        if not getattr(config, "multiplex_profiles", False):
-            return None
-        routes = getattr(config, "profile_routes", None)
-        if not routes:
-            return None
-        from gateway.profile_routing import ProfileRouteRejected, match_profile_route
-        try:
-            matched = match_profile_route(
-                routes,
-                platform=source.platform.value,
-                scope_id=getattr(source, "scope_id", None),
-                chat_id=source.chat_id,
-                thread_id=getattr(source, "thread_id", None),
-                parent_chat_id=getattr(source, "parent_chat_id", None),
-            )
-        except Exception:
-            logger.warning(
-                "Profile route matching failed for %s/%s, falling back to default",
-                source.platform, source.chat_id, exc_info=True,
-            )
-            return None
-        if matched:
-            try:
-                served = {name for name, _home in _multiplex_profile_homes(config)}
-            except Exception as exc:
-                logger.warning(
-                    "Rejecting profile route %r because the served-profile set "
-                    "could not be resolved",
-                    matched.name,
-                    exc_info=True,
-                )
-                raise ProfileRouteRejected(matched.name) from exc
-            if matched.profile not in served:
-                logger.warning(
-                    "Rejecting profile route %r: target profile %r is not served",
-                    matched.name,
-                    matched.profile,
-                )
-                raise ProfileRouteRejected(matched.name)
-            return matched.profile
-        logger.debug(
-            "No profile route matched: platform=%s chat_id=%s thread_id=%s parent_chat_id=%s",
-            source.platform.value, source.chat_id,
-            getattr(source, "thread_id", None), getattr(source, "parent_chat_id", None),
+        """Run the turn using the gateway process's selected profile."""
+        return await self._run_agent_inner(
+            message, context_prompt, history, source, session_id,
+            session_key=session_key, run_generation=run_generation,
+            _interrupt_depth=_interrupt_depth, event_message_id=event_message_id,
+            channel_prompt=channel_prompt, moa_config=moa_config,
+            persist_user_message=persist_user_message,
+            persist_user_timestamp=persist_user_timestamp,
+            persist_user_display_kind=persist_user_display_kind,
+            message_type=message_type,
         )
-        return None
-
-    def _resolve_profile_home_for_source(self, source: SessionSource) -> "Path":
-        """Resolve which profile's HERMES_HOME should serve this inbound source.
-
-        Resolution order:
-          1. ``source.profile`` — set by /p/<profile>/ URL prefix, per-credential
-             adapter ownership, OR profile_routes matching at ``build_source`` time.
-          2. ``_profile_name_for_source`` — re-run routing here as a defensive
-             fallback for sources that bypass ``build_source``.
-          3. The active profile (the multiplexer's own home).
-        """
-        from gateway.profile_routing import ProfileRouteRejected
-        from hermes_cli.profiles import (
-            get_active_profile_name,
-            get_profile_dir,
-            profile_exists,
-        )
-        from hermes_constants import get_hermes_home
-
-        # Track whether a profile was explicitly requested (vs. falling back to default)
-        explicit_profile = None
-        try:
-            name = (source.profile or "").strip()
-            if name:
-                explicit_profile = name  # User explicitly set this profile
-            if not name:
-                name = self._profile_name_for_source(source)
-                if name:
-                    explicit_profile = name  # Routing explicitly set this profile
-            if not name:
-                name = get_active_profile_name() or "default"
-
-            profile_dir = get_profile_dir(name)
-            # Warn if an explicit profile doesn't exist on disk
-            if explicit_profile and not profile_exists(name):
-                logger.warning(
-                    "Profile %r does not exist for source %s/%s (scope_id=%s), "
-                    "falling back to global HERMES_HOME",
-                    explicit_profile,
-                    source.platform.value,
-                    source.chat_id,
-                    getattr(source, "scope_id", None),
-                )
-                return get_hermes_home()
-            return profile_dir
-        except ProfileRouteRejected:
-            raise
-        except Exception:
-            # Catch normalization errors, path errors, etc.
-            logger.warning(
-                "Failed to resolve profile directory for source %s/%s (scope_id=%s), "
-                "falling back to global HERMES_HOME: %s",
-                source.platform.value,
-                source.chat_id,
-                getattr(source, "scope_id", None),
-                explicit_profile or "(no profile)",
-                exc_info=True,
-            )
-            return get_hermes_home()
 
     async def _run_agent_inner(
         self,
@@ -4732,15 +4122,9 @@ class TurnExecution:
         result_holder = [None]  # Mutable container for the result
         tools_holder = [None]   # Mutable container for the tool definitions
         stream_consumer_holder = [None]  # Mutable container for stream consumer
-        # #60671 — streaming PCM audio consumer.  Created on the gateway
-        # event-loop thread (NOT inside run_sync's executor worker) so the
-        # outer finalisation / interrupt paths can reference it without a
-        # cross-scope NameError.
-        streaming_tts_consumer_holder: list = [None]
         turn_ctx.result_holder = result_holder
         turn_ctx.tools_holder = tools_holder
         turn_ctx.stream_consumer_holder = stream_consumer_holder
-        turn_ctx.streaming_tts_consumer_holder = streaming_tts_consumer_holder
 
         # Bridge sync step_callback → async hooks.emit for agent:step events
         _loop_for_step = asyncio.get_running_loop()
@@ -4779,44 +4163,6 @@ class TurnExecution:
         turn_ctx._status_chat_id = _status_chat_id
         turn_ctx._status_thread_metadata = _status_thread_metadata
         turn_ctx._status_callback_sync = turn_runner._status_callback_sync
-
-        # ---- Streaming TTS consumer setup (#60671) ----
-        # Created on the gateway event-loop thread (here, in _run_agent_inner),
-        # NOT inside run_sync's executor worker.  This avoids a cross-scope
-        # NameError: the outer interrupt / finalisation paths reference the
-        # consumer via ``streaming_tts_consumer_holder[0]``.
-        #
-        # Gates: voice input, auto-TTS enabled for this chat, adapter
-        # supports streaming, and a usable streaming TTS provider configured.
-        _stts_adapter = self._adapter_for_source(source)
-        _is_voice_input = (
-            message_type is not None
-            and str(getattr(message_type, "value", message_type)).lower() == "voice"
-        )
-        if (
-            _stts_adapter is not None
-            and _is_voice_input
-            and _stts_adapter._should_auto_tts_for_chat(source.chat_id)
-        ):
-            try:
-                from gateway.streaming_tts_consumer import StreamingTTSConsumer
-                from tools.tts_tool import _load_tts_config
-                _tts_cfg = _load_tts_config()
-                _gateway_loop = self._gateway_loop or asyncio.get_event_loop()
-                _stts_consumer = StreamingTTSConsumer(
-                    adapter=_stts_adapter,
-                    chat_id=source.chat_id,
-                    tts_config=_tts_cfg,
-                    loop=_gateway_loop,
-                    metadata=_status_thread_metadata,
-                )
-                if _stts_consumer.active:
-                    streaming_tts_consumer_holder[0] = _stts_consumer
-                    _stts_consumer.start()
-                # else: consumer inactive (no streaming provider) — leave
-                # the holder as None so the whole-file fallback path runs.
-            except Exception as _stts_err:
-                logger.debug("Could not set up streaming TTS consumer: %s", _stts_err)
 
         # run_sync extracted to TurnRunner.run_sync (bound method; the
         # executor call below is unchanged).  Its closed-over locals travel
@@ -4926,7 +4272,7 @@ class TurnExecution:
                                 # optional 🎙️ echo back to the user.
                                 _media_urls = getattr(_peek_event, "media_urls", None) or []
                                 if self._pending_event_audio_paths(_peek_event):
-                                    pending_text, _ = await self._transcribe_and_echo_pending_voice(
+                                    pending_text, _ = await self._prepare_pending_audio_event_once(
                                         _peek_event,
                                         _adapter,
                                         source,
@@ -4939,10 +4285,6 @@ class TurnExecution:
                             logger.debug("Interrupt detected from adapter, signaling agent...")
                             interruption.interrupt(agent, pending_text)
                             _interrupt_detected.set()
-                            # Abort streaming TTS on barge-in (#60671).
-                            _stts = streaming_tts_consumer_holder[0]
-                            if _stts is not None:
-                                _stts.abort("barge-in")
                             break
                 except asyncio.CancelledError:
                     raise
@@ -5208,7 +4550,7 @@ class TurnExecution:
                             if _bp_event is not None:
                                 _bp_media_urls = getattr(_bp_event, "media_urls", None) or []
                                 if self._pending_event_audio_paths(_bp_event):
-                                    _bp_text, _ = await self._transcribe_and_echo_pending_voice(
+                                    _bp_text, _ = await self._prepare_pending_audio_event_once(
                                         _bp_event,
                                         _backup_adapter,
                                         source,
@@ -5226,10 +4568,6 @@ class TurnExecution:
                             )
                             interruption.interrupt(_backup_agent, _bp_text)
                             _interrupt_detected.set()
-                            # Abort streaming TTS on barge-in (#60671).
-                            _stts = streaming_tts_consumer_holder[0]
-                            if _stts is not None:
-                                _stts.abort("barge-in")
 
             else:
                 # Poll loop: check the agent's built-in activity tracker
@@ -5310,7 +4648,7 @@ class TurnExecution:
                             if _bp_event is not None:
                                 _bp_media_urls = getattr(_bp_event, "media_urls", None) or []
                                 if self._pending_event_audio_paths(_bp_event):
-                                    _bp_text, _ = await self._transcribe_and_echo_pending_voice(
+                                    _bp_text, _ = await self._prepare_pending_audio_event_once(
                                         _bp_event,
                                         _backup_adapter,
                                         source,
@@ -5328,10 +4666,6 @@ class TurnExecution:
                             )
                             interruption.interrupt(_backup_agent, _bp_text)
                             _interrupt_detected.set()
-                            # Abort streaming TTS on barge-in (#60671).
-                            _stts = streaming_tts_consumer_holder[0]
-                            if _stts is not None:
-                                _stts.abort("barge-in")
 
             if _inactivity_timeout:
                 # Build a diagnostic summary from the agent's activity tracker.
@@ -5436,33 +4770,6 @@ class TurnExecution:
             result = result_holder[0]
             adapter = self._adapter_for_source(source)
 
-            # Finalize the streaming-TTS consumer (#60671).
-            #
-            # finish() is called from the outer event-loop thread (not the
-            # executor worker) so early returns from run_sync are also
-            # finalised.  wait_complete() drains queued audio; on timeout
-            # the consumer is aborted unconditionally — if audio was
-            # audible, suppression is preserved so the gateway does not
-            # replay from the beginning; if no audio was audible, the
-            # whole-file fallback path is permitted.
-            _stts = streaming_tts_consumer_holder[0]
-            if _stts is not None:
-                _stts.finish()
-                try:
-                    await _stts.wait_complete(timeout=10.0)
-                except Exception as _stts_done_err:
-                    logger.debug("streaming TTS wait_complete error: %s", _stts_done_err)
-                if not _stts.done:
-                    # Timeout before or after audible audio: abort to free
-                    # the consumer task.  Audible streams retain suppression;
-                    # silent streams remain eligible for whole-file fallback.
-                    _stts.abort("streaming TTS finalisation timeout")
-                    await _stts.wait_complete(timeout=2.0)
-                if _stts.suppress_whole_file and adapter is not None:
-                    _mark_turn = getattr(adapter, "_mark_streaming_tts_completed_turn", None)
-                    if callable(_mark_turn):
-                        _mark_turn(session_key, run_generation)
-
             # Get pending message from adapter.
             # Use session_key (not source.chat_id) to match adapter's storage keys.
             pending_event = None
@@ -5496,7 +4803,7 @@ class TurnExecution:
                     _pending_text = pending_event.text or ""
                     _media_urls = getattr(pending_event, "media_urls", None) or []
                     if self._pending_event_audio_paths(pending_event):
-                        pending, _ = await self._transcribe_and_echo_pending_voice(
+                        pending, _ = await self._prepare_pending_audio_event_once(
                             pending_event,
                             adapter,
                             source,
@@ -5716,19 +5023,6 @@ class TurnExecution:
                     next_channel_prompt = getattr(pending_event, "channel_prompt", None)
                     next_message_type = getattr(pending_event, "message_type", None)
 
-                # Clear the completed streaming marker from the prior logical
-                # turn so the recursive turn's streaming TTS is not suppressed
-                # by the prior turn's completion (#60671).
-                _clear_adapter = self._adapter_for_source(source)
-                if _clear_adapter is not None and session_key and run_generation is not None:
-                    _completed_turns = getattr(_clear_adapter, "_streaming_tts_completed_turns", None)
-                    if _completed_turns is not None:
-                        _prior_key = getattr(_clear_adapter, "_streaming_tts_turn_key", None)
-                        if callable(_prior_key):
-                            _pk = _prior_key(session_key, run_generation)
-                            if _pk:
-                                _completed_turns.discard(_pk)
-
                 # Restart typing indicator so the user sees activity while
                 # the follow-up turn runs.  The outer _process_message_background
                 # typing task is still alive but may be stale.
@@ -5808,17 +5102,6 @@ class TurnExecution:
                             await stream_task
                         except asyncio.CancelledError:
                             pass
-
-            # Unconditional abort + bounded wait for the streaming-TTS
-            # consumer (#60671 hardening).  Covers cancellation / exception
-            # paths where the normal finalisation block was skipped.
-            _stts_finally = streaming_tts_consumer_holder[0]
-            if _stts_finally is not None and not _stts_finally.done:
-                _stts_finally.abort("cleanup")
-                try:
-                    await _stts_finally.wait_complete(timeout=2.0)
-                except Exception:
-                    pass
 
             # Clean up tracking
             tracking_task.cancel()

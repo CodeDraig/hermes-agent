@@ -275,22 +275,6 @@ TOOLSETS = {
         ],
         "includes": [],
     },
-
-
-
-
-
-
-    "spotify": {
-        "description": "Native Spotify playback, search, playlist, album, and library tools",
-        "tools": [
-            "spotify_playback", "spotify_devices", "spotify_queue", "spotify_search",
-            "spotify_playlists", "spotify_albums", "spotify_library",
-        ],
-        "includes": []
-    },
-
-
     # Scenario-specific toolsets
     
     "debugging": {
@@ -308,7 +292,7 @@ TOOLSETS = {
     # Coding posture (base Hermes — CLI/ACP). Auto-selected in a
     # code workspace; see agent/coding_context.py. Keeps everything you reach
     # for while pairing on code and drops the rest (messaging, tts, image_gen,
-    # spotify, home-assistant, cron, computer-use).
+    # home-assistant, cron, computer-use).
     "coding": {
         "description": "Coding-focused toolset: files, terminal, search, web docs, skills, todo, delegate, vision, browser",
         "tools": [
@@ -362,41 +346,6 @@ TOOLSETS = {
         "includes": []
     },
 
-    "hermes-api-server": {
-        "description": "OpenAI-compatible API server — full agent tools accessible via HTTP (no interactive UI tools like clarify or send_message)",
-        "tools": [
-            # Web
-            "web_search", "web_extract",
-            # Terminal + process management
-            "terminal", "process",
-            # File manipulation
-            "read_file", "write_file", "patch", "search_files",
-            # Vision + image generation
-            "vision_analyze", "image_generate",
-            # BFL FLUX 3 video generation
-            "bfl_flux3_text_to_video", "bfl_flux3_image_to_video",
-            "bfl_flux3_keyframes_to_video", "bfl_flux3_video_continuation",
-            "bfl_flux3_get_result", "bfl_flux3_prompting_guide",
-            # Skills
-            "skills_list", "skill_view", "skill_manage",
-            # Browser automation
-            "browser_navigate", "browser_snapshot", "browser_click",
-            "browser_type", "browser_scroll", "browser_back",
-            "browser_press", "browser_get_images",
-            "browser_vision", "browser_console", "browser_cdp", "browser_dialog",
-            "browser_exec",
-            # Planning & memory
-            "todo", "memory",
-            # Session history search
-            "session_search",
-            # Code execution + delegation
-            "execute_code", "delegate_task",
-            # Cronjob management
-            "cronjob",
-        ],
-        "includes": []
-    },
-    
     "hermes-cli": {
         "description": "Full interactive CLI toolset - all default tools plus cronjob management",
         "tools": _HERMES_CORE_TOOLS,

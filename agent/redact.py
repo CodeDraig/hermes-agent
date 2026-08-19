@@ -90,7 +90,7 @@ _PREFIX_PATTERNS = [
     r"AIza[A-Za-z0-9_-]{30,}",          # Google API keys
     r"pplx-[A-Za-z0-9]{10,}",           # Perplexity
     r"fal_[A-Za-z0-9_-]{10,}",          # Fal.ai
-    r"fc-[A-Za-z0-9]{10,}",             # Firecrawl
+    r"fc-[A-Za-z0-9]{10,}",             # Vendor API tokens
     r"bb_live_[A-Za-z0-9_-]{10,}",      # BrowserBase
     r"gAAAA[A-Za-z0-9_=-]{20,}",        # Codex encrypted tokens
     r"AKIA[A-Z0-9]{16}",                # AWS Access Key ID

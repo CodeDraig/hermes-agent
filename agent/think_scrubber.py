@@ -15,7 +15,7 @@ the per-delta regex erases delta1 entirely (case 2: unterminated-open at
 boundary matches ``^<think>...``), so the downstream state machine never
 sees the open tag, treats delta2 as regular content, and leaks reasoning
 to the user.  Consumers that don't run their own state machine (ACP,
-api_server, TTS) never had any defence at all — they just emitted
+TTS) never had any defence at all — they just emitted
 whatever survived the upstream regex.
 
 This module centralises the tag-suppression state machine at the

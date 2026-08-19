@@ -106,8 +106,8 @@ _CRON_SESSION: ContextVar = ContextVar("HERMES_CRON_SESSION", default=_UNSET)
 # True  — long-lived CLI sessions (in-process completion_queue drain) and the
 #         real gateway platforms (Telegram and Mattermost), which hold a
 #         persistent outbound channel and run the watcher/drain loops.
-# False — finite runtimes that can end before a detached completion returns:
-#         stateless API-server requests and dispatcher-spawned Kanban workers.
+# False — finite runtimes that can end before a detached completion returns,
+#         such as dispatcher-spawned Kanban workers.
 #
 # Tools that promise async delivery (terminal notify_on_complete /
 # watch_patterns, delegate_task background=True) read this via
@@ -115,9 +115,8 @@ _CRON_SESSION: ContextVar = ContextVar("HERMES_CRON_SESSION", default=_UNSET)
 # can't keep — turning a silent no-op into an explicit contract.
 #
 # Default _UNSET => treated as supported, so CLI (which never sets a platform)
-# and any contextvar-unaware path keep working. Stateless adapters opt OUT by
-# setting ``supports_async_delivery = False`` on the adapter class; the gateway
-# propagates that into this contextvar at session-bind time.
+# and any contextvar-unaware path keep working. Finite workers opt out through
+# the gateway's session binding.
 _SESSION_ASYNC_DELIVERY: ContextVar = ContextVar("HERMES_SESSION_ASYNC_DELIVERY", default=_UNSET)
 
 # Cron auto-delivery vars — set per-job in run_job() so concurrent jobs
@@ -391,17 +390,14 @@ def get_session_env(name: str, default: str = "") -> str:
 
 # Surfaces that are not a human chat channel. The gateway binds a platform
 # value (``telegram``) to HERMES_SESSION_PLATFORM, while the CLI binds
-# HERMES_SESSION_SOURCE (``cli``) and leaves
-# the platform empty — so both have to be consulted. ``local``, ``api_server``,
-# ``api_server`` is a real Platform value that reaches
-# HERMES_SESSION_PLATFORM but has no attachment channel behind it.
+# HERMES_SESSION_SOURCE (``cli``) and leaves the platform empty, so both have
+# to be consulted.
 # Default-deny: an unrecognized identity counts as messaging so a newly added
 # chat platform is never treated as a private surface before this set is
 # updated when adding a local or programmatic surface.
 NON_MESSAGING_SESSION_SURFACES = frozenset(
     {
         "",
-        "api_server",
         "cli",
         "codex",
         "gateway",

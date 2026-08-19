@@ -301,7 +301,7 @@ def _browser_cdp_via_supervisor(
         return tool_error(
             f"CDP supervisor is not available: {exc}. frame_id routing requires "
             f"a running supervisor attached via /browser connect or an active "
-            f"Browserbase session."
+            f"cloud browser session."
         )
 
     supervisor = SUPERVISOR_REGISTRY.get(task_id)
@@ -414,7 +414,7 @@ def browser_cdp(
             supervisor), routes the call through the supervisor's existing
             WebSocket — which is how you Runtime.evaluate *inside* an
             iframe on backends where per-call fresh CDP connections would
-            hit signed-URL expiry (Browserbase) or expensive reattach.
+            hit signed-URL expiry or expensive reattach.
         timeout: Seconds to wait for the call to complete.
         task_id: Task identifier for supervisor lookup.  When ``frame_id``
             is set, this identifies which task's supervisor to use; the
@@ -545,8 +545,8 @@ BROWSER_CDP_SCHEMA: Dict[str, Any] = {
         "**Requires a reachable CDP endpoint.** Available when the user has "
         "run '/browser connect' to attach to a running Chrome, Brave, Chromium, "
         "or Edge browser, or when 'browser.cdp_url' is set in config.yaml. "
-        "Not currently wired up for cloud backends (Browserbase, Browser Use, "
-        "Firecrawl) — those expose CDP per session but live-session routing is "
+        "Not currently wired up for Browser Use cloud — it exposes CDP per "
+        "session but live-session routing is "
         "a follow-up. Camofox is REST-only and will never support CDP. If the "
         "tool is in your toolset at all, a CDP endpoint is already reachable.\n\n"
         f"**CDP method reference:** {CDP_DOCS_URL} — use web_extract on a "
@@ -572,7 +572,7 @@ BROWSER_CDP_SCHEMA: Dict[str, Any] = {
         "Page.* targeting a frame target, etc.): pass frame_id from the "
         "browser_snapshot frame_tree output. This routes through the CDP "
         "supervisor's live connection — the only reliable way on "
-        "Browserbase where stateless CDP calls hit signed-URL expiry.\n"
+        "cloud providers where stateless CDP calls hit signed-URL expiry.\n"
         "- Each stateless call (without frame_id) is independent — sessions "
         "and event subscriptions do not persist between calls. For stateful "
         "workflows, prefer the dedicated browser tools or use frame_id "
@@ -614,7 +614,7 @@ BROWSER_CDP_SCHEMA: Dict[str, Any] = {
                     "is_oopif=true. When set, routes the call through the "
                     "CDP supervisor's live session for that iframe. "
                     "Essential for Runtime.evaluate inside cross-origin "
-                    "iframes, especially on Browserbase where fresh "
+                    "iframes, especially on cloud providers where fresh "
                     "per-call CDP connections can't keep up with signed "
                     "URL rotation. For same-origin iframes, use parent "
                     "contentWindow/contentDocument from Runtime.evaluate "

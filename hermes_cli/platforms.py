@@ -13,7 +13,6 @@ PLATFORMS: OrderedDict[str, PlatformInfo] = OrderedDict([
     ("cli", PlatformInfo(label="🖥️  CLI", default_toolset="hermes-cli")),
     ("telegram", PlatformInfo(label="📱 Telegram", default_toolset="hermes-telegram")),
     ("mattermost", PlatformInfo(label="💬 Mattermost", default_toolset="hermes-mattermost")),
-    ("api_server", PlatformInfo(label="🌐 API Server", default_toolset="hermes-api-server")),
     ("cron", PlatformInfo(label="⏰ Cron", default_toolset="hermes-cron")),
 ])
 

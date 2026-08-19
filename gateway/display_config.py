@@ -113,7 +113,6 @@ _PLATFORM_DEFAULTS: dict[str, dict[str, Any]] = {
     },
     # Tier 2 — edit support, often customer/workspace channels
     "mattermost":      _TIER_MEDIUM,
-    "api_server":      {**_TIER_HIGH, "tool_preview_length": 0},
 }
 
 # Canonical set of per-platform overrideable keys (for validation).

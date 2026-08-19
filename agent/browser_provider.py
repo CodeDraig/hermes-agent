@@ -3,7 +3,7 @@ Browser Provider ABC
 ====================
 
 Defines the pluggable-backend interface for cloud browser providers
-(Browserbase, Browser Use, Firecrawl, …). Providers register instances via
+(Browser Use and optional third-party implementations). Providers register instances via
 :meth:`PluginContext.register_browser_provider`; the active one (selected via
 ``browser.cloud_provider`` in ``config.yaml``) services every cloud-mode
 ``browser_*`` tool call.
@@ -66,7 +66,7 @@ class BrowserProvider(abc.ABC):
         config key.
 
         Lowercase, hyphens permitted to preserve existing user-visible names.
-        Examples: ``browserbase``, ``browser-use``, ``firecrawl``.
+        Example: ``browser-use``.
         """
 
     @property
@@ -134,13 +134,12 @@ class BrowserProvider(abc.ABC):
         hardcoded entries in ``TOOL_CATEGORIES["browser"]``::
 
             {
-                "name": "Browserbase",
+                "name": "Browser Use",
                 "badge": "paid",
                 "tag": "Cloud browser with stealth and proxies",
                 "env_vars": [
-                    {"key": "BROWSERBASE_API_KEY",
-                     "prompt": "Browserbase API key",
-                     "url": "https://browserbase.com"},
+                    {"key": "BROWSER_USE_API_KEY",
+                     "prompt": "Browser Use API key"},
                 ],
                 "post_setup": "agent_browser",
             }

@@ -391,104 +391,6 @@ SHELL_UNSUPPORTED_HOOKS: Set[str] = {
     "transform_api_error_classification",
 }
 
-ENTRY_POINTS_GROUP = "hermes_agent.plugins"
-ENTRY_POINT_CAPABILITIES_GROUP = "hermes_agent.plugin_capabilities"
-
-
-def _select_entry_point_group(entry_points: Any, group: str) -> list:
-    """Return one metadata entry-point group across supported Python APIs."""
-    if hasattr(entry_points, "select"):
-        return list(entry_points.select(group=group))
-    if isinstance(entry_points, dict):
-        return list(entry_points.get(group, []))
-    return [ep for ep in entry_points if ep.group == group]
-
-
-def discover_entrypoint_manifests() -> List["PluginManifest"]:
-    """Return metadata-only manifests for installed entry-point plugins.
-
-    Composes the full entry-point manifest contract in one place:
-
-    * **Kind classification** — the module source is resolved import-free
-      (``_resolve_module_source``) and scanned for provider markers
-      (``_detect_kind_from_source``), so memory providers (``exclusive``)
-      and model providers (``model-provider``) are routed to their own
-      discovery systems instead of being eagerly imported here.
-    * **Capability declarations** — read from the companion
-      ``hermes_agent.plugin_capabilities`` entry-point group (declarations
-      named ``<plugin-id>.<capability-id>`` pointing at the same object),
-      so consent/introspection is accurate without importing plugin code.
-
-    Failures are isolated per entry point: one malformed distribution must
-    not blank the manifests of every other installed plugin.
-    """
-    manifests: List[PluginManifest] = []
-    try:
-        eps = importlib.metadata.entry_points()
-        group_eps = _select_entry_point_group(eps, ENTRY_POINTS_GROUP)
-        capability_eps = _select_entry_point_group(
-            eps, ENTRY_POINT_CAPABILITIES_GROUP
-        )
-    except Exception as exc:
-        logger.debug("Entry-point scan failed: %s", exc)
-        return manifests
-
-    for ep in group_eps:
-        try:
-            capabilities = []
-            for capability in VALID_CAPABILITY_IDS:
-                declaration_name = f"{ep.name}.{capability}"
-                if any(
-                    declaration.name == declaration_name
-                    and declaration.value == ep.value
-                    for declaration in capability_eps
-                ):
-                    capabilities.append(capability)
-            dist = getattr(ep, "dist", None)
-            metadata = getattr(dist, "metadata", None)
-            manifest = PluginManifest(
-                name=ep.name,
-                version=str(getattr(dist, "version", "") or ""),
-                description=(
-                    str(metadata.get("Summary", "") or "")
-                    if metadata is not None
-                    else ""
-                ),
-                source="entrypoint",
-                path=ep.value,
-                key=ep.name,
-                capabilities=_parse_declared_capabilities(
-                    capabilities, ep.name
-                ),
-            )
-            manifest.kind = _classify_entrypoint_value_kind(ep.value)
-            manifests.append(manifest)
-        except Exception as exc:
-            logger.debug(
-                "Entry-point manifest for %r skipped: %s",
-                getattr(ep, "name", "?"),
-                exc,
-            )
-    return manifests
-
-
-def _classify_entrypoint_value_kind(value: str) -> str:
-    """Classify an entry-point target by import-free source scan.
-
-    Module-level twin of ``PluginManager._classify_entrypoint_kind`` so
-    ``discover_entrypoint_manifests()`` callers outside the manager (the
-    CLI capabilities path) get identical routing. Unresolvable or
-    non-Python modules stay ``standalone``.
-    """
-    try:
-        module_name = str(value).split(":", 1)[0].strip()
-        if not module_name:
-            return "standalone"
-        return _detect_kind_from_source(
-            _resolve_module_source(module_name)
-        ) or "standalone"
-    except Exception:
-        return "standalone"
 
 # System-prompt sections are deliberately more constrained than lifecycle
 # hooks. They become high-trust prompt bytes and are charged on every turn.
@@ -617,7 +519,7 @@ def _get_enabled_plugins() -> Optional[set]:
 # Data classes
 # ---------------------------------------------------------------------------
 
-_VALID_PLUGIN_KINDS: Set[str] = {"standalone", "backend", "exclusive", "model-provider"}
+_VALID_PLUGIN_KINDS: Set[str] = {"standalone", "backend", "model-provider"}
 
 
 def _portable_skill_namespace(key: str) -> str:
@@ -688,21 +590,16 @@ def _parse_manifest_v2_fields(data: Mapping, key: str) -> Dict[str, Any]:
     """
     out: Dict[str, Any] = {}
 
-    # manifest_version — absent means v1 (supported forever).
-    raw_mv = data.get("manifest_version", 1)
+    raw_mv = data.get("manifest_version")
     try:
         mv = int(raw_mv)
     except (TypeError, ValueError):
-        logger.warning(
-            "Plugin %s: manifest_version %r is not an integer; treating as 1",
-            key, raw_mv,
+        raise ValueError(
+            f"Plugin {key}: manifest_version must be {SUPPORTED_MANIFEST_VERSION}"
         )
-        mv = 1
-    if mv > SUPPORTED_MANIFEST_VERSION:
-        logger.warning(
-            "Plugin %s: manifest_version %d is newer than this Hermes "
-            "supports (%d); loading anyway and ignoring unknown fields",
-            key, mv, SUPPORTED_MANIFEST_VERSION,
+    if mv != SUPPORTED_MANIFEST_VERSION:
+        raise ValueError(
+            f"Plugin {key}: manifest_version must be {SUPPORTED_MANIFEST_VERSION}, got {mv}"
         )
     out["manifest_version"] = mv
 
@@ -920,19 +817,7 @@ def resolve_plugin_load_order(
 
 
 def _detect_kind_from_source(source_text: str) -> Optional[str]:
-    """Return the plugin kind implied by source markers, or ``None``.
-
-    Mirrors ``plugins/memory/__init__.py:_is_memory_provider_dir``: a
-    module that registers a memory provider (``register_memory_provider``
-    or ``MemoryProvider``) belongs to the memory-provider discovery
-    system (``exclusive``); a module that registers a model provider
-    (``register_provider`` + ``ProviderProfile``) belongs to the
-    providers discovery (``model-provider``). Applied to both directory
-    plugins and pip entry-point plugins so neither is eagerly imported
-    by the general PluginManager.
-    """
-    if "register_memory_provider" in source_text or "MemoryProvider" in source_text:
-        return "exclusive"
+    """Detect model-provider modules owned by the provider catalog."""
     if "register_provider" in source_text and "ProviderProfile" in source_text:
         return "model-provider"
     return None
@@ -1069,7 +954,7 @@ class PluginManifest:
     # Manifest SCHEMA version. Absent (v1) manifests are fully supported
     # forever. This versions the *file format* only; it is deliberately
     # independent from ``api_version`` (the runtime plugin API generation).
-    manifest_version: int = 1
+    manifest_version: int = 2
     # Runtime plugin API generation the plugin targets (ctx surface /
     # hook signatures). ``None`` = unspecified (treated as current-compatible).
     api_version: Optional[int] = None
@@ -1675,44 +1560,18 @@ class PluginContext:
         is_async: bool = False,
         description: str = "",
         emoji: str = "",
-        override: bool = False,
     ) -> Optional[PluginRegistration]:
-        """Register a tool in the global registry **and** track it as plugin-provided.
-
-        Pass ``override=True`` to replace an existing built-in tool with the
-        same name (e.g. swap the default ``browser_navigate`` for a custom
-        CDP-backed implementation). Without it, attempting to register a name
-        already claimed by a different toolset is rejected.
-
-        ``override=True`` against a built-in tool requires the operator to
-        opt in via ``plugins.entries.<plugin_id>.allow_tool_override: true``
-        in config.yaml — mirrors the trust gate pattern used for
-        ``ctx.llm`` provider/model overrides (#23194). Without that gate,
-        any enabled plugin could silently replace a privileged built-in
-        like ``shell_exec`` or ``write_file`` and exfiltrate everything
-        the model invokes through it.
-        """
-        if override and not self._tool_override_allowed(name):
-            plugin_id = self.manifest.key or self.manifest.name
-            raise PluginToolOverrideError(
-                f"Plugin {self.manifest.name!r} cannot override built-in tool "
-                f"{name!r}. Set "
-                f"plugins.entries.{plugin_id}.allow_tool_override: true "
-                f"in config.yaml to allow this plugin to replace built-in tools."
-            )
+        """Register a uniquely named plugin tool."""
 
         from tools.registry import registry
 
         scope = self._manager.scope_key
         previous = registry.snapshot_registration(name, scope=scope)
         effective = registry.get_entry(name, scope=scope)
-        if previous is None and effective is not None and not override:
-            logger.warning(
-                "Plugin %s tried to shadow global tool %s without override=True",
-                self.manifest.name,
-                name,
+        if effective is not None:
+            raise ValueError(
+                f"Plugin {self.manifest.name!r} cannot replace existing tool {name!r}"
             )
-            return None
         registry.register(
             name=name,
             toolset=toolset,
@@ -1723,7 +1582,6 @@ class PluginContext:
             is_async=is_async,
             description=description,
             emoji=emoji,
-            override=override,
             scope=scope,
         )
         registered = registry.snapshot_registration(name, scope=scope)
@@ -2250,38 +2108,28 @@ class PluginContext:
     # -- memory provider registration ---------------------------------------
 
     def register_memory_provider(self, provider) -> None:
-        """Register a memory provider.
-
-        Memory providers are activated exclusively, by name, through
-        ``memory.provider`` in config.yaml, and ``plugins/memory/__init__.py``
-        owns that path with its own collector. A provider reaching *this*
-        implementation is therefore one the general PluginManager loaded — it
-        was not classified ``exclusive`` — so the call is recorded and
-        otherwise inert. Without it, such a plugin's ``register()`` dies on a
-        missing attribute and the plugin fails to load at all.
-
-        Memory was the only provider category with no ``register_*`` here,
-        which is what made that failure mode possible. The provider must be an
-        instance of ``agent.memory_provider.MemoryProvider``.
-        """
+        """Register one named memory provider for startup selection."""
         from agent.memory_provider import MemoryProvider
 
         if not isinstance(provider, MemoryProvider):
-            logger.warning(
-                "Plugin '%s' tried to register a memory provider that does not "
-                "inherit from MemoryProvider. Ignoring.",
-                self.manifest.name,
-            )
-            return
-        self._memory_provider = provider
-        logger.debug(
+            raise TypeError("memory providers must inherit from MemoryProvider")
+        name = str(getattr(provider, "name", "") or "").strip().lower()
+        if not name:
+            raise ValueError("memory providers must declare a non-empty name")
+        if name in self._manager._memory_providers:
+            raise ValueError(f"memory provider {name!r} is already registered")
+        self._manager._memory_providers[name] = provider
+        self._track(
+            "memory_provider",
+            name,
+            lambda: self._manager._memory_providers.pop(name, None),
+        )
+        logger.info(
             "Plugin '%s' registered memory provider: %s",
-            self.manifest.name, getattr(provider, "name", "?"),
+            self.manifest.name,
+            name,
         )
 
-    # -- image gen provider registration ------------------------------------
-
-    @_serialized_replacement
     def register_image_gen_provider(self, provider) -> Optional[PluginRegistration]:
         """Register an image generation backend.
 
@@ -3148,20 +2996,11 @@ class PluginManager:
         self._middleware: Dict[str, List[Callable]] = {}
         self._plugin_tool_names: Set[str] = set()
         self._cli_commands: Dict[str, dict] = {}
-        self._context_engine = None  # Set by a plugin via register_context_engine()
-        self._plugin_commands: Dict[str, dict] = {}  # Slash commands registered by plugins
-        self._system_prompt_sections: Dict[str, PluginSystemPromptSection] = {}
+        self._memory_providers: Dict[str, Any] = {}
         self._discovered: bool = False
         self._cli_ref = None  # Set by CLI after plugin discovery
         self._gateway_message_injector: tuple[object, Callable] | None = None
         # Plugin skill registry: qualified name → metadata dict.
-        self._plugin_skills: Dict[str, Dict[str, Any]] = {}
-        self._portable_mcp_servers: Dict[str, Dict[str, Any]] = {}
-        # Plugin-registered auxiliary tasks: key → {key, display_name,
-        # description, defaults, plugin}. See PluginContext.register_auxiliary_task.
-        self._aux_tasks: Dict[str, Dict[str, Any]] = {}
-        # Explicitly-selected, profile-scoped human approval transports.
-        self._approval_transports: Dict[str, Any] = {}
         # Inter-plugin event bus. Subscriptions are owner-tagged ledger entries
         # so unload/reload can remove zombie callbacks. A single daemon worker
         # preserves registration order while keeping emitters non-blocking.
@@ -3585,13 +3424,6 @@ class PluginManager:
         """The actual discovery sweep — see :meth:`discover_and_load`."""
         manifests: List[PluginManifest] = self._collect_directory_manifests()
 
-        # Directory plugins are collected above. Pip / entry-point plugins
-        # are intentionally separate: portable packages are directory-only
-        # and the startup MCP probe must not import or register entry points.
-        ep_manifests = self._scan_entry_points()
-        logger.debug("  entrypoints: %d manifest(s)", len(ep_manifests))
-        manifests.extend(ep_manifests)
-
         # Load each manifest (skip user-disabled plugins).
         # Later sources override earlier ones on key collision — user
         # plugins take precedence over bundled, project plugins take
@@ -3618,21 +3450,6 @@ class PluginManager:
                 loaded.error = "disabled via config"
                 self._plugins[lookup_key] = loaded
                 logger.debug("Skipping disabled plugin '%s'", lookup_key)
-                continue
-
-            # Exclusive plugins (memory providers) have their own
-            # discovery/activation path. The general loader records the
-            # manifest for introspection but does not load the module.
-            if manifest.kind == "exclusive":
-                loaded = LoadedPlugin(manifest=manifest, enabled=False)
-                loaded.error = (
-                    "exclusive plugin — activate via <category>.provider config"
-                )
-                self._plugins[lookup_key] = loaded
-                logger.debug(
-                    "Skipping '%s' (exclusive, handled by category discovery)",
-                    lookup_key,
-                )
                 continue
 
             # Model provider plugins are loaded by providers/__init__.py
@@ -3905,36 +3722,6 @@ class PluginManager:
                     manifests.append(manifest)
                 continue
 
-            portable_file = child / "plugin.json"
-            if portable_file.exists() or portable_file.is_symlink():
-                try:
-                    from hermes_cli.agent_plugins import read_agent_plugin_manifest
-
-                    data, diagnostics = read_agent_plugin_manifest(child)
-                    for diagnostic in diagnostics:
-                        logger.warning(
-                            "Agent Plugin '%s': %s",
-                            child,
-                            diagnostic.message,
-                        )
-                    key = f"{prefix}/{child.name}" if prefix else data["name"]
-                    manifests.append(
-                        PluginManifest(
-                            name=data["name"],
-                            version=data.get("version", ""),
-                            description=data.get("description", ""),
-                            author=_display_author(data.get("author", "")),
-                            source=source,
-                            path=str(child),
-                            key=key,
-                            portable=True,
-                            skill_namespace=_portable_skill_namespace(key),
-                        )
-                    )
-                except Exception as exc:
-                    logger.warning("Failed to parse %s: %s", portable_file, exc)
-                continue
-
             # No manifest at this level. If we're still within the depth
             # cap, treat this directory as a category namespace and recurse
             # one level in looking for children with manifests.
@@ -4045,62 +3832,6 @@ class PluginManager:
     # Entry-point scanning
     # -----------------------------------------------------------------------
 
-    def _classify_entrypoint_kind(self, ep) -> str:
-        """Classify a pip entry-point plugin by scanning its module source.
-
-        The ``kind`` semantics are the same for pip entry points as for
-        directory plugins: memory providers (``exclusive``) and model
-        providers (``model-provider``) have their own discovery systems,
-        so importing them here registers nothing and only pays the
-        module's import cost in every Hermes process (e.g. a pip
-        memory-provider plugin pulling in onnxruntime via fastembed —
-        ~60 MB RSS on startup).
-
-        The module source is read without importing the module or any
-        of its parent packages (see ``_resolve_module_source``); only
-        the first 8192 chars are scanned, mirroring the directory-plugin
-        heuristic. Unresolvable or non-Python modules stay ``standalone``.
-
-        Activation contract: this method only decides whether the general
-        manager imports the module — it does not activate anything.
-        Memory and model providers activate through their own systems
-        (``memory.provider`` config via ``plugins/memory`` directory
-        discovery; ``providers/`` lazy directory discovery). Both are
-        directory-based today, so a pip-only provider is recorded for
-        introspection but not activatable until those systems gain
-        entry-point discovery (tracked for memory: #40644). That is not
-        a regression: pre-change such a provider was equally
-        unactivatable — it was merely imported first, at full cost
-        (e.g. fastembed -> onnxruntime), and logged
-        ``no register() function``. Classification removes the cost
-        without changing the activation surface, and is the prerequisite
-        that prevents double-import once entry-point activation lands.
-        """
-        try:
-            module_name = ep.value.split(":", 1)[0].strip()
-            if not module_name:
-                return "standalone"
-            source_text = _resolve_module_source(module_name)
-            return _detect_kind_from_source(source_text) or "standalone"
-        except Exception:
-            return "standalone"
-
-    def _scan_entry_points(self) -> List[PluginManifest]:
-        """Read installed plugin and companion capability entry points.
-
-        Delegates to ``discover_entrypoint_manifests()``, which composes
-        kind classification (import-free source scan routing memory/model
-        providers away from the general manager) with capability
-        declarations from the ``hermes_agent.plugin_capabilities`` group.
-        Capability declarations live in distribution metadata so discovery
-        is available before importing untrusted plugin code and does not
-        depend on a package-data ``plugin.yaml`` being present.
-        """
-        return discover_entrypoint_manifests()
-
-    # -----------------------------------------------------------------------
-    # Loading
-    # -----------------------------------------------------------------------
 
 
     def _warn_python_dependencies(self, manifest: PluginManifest) -> None:
@@ -4184,47 +3915,13 @@ class PluginManager:
             manifest.key or manifest.name, manifest.source, manifest.kind, manifest.path,
         )
 
-        if manifest.portable:
-            self._load_portable_plugin(manifest, loaded)
-            return
-
-        from tools.registry import registry as _registry
         registration_start = len(self._registration_order)
         plugin_key = manifest.key or manifest.name
         _module_name = self._policy_module_name(manifest)
-        with replacement_coordinator.transaction():
-            previous_policy = _registry.snapshot_plugin_override_policy(
-                _module_name, scope=self.scope_key
-            )
-            current_policy = _registry.register_plugin_override_policy(
-                _module_name,
-                PluginContext(manifest, self)._tool_override_allowed(""),
-                scope=self.scope_key,
-            )
-            policy_lease = replacement_coordinator.acquire(
-                ("tool_override_policy", self.scope_key, _module_name),
-                current=current_policy,
-                previous=previous_policy,
-                restore=lambda replacement: _registry.restore_plugin_override_policy(
-                    _module_name,
-                    current_policy,
-                    replacement,
-                    scope=self.scope_key,
-                ),
-            )
-            self._track_registration(
-                manifest,
-                "tool_override_policy",
-                _module_name,
-                policy_lease.dispose,
-            )
         try:
-            if manifest.source in {"user", "project", "bundled"}:
-                module = self._load_directory_module(
-                    manifest, module_name=_module_name
-                )
-            else:
-                module = self._load_entrypoint_module(manifest)
+            module = self._load_directory_module(
+                manifest, module_name=_module_name
+            )
 
             loaded.module = module
 
@@ -4368,10 +4065,6 @@ class PluginManager:
 
     def _policy_module_name(self, manifest: PluginManifest) -> str:
         """Return the module prefix whose callbacks inherit plugin policy."""
-        if manifest.source == "entrypoint" and manifest.path:
-            module_name = str(manifest.path).partition(":")[0].strip()
-            if module_name:
-                return module_name
         return self._directory_module_name(manifest)
 
     def _load_directory_module(
@@ -4441,29 +4134,6 @@ class PluginManager:
             raise
         return module
 
-    def _load_entrypoint_module(self, manifest: PluginManifest) -> types.ModuleType:
-        """Load a pip-installed plugin via its entry-point reference."""
-        eps = importlib.metadata.entry_points()
-        if hasattr(eps, "select"):
-            group_eps = eps.select(group=ENTRY_POINTS_GROUP)
-        elif isinstance(eps, dict):
-            group_eps = eps.get(ENTRY_POINTS_GROUP, [])
-        else:
-            group_eps = [ep for ep in eps if ep.group == ENTRY_POINTS_GROUP]
-
-        for ep in group_eps:
-            if ep.name == manifest.name:
-                return ep.load()
-
-        raise ImportError(
-            f"Entry point '{manifest.name}' not found in group '{ENTRY_POINTS_GROUP}'"
-        )
-
-    # -----------------------------------------------------------------------
-    # Hook invocation
-    # -----------------------------------------------------------------------
-
-    @staticmethod
     def _invoke_hook_callback(callback: Callable, payload: Dict[str, Any]) -> Any:
         """Invoke a hook while withholding additive fields from old callbacks."""
         try:

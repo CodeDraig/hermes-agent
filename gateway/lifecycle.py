@@ -33,7 +33,6 @@ from gateway.platforms.base import (
     merge_pending_message_event,
 )
 from gateway.process_notifications import _parse_session_key
-from gateway.profile_routing import MultiplexConfigError
 from gateway.restart import (
     DEFAULT_GATEWAY_CRON_DRAIN_TIMEOUT,
     DEFAULT_GATEWAY_RESTART_AFTER_TURN_TIMEOUT,
@@ -147,7 +146,6 @@ class LifecycleRuntime:
         return (
             self.sessions.running_count()
             + self._active_cron_job_count()
-            + self._active_api_run_count()
         )
 
     def _active_cron_job_count(self) -> int:
@@ -168,37 +166,6 @@ class LifecycleRuntime:
             from cron.scheduler import get_running_job_ids
             return len(get_running_job_ids())
         except Exception:
-            return 0
-
-    def _active_api_run_count(self) -> int:
-        """Count API-server work that is outside ``_running_agents``.
-
-        The primary API server owns the sole HTTP listener. Secondary multiplex
-        profiles cannot create an ``api_server`` adapter because it binds a port,
-        so only the primary registry is a supported source of this work.
-        """
-        try:
-            adapter = getattr(self, "adapters", {}).get(Platform.API_SERVER)
-            helper = getattr(adapter, "active_agent_work_count", None)
-            return max(0, int(helper())) if callable(helper) else 0
-        except Exception:
-            return 0
-
-    def _interrupt_api_server_runs(self, reason: str) -> int:
-        """Interrupt API-server agents that are not in ``_running_agents``.
-
-        Counterpart of ``_active_api_run_count()``: that method folds
-        adapter-owned API work into the shutdown drain, so this one must reach
-        the same agents when the drain times out. Duck-typed on the adapter so
-        an older adapter (or a minimal test double for this class) without the
-        hook is simply skipped rather than raising mid-shutdown.
-        """
-        try:
-            adapter = getattr(self, "adapters", {}).get(Platform.API_SERVER)
-            helper = getattr(adapter, "interrupt_active_runs", None)
-            return max(0, int(helper(reason))) if callable(helper) else 0
-        except Exception as exc:
-            logger.debug("Failed interrupting api_server runs during shutdown: %s", exc)
             return 0
 
     def _restart_loop_guard_config(self) -> tuple:
@@ -636,34 +603,9 @@ class LifecycleRuntime:
             else fallback
         )
 
-    def _snapshot_profile_busy_modes(self, profile_name: str, config: dict) -> None:
-        """Cache a routed profile's busy policy for this gateway lifetime."""
-        input_mode = self._busy_mode_from_config(
-            config,
-            fallback=self._busy_input_mode,
-        )
-        self._busy_input_modes_by_profile[profile_name] = input_mode
-
-    def _busy_profile_name_for_source(self, source: SessionSource) -> Optional[str]:
-        """Return the routed profile whose busy policy applies, if any."""
-        if not getattr(getattr(self, "config", None), "multiplex_profiles", False):
-            return None
-        name = str(getattr(source, "profile", "") or "").strip()
-        if not name:
-            try:
-                name = str(self._profile_name_for_source(source) or "").strip()
-            except Exception:
-                name = ""
-        return name or None
-
     def _effective_busy_input_mode(self, source: SessionSource) -> str:
-        """Resolve busy input mode from the routed profile startup snapshot."""
-        fallback = getattr(self, "_busy_input_mode", "interrupt")
-        profile_name = self._busy_profile_name_for_source(source)
-        if not profile_name:
-            return fallback
-        modes = getattr(self, "_busy_input_modes_by_profile", None)
-        return modes.get(profile_name, fallback) if isinstance(modes, dict) else fallback
+        """Return the process profile's busy input mode."""
+        return getattr(self, "_busy_input_mode", "interrupt")
 
     @staticmethod
     def _load_restart_drain_timeout() -> float:
@@ -1574,26 +1516,22 @@ class LifecycleRuntime:
         snapshot = self._snapshot_active_agents()
         last_active_count = self.sessions.running_count()
         last_cron_count = self._active_cron_job_count()
-        last_api_count = self._active_api_run_count()
         last_status_at = 0.0
 
         def _maybe_update_status(force: bool = False) -> None:
-            nonlocal last_active_count, last_cron_count, last_api_count, last_status_at
+            nonlocal last_active_count, last_cron_count, last_status_at
             now = asyncio.get_running_loop().time()
             active_count = self.sessions.running_count()
             cron_count = self._active_cron_job_count()
-            api_count = self._active_api_run_count()
             if (
                 force
                 or active_count != last_active_count
                 or cron_count != last_cron_count
-                or api_count != last_api_count
                 or (now - last_status_at) >= 1.0
             ):
                 self._update_runtime_status("draining")
                 last_active_count = active_count
                 last_cron_count = cron_count
-                last_api_count = api_count
                 last_status_at = now
 
         # Cron jobs run on the scheduler's own thread pool, outside
@@ -1601,8 +1539,7 @@ class LifecycleRuntime:
         # same wait/timeout this method already applies to chat sessions,
         # or a cron job's tool work gets killed with zero warning the
         # instant it's the only active thing running (#60432).
-        # API-server / desk sessions have the same structural gap (#63529).
-        if self.sessions.running_count() == 0 and last_cron_count == 0 and last_api_count == 0:
+        if self.sessions.running_count() == 0 and last_cron_count == 0:
             _maybe_update_status(force=True)
             return snapshot, False
 
@@ -1622,9 +1559,7 @@ class LifecycleRuntime:
 
         def _still_draining() -> bool:
             now = loop.time()
-            if (
-                self.sessions.running_count() or self._active_api_run_count()
-            ) and now < deadline:
+            if self.sessions.running_count() and now < deadline:
                 return True
             return bool(self._active_cron_job_count()) and now < cron_deadline
 
@@ -1638,7 +1573,6 @@ class LifecycleRuntime:
         timed_out = (
             bool(self.sessions.running_count())
             or bool(self._active_cron_job_count())
-            or bool(self._active_api_run_count())
         )
         _maybe_update_status(force=True)
         return snapshot, timed_out
@@ -1652,12 +1586,6 @@ class LifecycleRuntime:
                 logger.debug("Interrupted running agent for session %s during shutdown", session_key)
             except Exception as e:
                 logger.debug("Failed interrupting agent during shutdown: %s", e)
-        # API-server / desk turns are adapter-owned and never enter
-        # _running_agents, so the loop above cannot see them even though
-        # _drain_active_agents() waited for them (#63529).
-        interrupted_api = self._interrupt_api_server_runs(reason)
-        if interrupted_api:
-            logger.debug("Interrupted %d api_server run(s) during shutdown", interrupted_api)
 
     async def _notify_interrupted_cron_jobs(self, job_ids) -> int:
         """Tell the owner of each just-interrupted cron job that its run died.
@@ -3574,8 +3502,6 @@ class LifecycleRuntime:
         enabled_platform_count = 0
         startup_nonretryable_errors: list[str] = []
         startup_retryable_errors: list[str] = []
-        _multiplex_on = bool(getattr(self.config, "multiplex_profiles", False))
-        _multiplex_skipped_platforms: list[Platform] = []
         # Initialize and connect each configured platform.
         #
         # Parallel startup connect (#83791): the original code ran a serial for-loop,
@@ -3592,22 +3518,6 @@ class LifecycleRuntime:
             if await self._abort_startup_if_shutdown_requested():
                 return True
             if not platform_config.enabled:
-                continue
-            # Under multiplexing, a platform may be enabled on the default
-            # profile's config.yaml while its bot token lives only in a
-            # secondary profile's .env. Starting that primary adapter with an
-            # empty token fails immediately and queues an infinite reconnect
-            # loop that can never heal (#64674). Secondary profiles still
-            # start their own adapters under _profile_runtime_scope with the
-            # real token -- skip the empty primary instead of failing loudly.
-            if _multiplex_on and not _platform_has_bot_credential(platform, platform_config):
-                logger.info(
-                    "Skipping %s on default profile: no bot credential in this "
-                    "profile's secrets. Secondary multiplexed profiles that "
-                    "provide the token will still connect.",
-                    platform.value,
-                )
-                _multiplex_skipped_platforms.append(platform)
                 continue
             enabled_platform_count += 1
 
@@ -3742,7 +3652,6 @@ class LifecycleRuntime:
                 continue
             if outcome == "ok":
                 self.adapters[platform] = adapter
-                self._sync_voice_mode_state_to_adapter(adapter)
                 connected_count += 1
                 self._update_platform_runtime_status(
                     platform.value, platform_state="connected", error_code=None, error_message=None,
@@ -3792,52 +3701,7 @@ class LifecycleRuntime:
 
         if await self._abort_startup_if_shutdown_requested():
             return True
-        # Multi-profile multiplexing: bring up adapters for every OTHER profile
-        # this gateway serves. Each profile's adapters connect under that
-        # profile's home + credential scope and stamp their inbound events with
-        # the profile so the agent turn resolves correctly. No-op when off.
-        try:
-            _secondary_connected = await self._start_secondary_profile_adapters()
-            connected_count += _secondary_connected
-        except MultiplexConfigError as e:
-            # Invalid multiplexer config — abort startup cleanly so the operator
-            # fixes config.yaml rather than running a half-wired gateway.
-            reason = str(e)
-            logger.error("Gateway multiplexer config error: %s", reason)
-            try:
-                from gateway.status import write_runtime_status
-                write_runtime_status(gateway_state="startup_failed", exit_reason=reason)
-            except Exception:
-                pass
-            self._exit_code = GATEWAY_FATAL_CONFIG_EXIT_CODE
-            self._request_clean_exit(reason)
-            self._startup_restore_in_progress = False
-            return True
-        except Exception as e:
-            logger.error("Secondary-profile adapter startup failed: %s", e, exc_info=True)
-        finally:
-            # Startup authority is one phase, not a persistent runner mode.
-            # From this point onward every adapter retry is non-evicting.
-            self._platform_lock_takeover_on_start = False
-
-        # A platform we skipped on the primary for a missing credential was
-        # supposed to be picked up by a secondary profile that owns the token.
-        # If none did, the platform is enabled in config.yaml yet silently
-        # unserved — surface it loudly so the operator sees a config problem
-        # instead of a quiet dead channel (#64674 follow-up).
-        for _skipped in _multiplex_skipped_platforms:
-            _served_by_secondary = any(
-                _skipped in _profile_map
-                for _profile_map in self._profile_adapters.values()
-            )
-            if not _served_by_secondary:
-                logger.warning(
-                    "%s is enabled but no profile (default or secondary) "
-                    "provided a bot credential for it — the platform is not "
-                    "being served. Add its token to the profile that should "
-                    "own it, or disable the platform.",
-                    _skipped.value,
-                )
+        self._platform_lock_takeover_on_start = False
 
         if connected_count == 0:
             if startup_nonretryable_errors and not startup_retryable_errors:
@@ -4655,7 +4519,7 @@ class LifecycleRuntime:
         return _float_env("HERMES_SESSION_STALL_TIMEOUT", 300)
 
     def _iter_gateway_adapters(self):
-        """Yield every live platform adapter (default + multiplex profiles)."""
+        """Yield every live platform adapter."""
         seen: set[int] = set()
         for adapter in list(getattr(self, "adapters", {}).values()):
             if adapter is None:
@@ -4665,15 +4529,6 @@ class LifecycleRuntime:
                 continue
             seen.add(aid)
             yield adapter
-        for amap in list(getattr(self, "_profile_adapters", {}).values()):
-            for adapter in list(amap.values()):
-                if adapter is None:
-                    continue
-                aid = id(adapter)
-                if aid in seen:
-                    continue
-                seen.add(aid)
-                yield adapter
 
     def _session_activity_for_stall(self, session_key: str) -> Optional[dict]:
         """Return the shared activity snapshot for stall progress (#72039).
@@ -5030,7 +4885,6 @@ class LifecycleRuntime:
                     "running": bool(self._running),
                     "active_agents": self.sessions.running_count(),
                     "active_cron_jobs": self._active_cron_job_count(),
-                    "active_api_runs": self._active_api_run_count(),
                     "restart_drain_timeout": self._restart_drain_timeout,
                     "watchdog_delay_s": resolve_shutdown_watchdog_delay(
                         self._restart_drain_timeout
@@ -5075,8 +4929,6 @@ class LifecycleRuntime:
             if callable(stop_watchdog):
                 await stop_watchdog()
 
-            await self._cancel_secondary_profile_reconnect_tasks()
-
             # Notify all chats with active agents BEFORE draining.
             # Adapters are still connected here, so messages can be sent.
             await self._notify_active_sessions_of_shutdown()
@@ -5105,7 +4957,6 @@ class LifecycleRuntime:
                     logger.debug("pre-drain mark_resume_pending failed for %s: %s", _sk, _e)
 
             _cron_at_start = self._active_cron_job_count()
-            _api_at_start = self._active_api_run_count()
             # In-flight cron work gets its own floor, clamped to the watchdog
             # leash we're already running under so the extra wait can never
             # cost us the post-drain cleanup window (#82161).
@@ -5139,8 +4990,7 @@ class LifecycleRuntime:
             logger.info(
                 "Shutdown phase: drain done at +%.2fs (drain took %.2fs, "
                 "timed_out=%s, active_at_start=%d, active_now=%d, "
-                "cron_at_start=%d, cron_now=%d, "
-                "api_at_start=%d, api_now=%d)",
+                "cron_at_start=%d, cron_now=%d)",
                 _phase_elapsed(),
                 _drain_elapsed,
                 timed_out,
@@ -5148,8 +4998,6 @@ class LifecycleRuntime:
                 self.sessions.running_count(),
                 _cron_at_start,
                 self._active_cron_job_count(),
-                _api_at_start,
-                self._active_api_run_count(),
             )
 
             if not timed_out:
@@ -5169,12 +5017,11 @@ class LifecycleRuntime:
             if timed_out:
                 logger.warning(
                     "Gateway drain timed out after %.1fs with %d active agent(s), "
-                    "%d in-flight cron job(s), and %d api_server run(s); "
+                    "%d in-flight cron job(s); "
                     "interrupting remaining work.",
                     _drain_elapsed,
                     self.sessions.running_count(),
                     self._active_cron_job_count(),
-                    self._active_api_run_count(),
                 )
                 # Mark forcibly-interrupted sessions as resume_pending BEFORE
                 # interrupting the agents.  This preserves each session's
@@ -5214,28 +5061,14 @@ class LifecycleRuntime:
                     _INTERRUPT_REASON_GATEWAY_RESTART if self._restart_requested else _INTERRUPT_REASON_GATEWAY_SHUTDOWN
                 )
                 interrupt_deadline = asyncio.get_running_loop().time() + 5.0
-                # Wait on API-server work too. The interrupt is cooperative:
-                # without this the settle window closes the instant
-                # _running_agents is empty, and an API turn that was just asked
-                # to stop gets its tool subprocesses killed below before it can
-                # unwind — the exact amputation this interrupt exists to avoid.
-                while (
-                    self.sessions.running_count() or self._active_api_run_count()
-                ) and asyncio.get_running_loop().time() < interrupt_deadline:
+                while self.sessions.running_count() and asyncio.get_running_loop().time() < interrupt_deadline:
                     self._update_runtime_status("draining")
                     await asyncio.sleep(0.1)
 
-                # The interrupt above fires exactly once, but work can
-                # materialize AFTER that one shot: a /v1/runs task admitted
-                # before the drain populates _active_run_agents only once
-                # _create_agent returns, and a _running_agents entry claimed
-                # as _AGENT_PENDING_SENTINEL is promoted to a real agent by
-                # track_agent() on its own schedule. Either way the settle
-                # loop waited on work nothing signaled. If any is still live
-                # at settle-loop exit, re-signal so a late-materializing
-                # agent gets a cooperative interrupt instead of going
-                # straight to the tool-subprocess kill.
-                if self.sessions.running_count() or self._active_api_run_count():
+                # A pending entry can be promoted to a real agent after the
+                # first interrupt. Re-signal any work still live at the end of
+                # the cooperative settle window.
+                if self.sessions.running_count():
                     self._interrupt_active_agents(
                         _INTERRUPT_REASON_GATEWAY_RESTART
                         if self._restart_requested
@@ -5312,15 +5145,6 @@ class LifecycleRuntime:
             for platform, adapter in list(self.adapters.items()):
                 await self._bounded_adapter_teardown(adapter, platform)
 
-            # Disconnect secondary-profile adapters (multiplex mode).
-            for _prof, _amap in list(getattr(self, "_profile_adapters", {}).items()):
-                for platform, adapter in list(_amap.items()):
-                    await self._bounded_adapter_teardown(
-                        adapter, platform, profile=_prof
-                    )
-                _amap.clear()
-            if hasattr(self, "_profile_adapters"):
-                self._profile_adapters.clear()
             logger.info(
                 "Shutdown phase: all adapters disconnected at +%.2fs",
                 _phase_elapsed(),

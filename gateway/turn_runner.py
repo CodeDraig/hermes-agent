@@ -930,11 +930,6 @@ class TurnRunner:
         # Set up stream consumer for token streaming or interim commentary.
         _stream_consumer = None
         _stream_delta_cb = None
-        # #60671 — streaming TTS consumer is created on the outer
-        # event-loop thread before run_sync launches.  run_sync only
-        # reads it via ``streaming_tts_consumer_holder[0]`` for delta
-        # callback wiring.
-        _stts_consumer_ref = ctx.streaming_tts_consumer_holder[0]
         _scfg = self._streaming_config
 
         # Per-platform streaming gate: display.platforms.<plat>.streaming
@@ -981,20 +976,9 @@ class TurnRunner:
                         def _stream_delta_cb(text: str) -> None:
                             if ctx._run_still_current():
                                 _stream_consumer.on_delta(text)
-                                # Tee to the streaming-TTS consumer (#60671).
-                                if _stts_consumer_ref is not None:
-                                    _stts_consumer_ref.on_delta(text)
                     ctx.stream_consumer_holder[0] = _stream_consumer
             except Exception as _sc_err:
                 logger.debug("Could not set up stream consumer: %s", _sc_err)
-
-        # When text streaming is off but streaming TTS is active,
-        # install a TTS-only delta callback so the consumer still
-        # receives LLM deltas for audio synthesis (#60671).
-        if _stream_delta_cb is None and _stts_consumer_ref is not None:
-            def _stream_delta_cb(text: str) -> None:
-                if ctx._run_still_current():
-                    _stts_consumer_ref.on_delta(text)
 
         def _interim_assistant_cb(text: str, *, already_streamed: bool = False) -> None:
             if not ctx._run_still_current():

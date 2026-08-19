@@ -5,7 +5,7 @@ This tool is response-only — the agent first reads ``pending_dialogs`` from
 accept or dismiss.
 
 Gated on the same ``_browser_cdp_check`` as ``browser_cdp`` so it only
-appears when a CDP endpoint is reachable (Browserbase with a
+appears when a CDP endpoint is reachable (a cloud provider with a
 ``connectUrl``, local Chromium-family browser via ``/browser connect``, or
 ``browser.cdp_url`` set in config).
 
@@ -40,7 +40,7 @@ BROWSER_DIALOG_SCHEMA: Dict[str, Any] = {
         "happens when a second dialog fires while the first is still open), "
         "pass ``dialog_id`` from the snapshot to disambiguate.\n\n"
         "**Availability:** only present when a CDP-capable backend is "
-        "attached — Browserbase sessions, local Chromium-family browser via "
+        "attached — cloud sessions, local Chromium-family browser via "
         "``/browser connect``, or ``browser.cdp_url`` in config.yaml. "
         "Not available on Camofox (REST-only) or the default Playwright "
         "local browser (CDP port is hidden)."
@@ -122,7 +122,7 @@ def _browser_dialog_check() -> bool:
 
     Kept identical so the two tools appear and disappear together. The
     supervisor itself is started lazily by ``browser_navigate`` /
-    ``/browser connect`` / Browserbase session creation, so a reachable
+    ``/browser connect`` or cloud session creation, so a reachable
     CDP URL is enough to commit to showing the tool.
     """
     try:

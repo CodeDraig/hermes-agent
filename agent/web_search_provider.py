@@ -13,8 +13,7 @@ Providers live in ``<repo>/plugins/web/<name>/`` (built-in, auto-loaded as
 ``plugins.enabled``).
 
 This ABC is the SINGLE plugin-facing surface for web providers — every
-provider in the tree (brave-free, ddgs, searxng, exa, parallel, tavily,
-firecrawl) implements it. The legacy in-tree ``tools.web_providers.base``
+provider in the tree implements it. The legacy in-tree ``tools.web_providers.base``
 ABCs were deleted in PR #25182 along with the per-vendor inline helpers
 in ``tools/web_tools.py``; the response-shape contract documented below
 is preserved bit-for-bit so the tool wrapper does not have to translate.
@@ -93,7 +92,7 @@ class WebSearchProvider(abc.ABC):
     :meth:`search` / :meth:`extract`. The :meth:`supports_search` /
     :meth:`supports_extract` capability flags let the registry route each
     tool call to the right provider, and let multi-capability providers
-    (Firecrawl, Tavily, Exa, …) advertise multiple capabilities from a
+    (such as Tavily) advertise multiple capabilities from a
     single class.
     """
 
@@ -105,7 +104,7 @@ class WebSearchProvider(abc.ABC):
 
         Lowercase, no spaces; hyphens permitted to preserve existing
         user-visible names. Examples: ``brave-free``, ``ddgs``,
-        ``searxng``, ``firecrawl``.
+        ``searxng``, ``tavily``.
         """
 
     @property

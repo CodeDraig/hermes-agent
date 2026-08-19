@@ -249,7 +249,7 @@ def _gateway_compression_progress_notices_enabled() -> bool:
         pass
     return False
 
-_GATEWAY_RAW_TEXT_PLATFORMS = frozenset({"local", "api_server"})
+_GATEWAY_RAW_TEXT_PLATFORMS = frozenset({"local"})
 
 def _gateway_surface_passes_raw_text(platform: Any) -> bool:
     """True only for programmatic/local surfaces that must keep raw text."""

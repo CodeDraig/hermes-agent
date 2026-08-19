@@ -7,7 +7,6 @@ Shows the status of all Hermes Agent components.
 import os
 import sys
 import time
-import importlib.util
 import subprocess  # noqa: F401 — re-exported for tests that monkeypatch status.subprocess to guard against regressions
 from pathlib import Path
 
@@ -17,15 +16,8 @@ from hermes_cli.auth import AuthError, resolve_provider
 from hermes_cli.colors import Colors, color
 from hermes_cli.config import get_env_path, get_env_value, get_hermes_home, load_config
 from hermes_cli.models import provider_label
-from hermes_cli.nous_account import (
-    format_nous_portal_entitlement_message,
-    get_nous_portal_account_info,
-)
-from hermes_cli.nous_subscription import get_nous_subscription_features
 from hermes_cli.runtime_provider import resolve_requested_provider
-from hermes_cli.vercel_auth import describe_vercel_auth
 from hermes_constants import OPENROUTER_MODELS_URL
-from tools.tool_backend_helpers import managed_nous_tools_enabled
 
 def check_mark(ok: bool) -> str:
     if ok:
@@ -174,21 +166,8 @@ def show_status(args):
         "OpenAI": "OPENAI_API_KEY",
         "Anthropic": ("ANTHROPIC_API_KEY", "ANTHROPIC_TOKEN"),
         "Google / Gemini": ("GOOGLE_API_KEY", "GEMINI_API_KEY"),
-        "DeepSeek": "DEEPSEEK_API_KEY",
         "xAI / Grok": "XAI_API_KEY",
-        "NVIDIA NIM": "NVIDIA_API_KEY",
-        "Z.AI / GLM": "GLM_API_KEY",
-        "Kimi": "KIMI_API_KEY",
-        "StepFun Step Plan": "STEPFUN_API_KEY",
-        "MiniMax": "MINIMAX_API_KEY",
-        "MiniMax-CN": "MINIMAX_CN_API_KEY",
-        "DeepInfra": "DEEPINFRA_API_KEY",
-        "Firecrawl": "FIRECRAWL_API_KEY",
-        "Tavily": "TAVILY_API_KEY",
         "Browser Use": "BROWSER_USE_API_KEY",  # Optional — local browser works without this
-        "Browserbase": "BROWSERBASE_API_KEY",  # Optional — direct credentials only
-        "FAL": "FAL_KEY",
-        "ElevenLabs": "ELEVENLABS_API_KEY",
         "GitHub": "GITHUB_TOKEN",
     }
 
@@ -225,76 +204,10 @@ def show_status(args):
     print(color("◆ Auth Providers", Colors.CYAN, Colors.BOLD))
 
     try:
-        from hermes_cli.auth import (
-            get_nous_auth_status_local,
-            get_codex_auth_status,
-            get_qwen_auth_status,
-            get_minimax_oauth_auth_status,
-        )
-        # Read-only display: use the refresh-free snapshot so `hermes status`
-        # never performs an OAuth refresh or burns a single-use refresh token.
-        nous_status = get_nous_auth_status_local()
-        codex_status = get_codex_auth_status()
-        qwen_status = get_qwen_auth_status()
-        minimax_status = get_minimax_oauth_auth_status()
+        from hermes_cli.auth import get_codex_auth_status
+        codex_status = get_codex_auth_status() or {}
     except Exception:
-        nous_status = {}
         codex_status = {}
-        qwen_status = {}
-        minimax_status = {}
-
-    nous_account_info = None
-    if (
-        nous_status.get("logged_in")
-        or nous_status.get("access_token")
-        or nous_status.get("portal_base_url")
-        or nous_status.get("inference_credential_present")
-        or nous_status.get("error_code")
-    ):
-        try:
-            nous_account_info = get_nous_portal_account_info()
-        except Exception:
-            nous_account_info = None
-
-    nous_logged_in = bool(
-        nous_status.get("logged_in")
-        or (nous_account_info and nous_account_info.logged_in)
-    )
-    nous_inference_present = bool(
-        nous_status.get("inference_credential_present")
-        or (nous_account_info and nous_account_info.inference_credential_present)
-    )
-    nous_error = nous_status.get("error")
-    if nous_logged_in:
-        nous_label = "logged in"
-    elif nous_inference_present:
-        nous_label = "not logged in (Nous inference key configured)"
-    else:
-        nous_label = "not logged in (run: hermes portal)"
-    print(
-        f"  {'Nous Portal':<12}  {check_mark(nous_logged_in)} "
-        f"{nous_label}"
-    )
-    portal_url = nous_status.get("portal_base_url") or "(unknown)"
-    inference_url = (
-        nous_status.get("inference_base_url")
-        or (nous_account_info.inference_base_url if nous_account_info else None)
-    )
-    access_exp = _format_iso_timestamp(nous_status.get("access_expires_at"))
-    key_exp = _format_iso_timestamp(nous_status.get("agent_key_expires_at"))
-    refresh_label = "yes" if nous_status.get("has_refresh_token") else "no"
-    if nous_logged_in or portal_url != "(unknown)" or nous_error:
-        print(f"    Portal URL: {portal_url}")
-    if nous_inference_present and inference_url:
-        print(f"    Inference:  {inference_url}")
-    if nous_logged_in or nous_status.get("access_expires_at"):
-        print(f"    Access exp: {access_exp}")
-    if nous_logged_in or nous_inference_present or nous_status.get("agent_key_expires_at"):
-        print(f"    Key exp:    {key_exp}")
-    if nous_logged_in or nous_status.get("has_refresh_token"):
-        print(f"    Refresh:    {refresh_label}")
-    if nous_error:
-        print(f"    Error:      {nous_error}")
 
     codex_logged_in = bool(codex_status.get("logged_in"))
     print(
@@ -304,43 +217,12 @@ def show_status(args):
     codex_auth_file = codex_status.get("auth_store")
     if codex_auth_file:
         print(f"    Auth file:  {codex_auth_file}")
-    codex_last_refresh = _format_iso_timestamp(codex_status.get("last_refresh"))
     if codex_status.get("last_refresh"):
-        print(f"    Refreshed:  {codex_last_refresh}")
+        print(f"    Refreshed:  {_format_iso_timestamp(codex_status.get('last_refresh'))}")
     if codex_status.get("error") and not codex_logged_in:
         print(f"    Error:      {codex_status.get('error')}")
 
-    qwen_logged_in = bool(qwen_status.get("logged_in"))
-    print(
-        f"  {'Qwen OAuth':<12}  {check_mark(qwen_logged_in)} "
-        f"{'logged in' if qwen_logged_in else 'not logged in (run: qwen auth qwen-oauth)'}"
-    )
-    qwen_auth_file = qwen_status.get("auth_file")
-    if qwen_auth_file:
-        print(f"    Auth file:  {qwen_auth_file}")
-    qwen_exp = qwen_status.get("expires_at_ms")
-    if qwen_exp:
-        from datetime import datetime, timezone
-        print(f"    Access exp: {datetime.fromtimestamp(int(qwen_exp) / 1000, tz=timezone.utc).isoformat()}")
-    if qwen_status.get("error") and not qwen_logged_in:
-        print(f"    Error:      {qwen_status.get('error')}")
-
-    minimax_logged_in = bool(minimax_status.get("logged_in"))
-    print(
-        f"  {'MiniMax OAuth':<12}  {check_mark(minimax_logged_in)} "
-        f"{'logged in' if minimax_logged_in else 'not logged in (run: hermes auth add minimax-oauth)'}"
-    )
-    minimax_region = minimax_status.get("region")
-    if minimax_logged_in and minimax_region:
-        print(f"    Region:     {minimax_region}")
-    minimax_exp = minimax_status.get("expires_at")
-    if minimax_exp:
-        print(f"    Access exp: {minimax_exp}")
-    if minimax_status.get("error") and not minimax_logged_in:
-        print(f"    Error:      {minimax_status.get('error')}")
-
-    # xAI OAuth — separate try/except so an import failure here cannot
-    # disrupt the already-printed Nous/Codex/Qwen/MiniMax rows above.
+    # xAI OAuth uses a separate auth store from API-key authentication.
     try:
         from hermes_cli.auth import get_xai_oauth_auth_status
         xai_oauth_status = get_xai_oauth_auth_status() or {}
@@ -359,67 +241,6 @@ def show_status(args):
         print(f"    Refreshed:  {_format_iso_timestamp(xai_oauth_status.get('last_refresh'))}")
     if xai_oauth_status.get("error") and not xai_oauth_logged_in:
         print(f"    Error:      {xai_oauth_status.get('error')}")
-
-    # =========================================================================
-    # Nous Subscription Features
-    # =========================================================================
-    if managed_nous_tools_enabled():
-        features = get_nous_subscription_features(config)
-        print()
-        print(color("◆ Nous Tool Gateway", Colors.CYAN, Colors.BOLD))
-        if not features.nous_auth_present:
-            print("  Nous Portal   ✗ not logged in")
-        else:
-            print("  Nous Portal   ✓ managed tools available")
-        for feature in features.items():
-            if feature.managed_by_nous:
-                state = "active via Nous subscription"
-            elif feature.active:
-                current = feature.current_provider or "configured provider"
-                state = f"active via {current}"
-            elif feature.included_by_default and features.nous_auth_present:
-                state = "included by subscription, not currently selected"
-            elif feature.key == "modal" and features.nous_auth_present:
-                state = "available via subscription (optional)"
-            else:
-                state = "not configured"
-            print(f"  {feature.label:<15} {check_mark(feature.available or feature.active or feature.managed_by_nous)} {state}")
-    elif nous_logged_in or nous_inference_present:
-        # Nous OAuth without entitlement, or an opaque inference key without
-        # Portal account information, cannot enable the Tool Gateway.
-        print()
-        print(color("◆ Nous Tool Gateway", Colors.CYAN, Colors.BOLD))
-        message = format_nous_portal_entitlement_message(
-            nous_account_info,
-            capability="managed web, image, TTS, STT, browser, and Modal tools",
-        )
-        if message:
-            for line in message.splitlines():
-                print(f"  {line}")
-
-    # =========================================================================
-    # API-Key Providers
-    # =========================================================================
-    print()
-    print(color("◆ API-Key Providers", Colors.CYAN, Colors.BOLD))
-
-    apikey_providers = {
-        "Z.AI / GLM":       ("GLM_API_KEY", "ZAI_API_KEY", "Z_AI_API_KEY"),
-        "Kimi / Moonshot":  ("KIMI_API_KEY",),
-        "StepFun Step Plan": ("STEPFUN_API_KEY",),
-        "MiniMax":          ("MINIMAX_API_KEY",),
-        "MiniMax (China)":  ("MINIMAX_CN_API_KEY",),
-        "DeepInfra":        ("DEEPINFRA_API_KEY",),
-    }
-    for pname, env_vars in apikey_providers.items():
-        key_val = ""
-        for ev in env_vars:
-            key_val = get_env_value(ev) or ""
-            if key_val:
-                break
-        configured = bool(key_val)
-        label = "configured" if configured else "not configured (run: hermes model)"
-        print(f"  {pname:<16} {check_mark(configured)} {label}")
 
     # LM Studio reachability — only probe when it's the active provider so
     # users with foreign configs don't see noise. Auth rejection vs. silent
@@ -444,41 +265,7 @@ def show_status(args):
     print()
     print(color("◆ Terminal Backend", Colors.CYAN, Colors.BOLD))
 
-    terminal_cfg = config.get("terminal", {}) if isinstance(config.get("terminal"), dict) else {}
-    terminal_env = os.getenv("TERMINAL_ENV", "")
-    if not terminal_env:
-        terminal_env = terminal_cfg.get("backend", "local")
-    print(f"  Backend:      {terminal_env}")
-
-    if terminal_env == "ssh":
-        ssh_host = os.getenv("TERMINAL_SSH_HOST", "")
-        ssh_user = os.getenv("TERMINAL_SSH_USER", "")
-        print(f"  SSH Host:     {ssh_host or '(not set)'}")
-        print(f"  SSH User:     {ssh_user or '(not set)'}")
-    elif terminal_env == "docker":
-        docker_image = os.getenv("TERMINAL_DOCKER_IMAGE", "python:3.11-slim")
-        print(f"  Docker Image: {docker_image}")
-    elif terminal_env == "daytona":
-        daytona_image = os.getenv("TERMINAL_DAYTONA_IMAGE", "nikolaik/python-nodejs:python3.11-nodejs20")
-        print(f"  Daytona Image: {daytona_image}")
-    elif terminal_env == "vercel_sandbox":
-        runtime = os.getenv("TERMINAL_VERCEL_RUNTIME") or terminal_cfg.get("vercel_runtime") or "node24"
-        persist = os.getenv("TERMINAL_CONTAINER_PERSISTENT")
-        if persist is None:
-            persist_enabled = bool(terminal_cfg.get("container_persistent", True))
-        else:
-            persist_enabled = persist.lower() in {"1", "true", "yes", "on"}
-        auth_status = describe_vercel_auth()
-        sdk_ok = importlib.util.find_spec("vercel") is not None
-        sdk_label = "installed" if sdk_ok else "missing (install: pip install 'hermes-agent[vercel]')"
-        print(f"  Runtime:      {runtime}")
-        print(f"  SDK:          {check_mark(sdk_ok)} {sdk_label}")
-        print(f"  Auth:         {check_mark(auth_status.ok)} {auth_status.label}")
-        for line in auth_status.detail_lines:
-            print(f"  Auth detail:  {line}")
-        print(f"  Persistence:  {'snapshot filesystem' if persist_enabled else 'ephemeral filesystem'}")
-        print("  Processes:    live processes do not survive cleanup, snapshots, or sandbox recreation")
-
+    print("  Backend:      local")
     sudo_password = os.getenv("SUDO_PASSWORD", "")
     print(f"  Sudo:         {check_mark(bool(sudo_password))} {'enabled' if sudo_password else 'disabled'}")
 
@@ -570,48 +357,26 @@ def show_status(args):
     print()
     print(color("◆ Sessions", Colors.CYAN, Colors.BOLD))
 
-    # Gateway session count: state.db is the source of truth (#9006);
-    # fall back to sessions.json for pre-migration installs.
-    _session_count = None
+    # Gateway session count comes exclusively from state.db.
     _gateway_rows = []
     try:
         from hermes_state import SessionDB
         _db = SessionDB()
         try:
-            _lister = getattr(_db, "list_gateway_sessions", None)
-            if callable(_lister):
-                _gateway_rows = _lister(active_only=True) or []
-                _session_count = len(_gateway_rows)
+            _gateway_rows = _db.list_gateway_sessions(active_only=True) or []
         finally:
             _db.close()
     except Exception:
-        _session_count = None
         _gateway_rows = []
 
-    if _session_count is not None and _session_count > 0:
-        print(f"  Active:       {_session_count} session(s)")
-        freshest = max(
-            (float(r.get("last_active") or 0) for r in _gateway_rows),
-            default=0.0,
-        )
-        if freshest > 0:
-            print(f"  Last activity:{_format_relative_ts(freshest):>13}")
-    else:
-        sessions_file = get_hermes_home() / "sessions" / "sessions.json"
-        if sessions_file.exists():
-            import json
-            try:
-                with open(sessions_file, encoding="utf-8") as f:
-                    data = json.load(f)
-                    _entries = {
-                        k: v for k, v in data.items()
-                        if not str(k).startswith("_")
-                    } if isinstance(data, dict) else {}
-                    print(f"  Active:       {len(_entries)} session(s)")
-            except Exception:
-                print("  Active:       (error reading sessions file)")
-        else:
-            print(f"  Active:       {_session_count if _session_count is not None else 0}")
+    print(f"  Active:       {len(_gateway_rows)} session(s)")
+    freshest = max(
+        (float(row.get("last_active") or 0) for row in _gateway_rows),
+        default=0.0,
+    )
+    if freshest > 0:
+        print(f"  Last activity:{_format_relative_ts(freshest):>13}")
+
 
     # Slot usage, only when max_concurrent_sessions is set. The cap is shared
     # across CLI, desktop/TUI and the messaging gateway, so the surface that

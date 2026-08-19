@@ -215,7 +215,7 @@ TIPS = [
     "Context files are capped at 20,000 characters with smart head/tail truncation.",
 
     # --- Browser ---
-    "Five browser providers: local Chromium, Browserbase, Browser Use, Camofox, and Firecrawl.",
+    "Browser providers include local Chromium, Browser Use, and Camofox.",
     "Camofox is an anti-detection browser — Firefox fork with C++ fingerprint spoofing.",
     "browser_navigate returns a page snapshot automatically — no need to call browser_snapshot after.",
     "browser_vision with annotate=true overlays numbered labels on interactive elements.",
@@ -298,7 +298,6 @@ TIPS = [
     "Ctrl+C has 5 priority tiers: cancel recording → cancel prompts → cancel picker → interrupt agent → exit.",
     "Every interrupt during an agent run is logged to ~/.hermes/interrupt_debug.log with timestamps.",
     "BROWSER_CDP_URL connects browser tools to any running Chromium-family browser — accepts WebSocket, HTTP, or host:port.",
-    "BROWSERBASE_ADVANCED_STEALTH=true enables advanced anti-detection with custom Chromium (Scale Plan).",
     "The CLI auto-switches to compact mode in terminals narrower than 80 columns.",
     "Quick commands support two types: exec (run shell command directly) and alias (redirect to another command).",
     "Per-task delegation model: delegation.model and delegation.provider in config route subagents to cheaper models.",
@@ -381,9 +380,6 @@ TIPS = [
     'tts.provider: piper runs 44-language local TTS on CPU — voices auto-download to ~/.hermes/cache/piper-voices/.',
     'tts.providers.<name>.type: command wires any CLI TTS engine with {input_path} and {output_path} placeholders.',
 
-    # --- API Server & Proxy ---
-    'API_SERVER_ENABLED=true runs an OpenAI-compatible endpoint alongside the gateway for Open WebUI and LibreChat.',
-
     # --- Platform-specific ---
     'TELEGRAM_WEBHOOK_SECRET is required whenever TELEGRAM_WEBHOOK_URL is set — generate with openssl rand -hex 32.',
 
@@ -446,8 +442,6 @@ TIPS = [
     '--source tool chats are excluded from hermes sessions list by default — set --source explicitly to see them.',
     'Session IDs are timestamp-prefixed (20250305_091523_abcd) so sorting works naturally in ls and jq.',
 
-    # --- Misc ---
-    'API_SERVER_MODEL_NAME customizes the model name on /v1/models — essential for multi-profile Open WebUI setups.',
 ]
 
 

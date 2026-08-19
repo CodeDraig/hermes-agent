@@ -9815,15 +9815,11 @@ class TelegramAdapter(BasePlatformAdapter):
         if msg.caption:
             event.text = self._clean_bot_trigger_text(msg.caption)
         
-        # Handle stickers: describe via vision tool with caching
+        # Stickers are outside the retained ordinary-attachment contract.
         if msg.sticker:
-            await self._handle_sticker(msg, event)
-            event = self._apply_telegram_group_observe_attribution(event)
-            await self.handle_message(event)
+            logger.info("[Telegram] Ignoring sticker message")
             return
 
-        # Apply observe attribution after caption is set; sticker is handled above
-        # because _handle_sticker overwrites event.text with its vision description.
         event = self._apply_telegram_group_observe_attribution(event)
 
         # Download photo to local image cache so the vision tool can access it
@@ -10132,71 +10128,6 @@ class TelegramAdapter(BasePlatformAdapter):
         finally:
             if self._media_group_tasks.get(media_group_id) is current_task:
                 self._media_group_tasks.pop(media_group_id, None)
-
-    async def _handle_sticker(self, msg: Message, event: "MessageEvent") -> None:
-        """
-        Describe a Telegram sticker via vision analysis, with caching.
-
-        For static stickers (WEBP), we download, analyze with vision, and cache
-        the description by file_unique_id. For animated/video stickers, we inject
-        a placeholder noting the emoji.
-        """
-        from gateway.sticker_cache import (
-            get_cached_description,
-            cache_sticker_description,
-            build_sticker_injection,
-            build_animated_sticker_injection,
-            STICKER_VISION_PROMPT,
-        )
-
-        sticker = msg.sticker
-        emoji = sticker.emoji or ""
-        set_name = sticker.set_name or ""
-
-        # Animated and video stickers can't be analyzed as static images
-        if sticker.is_animated or sticker.is_video:
-            event.text = build_animated_sticker_injection(emoji)
-            return
-
-        # Check the cache first
-        cached = get_cached_description(sticker.file_unique_id)
-        if cached:
-            event.text = build_sticker_injection(
-                cached["description"], cached.get("emoji", emoji), cached.get("set_name", set_name)
-            )
-            logger.info("[Telegram] Sticker cache hit: %s", sticker.file_unique_id)
-            return
-
-        # Cache miss -- download and analyze
-        try:
-            file_obj = await sticker.get_file()
-            image_bytes = await file_obj.download_as_bytearray()
-            cached_path = cache_image_from_bytes(bytes(image_bytes), ext=".webp")
-            logger.info("[Telegram] Analyzing sticker at %s", cached_path)
-
-            from tools.vision_tools import vision_analyze_tool
-            result_json = await vision_analyze_tool(
-                image_url=cached_path,
-                user_prompt=STICKER_VISION_PROMPT,
-            )
-            result = json.loads(result_json)
-
-            if result.get("success"):
-                description = result.get("analysis", "a sticker")
-                cache_sticker_description(sticker.file_unique_id, description, emoji, set_name)
-                event.text = build_sticker_injection(description, emoji, set_name)
-            else:
-                # Vision failed -- use emoji as fallback
-                event.text = build_sticker_injection(
-                    f"a sticker with emoji {emoji}" if emoji else "a sticker",
-                    emoji, set_name,
-                )
-        except Exception as e:
-            logger.warning("[Telegram] Sticker analysis error: %s", _redact_telegram_error_text(e), exc_info=True)
-            event.text = build_sticker_injection(
-                f"a sticker with emoji {emoji}" if emoji else "a sticker",
-                emoji, set_name,
-            )
 
     def _reload_dm_topics_from_config(self) -> None:
         """Re-read dm_topics from config.yaml and load any new thread_ids into cache.

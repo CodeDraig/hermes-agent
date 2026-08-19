@@ -1018,127 +1018,29 @@ def initialize_context(
 
 
 
-    # Select context engine: config-driven (like memory providers).
-    # 1. Check config.yaml context.engine setting
-    # 2. Check plugins/context_engine/<name>/ directory (repo-shipped)
-    # 3. Check general plugin system (user-installed plugins)
-    # 4. Fall back to built-in ContextCompressor
-    _selected_engine = None
-    _copy_failed = False
-    _engine_name = "compressor"  # default
-    try:
-        _ctx_cfg = _agent_cfg.get("context", {}) if isinstance(_agent_cfg, dict) else {}
-        _engine_name = _ctx_cfg.get("engine", "compressor") or "compressor"
-    except Exception:
-        pass
-
-    if _engine_name != "compressor":
-        # Try loading from plugins/context_engine/<name>/
-        try:
-            from plugins.context_engine import load_context_engine
-            _selected_engine = load_context_engine(_engine_name)
-        except Exception as _ce_load_err:
-            logger.debug("Context engine load from plugins/context_engine/: %s", _ce_load_err)
-
-        # Try general plugin system as fallback
-        if _selected_engine is None:
-            _candidate = None
-            try:
-                from hermes_cli.plugins import get_plugin_context_engine
-                _candidate = get_plugin_context_engine()
-            except Exception:
-                _candidate = None
-            if _candidate is not None and _candidate.name == _engine_name:
-                # Deep-copy the shared plugin singleton so a child agent's
-                # update_model() can't mutate the parent's compressor (#42449).
-                # Copy can fail for engines holding uncopyable state (locks, DB
-                # connections, clients); in that case fall back to the built-in
-                # compressor with an ACCURATE message rather than silently
-                # mislabelling it "not found".
-                import copy
-                try:
-                    _selected_engine = copy.deepcopy(_candidate)
-                except Exception as _copy_err:
-                    _copy_failed = True
-                    logger.warning(
-                        "Context engine '%s' could not be safely copied for this "
-                        "agent (%s) — falling back to built-in compressor. Plugin "
-                        "engines that hold uncopyable state (locks, DB connections) "
-                        "should implement __deepcopy__ to copy only mutable budget "
-                        "state.",
-                        _engine_name, _copy_err,
-                    )
-                    _selected_engine = None
-
-        if _selected_engine is None and not _copy_failed:
-            logger.warning(
-                "Context engine '%s' not found — falling back to built-in compressor",
-                _engine_name,
-            )
-    # else: config says "compressor" — use built-in, don't auto-activate plugins
-
-    if _selected_engine is not None:
-        agent.context_compressor = _selected_engine
-        # External engines own compaction policy: the host compression
-        # threshold (including the Codex gpt-5.5 autoraise above) only
-        # configures the built-in ContextCompressor and never reaches the
-        # plugin, so the autoraise notice would announce a change that does
-        # not apply. Drop it. (#44439)
-        agent._compression_threshold_autoraised = None
-        # Resolve context_length for plugin engines — mirrors switch_model() path
-        from agent.model_metadata import get_model_context_length
-        _plugin_ctx_len = get_model_context_length(
-            agent.model,
-            base_url=agent.base_url,
-            api_key=getattr(agent, "api_key", ""),
-            config_context_length=_effective_context_length,
-            provider=agent.provider,
-            custom_providers=_custom_providers,
-        )
-        # Per-model threshold overrides are part of the explicit
-        # context-engine contract: assign them BEFORE the initial
-        # update_model() call so the first resolution (which derives
-        # threshold_percent/threshold_tokens for the initial model) already
-        # sees the overrides. Assigning after update_model() left the initial
-        # model on the engine's global threshold until the first /model
-        # switch. Engines that override update_model() own their own policy
-        # and may ignore the attribute.
-        if compression_model_thresholds:
-            agent.context_compressor.model_thresholds = compression_model_thresholds
-        agent.context_compressor.update_model(
-            model=agent.model,
-            context_length=_plugin_ctx_len,
-            base_url=agent.base_url,
-            api_key=getattr(agent, "api_key", ""),
-            provider=agent.provider,
-            api_mode=agent.api_mode,
-        )
-        if not agent.quiet_mode:
-            logger.info("Using context engine: %s", _selected_engine.name)
-    else:
-        agent.context_compressor = ContextCompressor(
-            model=agent.model,
-            threshold_percent=compression_threshold,
-            protect_first_n=compression_protect_first,
-            protect_last_n=compression_protect_last,
-            summary_target_ratio=compression_target_ratio,
-            summary_model_override=None,
-            quiet_mode=agent.quiet_mode,
-            base_url=agent.base_url,
-            api_key=getattr(agent, "api_key", ""),
-            config_context_length=_effective_context_length,
-            provider=agent.provider,
-            api_mode=agent.api_mode,
-            abort_on_summary_failure=compression_abort_on_summary_failure,
-            max_tokens=agent.max_tokens,
-            model_thresholds=compression_model_thresholds,
-            threshold_tokens_cap=compression_threshold_tokens,
-            proactive_prune_tokens=compression_proactive_prune_tokens,
-            proactive_prune_min_result_chars=compression_proactive_prune_min_chars,
-            proactive_prune_min_reclaim_tokens=compression_proactive_prune_min_reclaim,
-            min_tail_user_messages=compression_min_tail_users,
-            tail_mode=compression_tail_mode,
-        )
+    agent.context_compressor = ContextCompressor(
+        model=agent.model,
+        threshold_percent=compression_threshold,
+        protect_first_n=compression_protect_first,
+        protect_last_n=compression_protect_last,
+        summary_target_ratio=compression_target_ratio,
+        summary_model_override=None,
+        quiet_mode=agent.quiet_mode,
+        base_url=agent.base_url,
+        api_key=getattr(agent, "api_key", ""),
+        config_context_length=_effective_context_length,
+        provider=agent.provider,
+        api_mode=agent.api_mode,
+        abort_on_summary_failure=compression_abort_on_summary_failure,
+        max_tokens=agent.max_tokens,
+        model_thresholds=compression_model_thresholds,
+        threshold_tokens_cap=compression_threshold_tokens,
+        proactive_prune_tokens=compression_proactive_prune_tokens,
+        proactive_prune_min_result_chars=compression_proactive_prune_min_chars,
+        proactive_prune_min_reclaim_tokens=compression_proactive_prune_min_reclaim,
+        min_tail_user_messages=compression_min_tail_users,
+        tail_mode=compression_tail_mode,
+    )
     _bind_session_state = getattr(agent.context_compressor, "bind_session_state", None)
     if callable(_bind_session_state):
         try:

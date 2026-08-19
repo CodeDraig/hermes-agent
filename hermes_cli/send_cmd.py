@@ -170,7 +170,7 @@ def _list_targets(platform_filter: Optional[str], *, json_mode: bool) -> int:
         gw_config = load_gateway_config()
         for plat in gw_config.get_connected_platforms():
             plat_name = getattr(plat, "value", str(plat))
-            if plat_name in ("local", "api_server"):
+            if plat_name == "local":
                 continue
             platforms.setdefault(plat_name, [])
     except Exception:

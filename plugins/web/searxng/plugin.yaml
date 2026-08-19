@@ -1,4 +1,6 @@
 name: web-searxng
+manifest_version: 2
+api_version: 2
 version: 1.0.0
 description: "SearXNG web search — free, self-hosted, privacy-respecting metasearch engine. Requires SEARXNG_URL pointing at your instance."
 author: NousResearch

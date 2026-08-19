@@ -51,7 +51,7 @@ _HOP_BY_HOP_HEADERS = frozenset(
 DEFAULT_PORT = 8645
 DEFAULT_HOST = "127.0.0.1"
 # Body cap for forwarded requests. Chat-completion payloads with long agent
-# conversations can be large; mirror api_server's MAX_REQUEST_BYTES (10 MB).
+# conversations can be large, so allow request bodies up to 10 MB.
 # client_max_size bounds every read path, including chunked bodies.
 MAX_REQUEST_BYTES = 10_000_000
 

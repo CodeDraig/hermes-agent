@@ -469,8 +469,7 @@ DEFAULT_CONFIG = {
         "allow_unsafe_evaluate": False,  # Legacy override: when true, browser_console(expression=...) bypasses the restrict_evaluate denylist entirely
         "restrict_evaluate": False,  # Opt-in denylist blocking sensitive JS primitives (cookies/storage/clipboard/network/form values) in browser_console(expression=...)
         # CDP supervisor — dialog + frame detection via a persistent WebSocket.
-        # Active only when a CDP-capable backend is attached (Browserbase or
-        # local Chrome via /browser connect). See
+        # Active only when a CDP-capable backend is attached. See
         # README.md
         "dialog_policy": "must_respond",  # must_respond | auto_dismiss | auto_accept
         "dialog_timeout_s": 300,  # Safety auto-dismiss after N seconds under must_respond
@@ -1810,6 +1809,9 @@ DEFAULT_CONFIG = {
     # Each path is expanded (~, ${VAR}) and resolved.  Read-only — skill creation
     # always goes to ~/.hermes/skills/.
     "skills": {
+        # Sole remote source for reviewed skills. Repository operations require
+        # an explicit skill name; Hermes does not browse public registries.
+        "repository": "",  # private GitHub owner/repo
         "external_dirs": [],   # e.g. ["~/.agents/skills", "/shared/team-skills"]
         # Substitute ${HERMES_SKILL_DIR} and ${HERMES_SESSION_ID} in SKILL.md
         # content with the absolute skill directory and the active session id
@@ -2137,30 +2139,10 @@ DEFAULT_CONFIG = {
         # Active cron SCHEDULER provider (Axis B — the trigger that decides
         # WHEN a due job fires). Empty string = the built-in in-process 60s
         # ticker (default). Name an installed provider (plugins/cron_providers/<name>/ or
-        # $HERMES_HOME/plugins/<name>/) to relocate the trigger — e.g. "chronos",
-        # the NAS-mediated managed-cron provider for scale-to-zero deployments.
+        # $HERMES_HOME/plugins/<name>/) to relocate the trigger.
         # An unknown or unavailable provider falls back to the built-in, so cron
         # never loses its trigger.
         "provider": "",
-        # Chronos (NAS-mediated managed cron) settings. Only consulted when
-        # provider == "chronos". All non-secret (URLs + the JWT audience): the
-        # agent holds NO external-scheduler credentials. For hosted agents, NAS
-        # sets these at provision time. The outbound provision call reuses the
-        # agent's existing Nous Portal token — there is no token key here.
-        "chronos": {
-            # NAS / portal base URL the agent calls to arm/cancel one-shots
-            # and that mints the inbound fire JWT (used as the expected issuer).
-            "portal_url": "https://portal.nousresearch.com",
-            # The agent's OWN publicly-reachable base URL for NAS→agent fires
-            # (NAS POSTs {callback_url}/api/cron/fire). Empty → Chronos is
-            # unavailable and the resolver falls back to the built-in ticker.
-            "callback_url": "",
-            # This agent's expected JWT audience (e.g. "agent:{instance_id}").
-            "expected_audience": "",
-            # NAS JWKS URL for verifying the inbound fire JWT's signature.
-            # Empty → the fire endpoint refuses all tokens (no unsigned decode).
-            "nas_jwks_url": "",
-        },
         # Wrap delivered cron responses with a header (task name) and footer
         # ("The agent cannot see this message").  Set to false for clean output.
         "wrap_response": True,
@@ -2503,10 +2485,6 @@ DEFAULT_CONFIG = {
     # Gateway settings — control how Telegram and Mattermost deliver
     # agent-produced files as native attachments.
     "gateway": {
-        # Optional named-profile allowlist for multiplex mode. None preserves
-        # the historical serve-all behavior; [] serves only the default.
-        "multiplex_profile_allowlist": None,
-
         # Durable delivery-obligation ledger: final agent responses are
         # recorded in state.db around the platform send, and a gateway that
         # died between finalize and platform ACK redelivers the stored
@@ -2530,13 +2508,6 @@ DEFAULT_CONFIG = {
         # code so the supervisor (systemd/launchd) revives the process instead
         # of leaving a wedged-but-alive zombie. Set to false to disable.
         "loop_watchdog": True,
-
-        # Whether the gateway keeps writing the legacy sessions.json mirror of
-        # its routing index. The primary copy lives in state.db (the
-        # gateway_routing table). Default True for backward compatibility with
-        # external tooling and downgrade safety; set to false to stop
-        # producing ~/.hermes/sessions/sessions.json entirely.
-        "write_sessions_json": True,
 
         # Auto-resume restart-loop breaker (#30719, defense-3). When the
         # gateway is killed mid-turn (SIGTERM) and revived by a supervisor
@@ -2637,17 +2608,6 @@ DEFAULT_CONFIG = {
         # Only consulted when ``strict`` is true.
         "trust_recent_files_seconds": 600,
 
-        # OpenAI-compatible API server platform
-        # (gateway/platforms/api_server.py).
-        "api_server": {
-            # Maximum number of agent runs the API server will service
-            # concurrently. Requests to /v1/chat/completions, /v1/responses,
-            # and /v1/runs that arrive while this many runs are already
-            # in flight are rejected with HTTP 429 + a Retry-After header,
-            # bounding CPU / memory / upstream-LLM-quota exhaustion from a
-            # request flood. Set to 0 to disable the cap entirely.
-            "max_concurrent_runs": 10,
-        },
     },
 
     # Real-time token streaming to messaging platforms. Read at the top level
@@ -2805,7 +2765,7 @@ DEFAULT_CONFIG = {
     # ``hermes doctor`` behaviour.
     "doctor": {
         # Per-probe timeout (seconds) for the opt-in `hermes doctor --live`
-        # real-call backend probes (Firecrawl/FAL/browser/MCP/TTS/STT).
+        # real-call backend probes (FAL/browser/MCP/TTS/STT).
         "live_probe_timeout": 10,
     },
 
@@ -3626,32 +3586,8 @@ OPTIONAL_ENV_VARS = {
         "password": True,
         "category": "tool",
     },
-    "FIRECRAWL_API_KEY": {
-        "description": "Firecrawl API key for web search and scraping",
-        "prompt": "Firecrawl API key",
-        "url": "https://firecrawl.dev/",
-        "tools": ["web_search", "web_extract"],
-        "password": True,
-        "category": "tool",
-    },
-    "FIRECRAWL_API_URL": {
-        "description": "Firecrawl API URL for self-hosted instances (optional)",
-        "prompt": "Firecrawl API URL (leave empty for cloud)",
-        "url": None,
-        "password": False,
-        "category": "tool",
-        "advanced": True,
-    },
-    "FIRECRAWL_GATEWAY_URL": {
-        "description": "Exact Firecrawl tool-gateway origin override for Nous Subscribers only (optional)",
-        "prompt": "Firecrawl gateway URL (leave empty to derive from domain)",
-        "url": None,
-        "password": False,
-        "category": "tool",
-        "advanced": True,
-    },
     "TOOL_GATEWAY_DOMAIN": {
-        "description": "Shared tool-gateway domain suffix for Nous Subscribers only, used to derive vendor hosts, e.g. nousresearch.com -> firecrawl-gateway.nousresearch.com",
+        "description": "Shared tool-gateway domain suffix for Nous Subscribers only",
         "prompt": "Tool-gateway domain suffix",
         "url": None,
         "password": False,
@@ -3698,35 +3634,12 @@ OPTIONAL_ENV_VARS = {
         "password": True,
         "category": "tool",
     },
-    "BROWSERBASE_API_KEY": {
-        "description": "Browserbase API key for cloud browser (optional — local browser works without this)",
-        "prompt": "Browserbase API key",
-        "url": "https://browserbase.com/",
-        "tools": ["browser_navigate", "browser_click"],
-        "password": True,
-        "category": "tool",
-    },
-    "BROWSERBASE_PROJECT_ID": {
-        "description": "Browserbase project ID (optional — only needed for cloud browser)",
-        "prompt": "Browserbase project ID",
-        "url": "https://browserbase.com/",
-        "tools": ["browser_navigate", "browser_click"],
-        "password": False,
-        "category": "tool",
-    },
     "BROWSER_USE_API_KEY": {
         "description": "Browser Use API key for cloud browser (optional — local browser works without this)",
         "prompt": "Browser Use API key",
         "url": "https://browser-use.com/",
         "tools": ["browser_navigate", "browser_click"],
         "password": True,
-        "category": "tool",
-    },
-    "FIRECRAWL_BROWSER_TTL": {
-        "description": "Firecrawl browser session TTL in seconds (optional, default 300)",
-        "prompt": "Browser session TTL (seconds)",
-        "tools": ["browser_navigate", "browser_click"],
-        "password": False,
         "category": "tool",
     },
     "AGENT_BROWSER_ENGINE": {
@@ -4022,46 +3935,6 @@ OPTIONAL_ENV_VARS = {
     "GATEWAY_ALLOW_ALL_USERS": {
         "description": "Allow all users to interact with messaging bots (true/false). Default: false.",
         "prompt": "Allow all users (true/false)",
-        "url": None,
-        "password": False,
-        "category": "messaging",
-        "advanced": True,
-    },
-    "API_SERVER_ENABLED": {
-        "description": "Enable the OpenAI-compatible API server (true/false). Allows frontends like Open WebUI, LobeChat, etc. to connect.",
-        "prompt": "Enable API server (true/false)",
-        "url": None,
-        "password": False,
-        "category": "messaging",
-        "advanced": True,
-    },
-    "API_SERVER_KEY": {
-        "description": "Bearer token for API server authentication. Required whenever the API server is enabled; server refuses to start without it.",
-        "prompt": "API server auth key",
-        "url": None,
-        "password": True,
-        "category": "messaging",
-        "advanced": True,
-    },
-    "API_SERVER_PORT": {
-        "description": "Port for the API server (default: 8642).",
-        "prompt": "API server port",
-        "url": None,
-        "password": False,
-        "category": "messaging",
-        "advanced": True,
-    },
-    "API_SERVER_HOST": {
-        "description": "Host/bind address for the API server (default: 127.0.0.1). API_SERVER_KEY is still required even on loopback binds.",
-        "prompt": "API server host",
-        "url": None,
-        "password": False,
-        "category": "messaging",
-        "advanced": True,
-    },
-    "API_SERVER_MODEL_NAME": {
-        "description": "Model name advertised on /v1/models. Defaults to the profile name (or 'hermes-agent' for the default profile). Useful for multi-user setups with OpenWebUI.",
-        "prompt": "API server model name",
         "url": None,
         "password": False,
         "category": "messaging",

@@ -508,10 +508,7 @@ class GatewayKanbanWatchersMixin:
                         continue
                     title = (task.title if task else sub["task_id"])[:120]
                     board_tag = f"[{board_slug}] " if board_slug else ""
-                    # Per-subscription failure-counter key. Hoisted out of the
-                    # event loop: the wake self-post path (in the loop's
-                    # ``else`` clause) needs it even when every event in the
-                    # claim was skipped before reaching the send site.
+                    # Per-subscription failure-counter key.
                     sub_key = (
                         sub["task_id"], sub["platform"],
                         sub["chat_id"], sub.get("thread_id") or "",
@@ -633,33 +630,6 @@ class GatewayKanbanWatchersMixin:
 
                         if sub.get("thread_id") and not metadata.get("thread_id"):
                             metadata["thread_id"] = sub["thread_id"]
-                        # Adapters with no push channel (the API server —
-                        # ``supports_async_delivery = False``) can NEVER
-                        # satisfy a text-send: ``send()`` always reports
-                        # SendResult(success=False) by design (see
-                        # ApiServerAdapter.send()). Treating that as a
-                        # delivery failure would rewind/drop the subscription
-                        # forever and — because the wake dispatch below lives
-                        # in this loop's ``else`` clause — would also make the
-                        # wake-on-completion path (the actual fix for the
-                        # api_server wrong-session bug) unreachable. So for
-                        # non-push adapters, skip the doomed send attempt
-                        # entirely: there is nothing to text-notify, the
-                        # creator is woken via the self-post below instead.
-                        from gateway.wake import adapter_supports_push
-
-                        if not adapter_supports_push(adapter) and wake_agent:
-                            logger.debug(
-                                "kanban notifier: adapter %s has no push "
-                                "channel; skipping text ping for %s, relying "
-                                "on wake self-post instead",
-                                platform_str, sub["task_id"],
-                            )
-                            # Do NOT reset the failure counter here: on this
-                            # path the wake self-post below IS the delivery,
-                            # so the counter is resolved (reset or bumped) by
-                            # the self-post outcome, not by skipping the send.
-                            continue
                         if not send_passive:
                             # Wake-only subscriptions intentionally skip the
                             # visible platform message. The retained wake path
@@ -742,22 +712,9 @@ class GatewayKanbanWatchersMixin:
                             # dropping the subscription is the terminal action.
                             break
                     else:
-                        # All text pings delivered (or intentionally skipped
-                        # for non-push adapters, whose delivery is the wake
-                        # self-post below). Whether the cursor may advance now
-                        # depends on the adapter class:
-                        #
-                        # * push-capable: the text send WAS the delivery, so
-                        #   advance immediately (pre-existing behavior); the
-                        #   wake injection below stays best-effort.
-                        # * non-push (api_server): the wake self-post IS the
-                        #   delivery. Advancing first would let a failed /
-                        #   retry-exhausted self-post (swallowed by the
-                        #   best-effort except) permanently lose the event.
-                        #   So the self-post runs FIRST and the cursor only
-                        #   advances after it succeeds — a failure rewinds the
-                        #   claim exactly like a failed send() above, so the
-                        #   next tick retries.
+                        # All requested text pings were delivered. Wake-only
+                        # subscriptions perform their synthetic turn before
+                        # the cursor advances; notify+wake performs it after.
                         task_terminal = task and task.status == "archived"
                         _WAKE_KINDS = ("completed", "gave_up", "crashed", "timed_out", "blocked")
                         _wake_kinds = (
@@ -765,28 +722,7 @@ class GatewayKanbanWatchersMixin:
                             if wake_agent
                             else set()
                         )
-                        from gateway.wake import adapter_supports_push as _adapter_push_ok
-
-                        _is_push_adapter = _adapter_push_ok(adapter)
-                        _session_key = ""
                         _synth = ""
-                        if _wake_kinds:
-                            if _is_push_adapter:
-                                _session_key = getattr(task, "session_id", None) or ""
-                            else:
-                                # Non-push (api_server) wakes go to the
-                                # subscription's delivery destination —
-                                # sub["chat_id"] IS the raw session id the
-                                # subscriber registered with. task.session_id
-                                # is worker/creator provenance and may point
-                                # at a WORKER session for child tasks with
-                                # inherited subscriptions; falling back to it
-                                # only when chat_id is empty (legacy rows).
-                                _session_key = (
-                                    sub["chat_id"]
-                                    or getattr(task, "session_id", None)
-                                    or ""
-                                )
                         if _wake_kinds:
                             _title = (task.title if task else sub["task_id"])[:120]
                             _assignee = task.assignee if task else ""
@@ -818,52 +754,6 @@ class GatewayKanbanWatchersMixin:
                             _synth += "\n\n" + t(
                                 "gateway.kanban.wake.guidance"
                             )
-
-                        if not _is_push_adapter and _wake_kinds and _session_key:
-                            # Wake self-post IS the delivery on this path —
-                            # it must succeed BEFORE the cursor advances.
-                            from gateway.wake import deliver_wake
-
-                            try:
-                                await deliver_wake(
-                                    adapter,
-                                    text=_synth,
-                                    session_id=_session_key,
-                                )
-                                logger.info(
-                                    "kanban notifier: woke agent for %s on %s/%s profile=%s events=%s",
-                                    sub["task_id"], platform_str, sub["chat_id"], sub_profile or "default", _wake_kinds,
-                                )
-                                sub_fail_counts.pop(sub_key, None)
-                            except Exception as _wk_err:
-                                fails = sub_fail_counts.get(sub_key, 0) + 1
-                                sub_fail_counts[sub_key] = fails
-                                logger.warning(
-                                    "kanban notifier: wake self-post failed "
-                                    "for %s (attempt %d/%d): %s",
-                                    sub["task_id"], fails,
-                                    MAX_SEND_FAILURES, _wk_err, exc_info=True,
-                                )
-                                if fails >= MAX_SEND_FAILURES:
-                                    logger.warning(
-                                        "kanban notifier: dropping subscription "
-                                        "%s on %s after %d consecutive wake failures",
-                                        sub["task_id"], platform_str, fails,
-                                    )
-                                    await asyncio.to_thread(self._kanban_unsub, sub, board_slug)
-                                    sub_fail_counts.pop(sub_key, None)
-                                else:
-                                    # Rewind the pre-send claim so the next
-                                    # tick retries the self-post — the event
-                                    # is NOT lost.
-                                    await asyncio.to_thread(
-                                        self._kanban_rewind,
-                                        sub,
-                                        d["cursor"],
-                                        d.get("old_cursor", 0),
-                                        board_slug,
-                                    )
-                                continue
 
                         async def _push_wake() -> None:
                             """Wake the creator session behind a push adapter.
@@ -907,15 +797,9 @@ class GatewayKanbanWatchersMixin:
                                 profile=sub_profile or None,
                                 scope_id=_wake_scope_id(adapter, sub),
                             )
-                            # deliver_wake preserves the synthetic
-                            # MessageEvent/handle_message path for
-                            # push-capable adapters (the non-push /
-                            # self-post branch is handled BEFORE the
-                            # cursor advance above).
                             await deliver_wake(
                                 adapter,
                                 text=_synth,
-                                session_id=_session_key,
                                 source=_source,
                             )
                             logger.info(
@@ -923,15 +807,14 @@ class GatewayKanbanWatchersMixin:
                                 sub["task_id"], platform_str, sub["chat_id"], sub_profile or "default", _wake_kinds,
                             )
 
-                        if _is_push_adapter and not send_passive and _wake_kinds:
-                            # Wake-only (delivery_mode='wake') push sub: the
+                        if not send_passive and _wake_kinds:
+                            # Wake-only (delivery_mode='wake') subscription: the
                             # text ping was intentionally skipped above, so
                             # the wake IS the sole delivery. It must succeed
                             # BEFORE the cursor advances — advancing first
                             # would let a failed wake (previously swallowed
                             # by the best-effort except below) permanently
-                            # lose the event. Mirrors the non-push
-                            # (api_server) self-post ordering above.
+                            # lose the event.
                             try:
                                 await _push_wake()
                                 sub_fail_counts.pop(sub_key, None)
@@ -965,24 +848,18 @@ class GatewayKanbanWatchersMixin:
                                     )
                                 continue
 
-                        # Delivery complete (text ping for push adapters, wake
-                        # self-post for non-push, wake injection for wake-only
-                        # push subs): advance cursor. The cursor is the dedup
+                        # Delivery complete: advance the cursor. The cursor is the dedup
                         # mechanism — it prevents re-delivery of the same
                         # event on subsequent ticks.
                         await asyncio.to_thread(
                             self._kanban_advance, sub, d["cursor"], board_slug,
                         )
-                        if not _is_push_adapter:
-                            # Nothing left to deliver on this path (the wake,
-                            # if any, already succeeded above).
-                            sub_fail_counts.pop(sub_key, None)
                         # Unsubscribe only on archive. Completion (``done``)
                         # remains reversible: controllers reopen completed
                         # work for review corrections and continuation. The
                         # retained cursor prevents replay while preserving the
                         # original delivery and wake ownership for that cycle.
-                        if _is_push_adapter and send_passive and _wake_kinds:
+                        if send_passive and _wake_kinds:
                             # notify+wake: the text ping above was the
                             # delivery and the cursor has advanced; the wake
                             # injection stays best-effort.

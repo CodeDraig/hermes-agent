@@ -44,7 +44,6 @@ from gateway.platforms.base import (
     MessageType,
     merge_pending_message_event,
 )
-from gateway.profile_routing import _profile_runtime_scope
 from gateway.response_filters import (
     _gateway_platform_value,
     _is_gateway_hidden_reasoning_incomplete_turn,
@@ -255,24 +254,10 @@ class MessageRouter:
             except Exception:
                 pass
         config = getattr(self, "config", None)
-        # Mirror SessionStore._resolve_profile_for_key so this fallback path
-        # produces the same namespace as the primary path: None (legacy
-        # agent:main) unless multiplexing is on, then the active profile.
-        _profile = None
-        if getattr(config, "multiplex_profiles", False):
-            if source.profile:
-                _profile = source.profile
-            else:
-                try:
-                    from hermes_cli.profiles import get_active_profile_name
-                    _profile = get_active_profile_name() or "default"
-                except Exception:
-                    _profile = None
         return build_session_key(
             source,
             group_sessions_per_user=getattr(config, "group_sessions_per_user", True),
             thread_sessions_per_user=getattr(config, "thread_sessions_per_user", False),
-            profile=_profile,
         )
 
     def _telegram_topic_mode_enabled(self, source: SessionSource) -> bool:
@@ -1259,32 +1244,6 @@ class MessageRouter:
         except Exception:
             logger.debug("reset_session_vars failed at handler entry", exc_info=True)
 
-        # Most adapters resolve profile routes in build_source(), before they
-        # hand us the event. A few internal/voice paths construct SessionSource
-        # directly, so resolve those here as the shared fail-closed ingress gate
-        # before authorization, hooks, or session side effects.
-        if (
-            getattr(getattr(self, "config", None), "multiplex_profiles", False)
-            and not getattr(source, "profile", None)
-            and getattr(source, "profile_route_rejected", False) is not True
-        ):
-            from gateway.profile_routing import ProfileRouteRejected
-
-            try:
-                source.profile = self._profile_name_for_source(source)
-            except ProfileRouteRejected:
-                source.profile_route_rejected = True
-
-        # SessionSource owns a strict boolean marker. Require the literal value
-        # so duck-typed test/internal sources with dynamic attributes are not
-        # mistaken for an explicit matched-route rejection.
-        if getattr(source, "profile_route_rejected", False) is True:
-            logger.warning(
-                "Dropping inbound message because its explicit profile route "
-                "targets an unserved profile"
-            )
-            return None
-
         # Internal events (e.g. background-process completion notifications)
         # are system-generated and must skip user authorization.
         is_internal = bool(getattr(event, "internal", False))
@@ -1945,7 +1904,7 @@ class MessageRouter:
             _interrupt_text = event.text
             _media_urls = getattr(event, "media_urls", None) or []
             if self._pending_event_audio_paths(event):
-                _interrupt_text, _ = await self._transcribe_and_echo_pending_voice(
+                _interrupt_text, _ = await self._prepare_pending_audio_event_once(
                     event,
                     self._adapter_for_source(source),
                     source,
@@ -2313,9 +2272,6 @@ class MessageRouter:
         if canonical == "usage":
             return await self._handle_usage_command(event)
 
-        if canonical == "topup":
-            return await self._handle_topup_command(event)
-
         if canonical == "insights":
             return await self._handle_insights_command(event)
 
@@ -2437,9 +2393,6 @@ class MessageRouter:
 
         if canonical == "subgoal":
             return await self._handle_subgoal_command(event)
-
-        if canonical == "voice":
-            return await self._handle_voice_command(event)
 
         if self._draining:
             return f"⏳ Gateway is {self._status_action_gerund()} and is not accepting new work right now."
@@ -2811,7 +2764,7 @@ class MessageRouter:
         """Prepare inbound event text for the agent.
 
         Keep the normal inbound path and the queued follow-up path on the same
-        preprocessing pipeline so sender attribution, image enrichment, STT,
+        preprocessing pipeline so sender attribution, image enrichment,
         document notes, reply context, and @ references all behave the same.
 
         Side effect: buffers per-session native image paths when the active
@@ -2822,10 +2775,10 @@ class MessageRouter:
         already run and images are represented in-text.
         """
         history = history or []
-        _pending_stt_prepared = hasattr(event, "_gateway_pending_stt_text")
+        _pending_audio_prepared = hasattr(event, "_gateway_pending_audio_text")
         message_text = (
-            getattr(event, "_gateway_pending_stt_text", None)
-            if _pending_stt_prepared
+            getattr(event, "_gateway_pending_audio_text", None)
+            if _pending_audio_prepared
             else event.text
         ) or ""
         _group_sessions_per_user = getattr(self.config, "group_sessions_per_user", True)
@@ -2862,7 +2815,6 @@ class MessageRouter:
 
         # Declare at outer scope so the audio-file-paths handling block below
         # remains safe when ``event.media_urls`` is empty (no inner block runs).
-        audio_file_paths: list[str] = []
         video_paths: list[str] = []
 
         if event.media_urls:
@@ -2877,11 +2829,10 @@ class MessageRouter:
                 # mis-routed here as an image and the provider 400s.
                 if _event_media_is_image(event, i):
                     image_paths.append(path)
-                # MessageType.AUDIO = audio file attachment (e.g. .mp3, .m4a) — never STT
-                # MessageType.VOICE = voice message (Opus/OGG) — always STT
-                if event.message_type == MessageType.AUDIO:
-                    audio_file_paths.append(path)
-                elif not _pending_stt_prepared and _event_media_is_stt_input(event, i):
+                if not _pending_audio_prepared and (
+                    event.message_type == MessageType.AUDIO
+                    or _event_media_is_stt_input(event, i)
+                ):
                     audio_paths.append(path)
                 if mtype.startswith("video/") or (not mtype and event.message_type == MessageType.VIDEO):
                     video_paths.append(path)
@@ -2939,57 +2890,10 @@ class MessageRouter:
                         )
 
             if audio_paths:
-                message_text, _successful_transcripts = await self._enrich_message_with_transcription(
+                message_text, _ = await self._enrich_message_with_audio_paths(
                     message_text,
                     audio_paths,
                 )
-                # Echo each successful transcript back to the user immediately
-                # when configured. Lets users verify STT quality in real-time,
-                # while allowing quiet STT for users who only want the agent to
-                # receive the transcription.
-                if _successful_transcripts and self._should_echo_stt_transcripts():
-                    _echo_adapter = self._adapter_for_source(source)
-                    _echo_meta = self._thread_metadata_for_source(source, self._reply_anchor_for_event(event))
-                    if _echo_adapter:
-                        for _tx in _successful_transcripts:
-                            try:
-                                await _echo_adapter.send(
-                                    source.chat_id,
-                                    f'🎙️ "{_tx}"',
-                                    metadata=_echo_meta,
-                                )
-                            except Exception as _echo_exc:
-                                logger.debug(
-                                    "Transcript echo failed (non-fatal): %s", _echo_exc,
-                                )
-                # NOTE: Previously, when transcription failed (e.g. no STT
-                # provider configured), the gateway also emitted a hardcoded
-                # English notice via `_stt_adapter.send()`. That bypassed the
-                # LLM and produced two replies — one pre-canned English clip
-                # (which TTS then spoke aloud, in the wrong language) and one
-                # correct, localized LLM reply from the enriched message text.
-                # The enrichment step now leaves a single neutral marker in the
-                # prompt, so the LLM produces one coherent reply in the user's
-                # language. The hardcoded send has therefore been removed.
-
-        if audio_file_paths:
-            from tools.credential_files import to_agent_visible_cache_path as _to_agent_path
-            for _apath in audio_file_paths:
-                _basename = os.path.basename(_apath)
-                _parts = _basename.split("_", 2)
-                _display = _parts[2] if len(_parts) >= 3 else _basename
-                _display = re.sub(r'[^\w.\- ]', '_', _display)
-                _agent_path = _to_agent_path(_apath)
-                _note = (
-                    f"[The user sent an audio file attachment: '{_display}'. "
-                    f"It is saved at: {_agent_path}. "
-                    f"Its content is not inlined here. If the user's request involves "
-                    f"what the audio contains, transcribe or process it yourself — for "
-                    f"example by passing the path to a transcription or media tool — "
-                    f"instead of asking the user to describe it. Only ask what to do "
-                    f"with it if their intent is genuinely unclear.]"
-                )
-                message_text = f"{_note}\n\n{message_text}"
 
         if video_paths:
             from tools.credential_files import to_agent_visible_cache_path as _to_agent_path
@@ -3179,7 +3083,7 @@ class MessageRouter:
 
         return message_text
 
-    async def _prepare_profile_scoped_inbound_message_text(
+    async def _prepare_inbound_message_for_turn(
         self,
         *,
         event: MessageEvent,
@@ -3187,15 +3091,7 @@ class MessageRouter:
         history: List[Dict[str, Any]],
         session_key: Optional[str] = None,
     ) -> Optional[str]:
-        """Run inbound preprocessing under the routed profile when multiplexed."""
-        if getattr(getattr(self, "config", None), "multiplex_profiles", False):
-            with _profile_runtime_scope(self._resolve_profile_home_for_source(source)):
-                return await self._prepare_inbound_message_text(
-                    event=event,
-                    source=source,
-                    history=history,
-                    session_key=session_key,
-                )
+        """Run inbound preprocessing for the process profile."""
         return await self._prepare_inbound_message_text(
             event=event,
             source=source,
@@ -3208,14 +3104,7 @@ class MessageRouter:
         if not self._pending_event_audio_paths(event):
             return (event.text or "").strip()
 
-        _, successful_transcripts = await self._transcribe_pending_audio_event_once(
-            event, "",
-        )
-        return "\n\n".join(
-            transcript.strip()
-            for transcript in successful_transcripts
-            if transcript.strip()
-        )
+        return (event.text or "").strip()
 
     def _consume_pending_native_image_paths(self, session_key: str) -> List[str]:
         state = self.sessions.peek(session_key)
@@ -3723,7 +3612,7 @@ class MessageRouter:
 
             # Send a user-facing notification explaining the reset, unless:
             # - notifications are disabled in config
-            # - the platform is excluded (normally api_server)
+            # - the platform is excluded
             # - the expired session had no activity (nothing was cleared)
             try:
                 policy = self.session_store.config.get_reset_policy(
@@ -4735,7 +4624,7 @@ class MessageRouter:
         # attachments (documents, audio, etc.) are not sent to the vision
         # tool even when they appear in the same message.
         # -----------------------------------------------------------------
-        message_text = await self._prepare_profile_scoped_inbound_message_text(
+        message_text = await self._prepare_inbound_message_for_turn(
             event=event,
             source=source,
             history=history,
@@ -5394,20 +5283,6 @@ class MessageRouter:
                     session_entry.session_id,
                 )
                 response = ""
-
-            # Auto voice reply: send TTS audio before the text response
-            _already_sent = bool(agent_result.get("already_sent"))
-            # Skip when streaming TTS already delivered audio for this turn (#60671).
-            _stts_adapter = self._adapter_for_source(source)
-            _streaming_tts_done = (
-                _stts_adapter is not None
-                and bool(getattr(_stts_adapter, "_streaming_tts_turn_completed", lambda *_a, **_k: False)(session_key, run_generation))
-            )
-            if (
-                not _streaming_tts_done
-                and self._should_send_voice_reply(event, response, agent_messages, already_sent=_already_sent)
-            ):
-                await self._send_voice_reply(event, response)
 
             # If streaming already delivered the response, extract and
             # deliver any MEDIA: files before returning None.  Streaming

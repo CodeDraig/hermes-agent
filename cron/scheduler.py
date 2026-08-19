@@ -5849,8 +5849,8 @@ def run_one_job(
     """Run ONE due job end-to-end: execute → save output → deliver → mark.
 
     This is the shared firing body extracted from ``tick``'s per-job closure so
-    that BOTH the built-in ticker and an external provider's ``fire_due`` (e.g.
-    Chronos) run the identical sequence — no duplicated correctness.
+    that BOTH the built-in ticker and an external provider's ``fire_due`` run
+    the identical sequence — no duplicated correctness.
 
     It does NOT decide whether the job is due or acquire the initial claim —
     both the ticker and external providers use the same store CAS before
@@ -5952,7 +5952,7 @@ def _run_one_job_body(
         # re-fire the job forever on restart. No-op for recurring jobs (they
         # use advance_next_run) and infinite/no-repeat jobs. This lives here in
         # the shared body so BOTH the built-in ticker and the external provider
-        # (Chronos fire_due) get at-most-times semantics.
+        # get at-most-times semantics.
         if not claim_dispatch(job["id"]):
             logger.info(
                 "Job '%s': one-shot dispatch limit reached — skipping",
@@ -6364,7 +6364,7 @@ def _notify_provider_jobs_changed() -> None:
 
     Called by the consumer surfaces (model tool / CLI / REST) AFTER a
     successful store mutation (create/update/remove/pause/resume) so an external
-    provider (Chronos) can re-provision/cancel the affected one-shot via NAS.
+    provider can reconcile its external schedule.
     No-op for the built-in (it re-reads jobs.json each tick), so the default
     path is unchanged. Lives here (not in cron/jobs.py) to keep the store free
     of provider imports — avoids an import cycle and keeps jobs.py low-coupling.
@@ -6633,7 +6633,7 @@ def tick(
         def _process_job(job: dict) -> bool:
             """Run one due job end-to-end. Thin wrapper around the shared
             module-level ``run_one_job`` so ``tick`` and external providers
-            (Chronos ``fire_due``) use the identical execute→save→deliver→mark
+            use the identical execute→save→deliver→mark
             body."""
             # Acquire the durable claim only when this worker actually starts,
             # not while it may wait behind other work in an executor queue.

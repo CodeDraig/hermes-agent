@@ -5268,121 +5268,6 @@ def _running_under_gateway_supervisor() -> bool:
     return is_gateway_supervisor_process()
 
 
-def _guard_named_profile_under_multiplexer(force: bool = False) -> None:
-    """Refuse a named-profile gateway when a multiplexer is already serving it.
-
-    When the default profile's gateway runs with gateway.multiplex_profiles=on,
-    it is the sole inbound process for EVERY profile on the host. Starting a
-    separate gateway for a named profile would double-bind that profile's
-    platforms (two pollers on one bot token, port fights). In that mode a
-    named-profile ``hermes gateway run`` is always a misconfiguration, so we
-    hard-error with a pointer to the multiplexer. ``--force`` overrides.
-
-    Inert unless ALL of: (a) this invocation is a named profile, (b) a default-
-    profile gateway is running, (c) that gateway's config has multiplexing on.
-    """
-    if force:
-        return
-    # (a) Are we a named profile? Default/custom-hash homes return "".
-    try:
-        suffix = _profile_suffix()
-    except Exception:
-        return
-    if not suffix:
-        return  # default profile (or unrecognized) — this guard doesn't apply
-
-    try:
-        from hermes_constants import get_default_hermes_root
-        default_root = get_default_hermes_root()
-        # (b) Is the default-profile gateway running?
-        from gateway.status import get_running_pid as _default_running_pid  # noqa
-    except Exception:
-        return
-
-    try:
-        import yaml as _yaml
-        from gateway.status import _read_pid_record  # type: ignore
-
-        # (b) default gateway PID file present + alive
-        default_pid_path = default_root / "gateway.pid"
-        rec = _read_pid_record(default_pid_path)
-        if not rec:
-            return
-        from gateway.status import _pid_exists, _pid_from_record
-        pid = _pid_from_record(rec)
-        if not pid or not _pid_exists(pid):
-            return
-
-        # (c) multiplexing is on for the default gateway. Precedence mirrors
-        # gateway.config: the GATEWAY_MULTIPLEX_PROFILES env override wins over
-        # config.yaml when set to a recognized value, so a hosted gateway that
-        # forces multiplex on via env (with no multiplex_profiles in config.yaml)
-        # still trips this guard. A blank/unrecognized env value falls through
-        # to config.yaml.
-        from gateway.config import _env_multiplex_profiles_override
-
-        cfg_path = default_root / "config.yaml"
-        cfg = {}
-        if cfg_path.exists():
-            # Raw read of the DEFAULT root's config (not the active profile
-            # home, so load_config() is the wrong owner here); whole probe is
-            # fail-open via the enclosing except.
-            from hermes_cli.config import read_user_config_raw
-
-            cfg = read_user_config_raw(cfg_path)
-
-        env_multiplex = _env_multiplex_profiles_override()
-        if env_multiplex is False:
-            return  # explicitly forced OFF by the operator env override
-        if env_multiplex is True:
-            multiplex = True
-        else:
-            if not cfg_path.exists():
-                return
-            multiplex = bool(
-                cfg.get("multiplex_profiles")
-                or (cfg.get("gateway", {}) or {}).get("multiplex_profiles")
-            )
-        if not multiplex:
-            return
-
-        gateway_cfg = cfg.get("gateway", {}) or {}
-        if "multiplex_profile_allowlist" in cfg:
-            raw_allowlist = cfg.get("multiplex_profile_allowlist")
-        else:
-            raw_allowlist = gateway_cfg.get("multiplex_profile_allowlist")
-        from gateway.config import _normalize_multiplex_profile_allowlist
-        from hermes_cli.profiles import normalize_profile_name
-
-        profile_allowlist = _normalize_multiplex_profile_allowlist(raw_allowlist)
-        if (
-            profile_allowlist is not None
-            and normalize_profile_name(suffix) not in profile_allowlist
-        ):
-            return
-    except Exception:
-        logger.debug("Multiplexer-conflict probe failed", exc_info=True)
-        return
-
-    print_error(
-        f"The default gateway is running as a profile multiplexer and already "
-        f"serves profile '{suffix}'."
-    )
-    print(
-        "  When gateway.multiplex_profiles is on, the default gateway is the\n"
-        "  single inbound process for every profile. Starting a separate\n"
-        "  gateway for this profile would double-bind its platforms (two\n"
-        "  pollers on one bot token, port conflicts).\n"
-    )
-    print("  Manage the multiplexer instead (from the default profile):")
-    print()
-    print("    hermes gateway restart")
-    print()
-    print("  Pass --force to start a separate profile gateway anyway (not")
-    print("  recommended while the multiplexer is running).")
-    sys.exit(1)
-
-
 def _guard_supervised_gateway_conflict(force: bool = False) -> None:
     """Refuse a foreground gateway when a service manager already supervises one.
 
@@ -5467,7 +5352,6 @@ def run_gateway(verbose: int = 0, quiet: bool = False, replace: bool = False, fo
         force: Skip the supervised-gateway conflict guard and start even when a
                systemd/launchd service is already supervising this profile.
     """
-    _guard_named_profile_under_multiplexer(force=force)
     _guard_supervised_gateway_conflict(force=force)
     _guard_existing_gateway_process_conflict(replace=replace)
     sys.path.insert(0, str(PROJECT_ROOT))

@@ -157,7 +157,7 @@ def is_legacy_browser_use_cloud_config(browser_cfg: dict) -> bool:
         return False  # an explicit backend choice wins
     provider = str(browser_cfg.get("cloud_provider") or "").strip().lower()
     if provider not in {"browser-use", ""}:
-        return False  # explicit local/Browserbase/… choices win
+        return False  # explicit local or other provider choices win
     if is_truthy_value(browser_cfg.get("use_gateway"), default=False):
         return False
     # Camofox is selected via env var, not cloud_provider — a Camofox user
@@ -458,8 +458,7 @@ def _resolve_backend_cdp(
        user/operator override, passed through untouched.
     2. ``BROWSER_CDP_URL`` env / ``browser.cdp_url`` config override — the
        ``/browser connect`` path, same precedence the built-in tools honor.
-    3. A configured cloud browser provider (Browserbase, Firecrawl, Nous
-       gateway/Browser Use cloud, …): reuse the legacy stack's
+    3. A configured Browser Use cloud provider: reuse the browser stack's
        ``_get_session_info()`` so browser_exec shares the SAME provider
        session machinery — per-task session cache, expiry replacement,
        inactivity reaper, and atexit cleanup — instead of duplicating it.
@@ -579,8 +578,8 @@ def browser_exec(
                 "dashes, or underscores (e.g. 'r7k2')."
             )
         env["BU_NAME"] = session
-    # Route through the configured browser backend (Browserbase, Firecrawl,
-    # Nous gateway, CDP override, local Chrome, …). Named sessions compose
+    # Route through the configured browser backend (Browser Use cloud, CDP
+    # override, local Chrome, …). Named sessions compose
     # with the backend: BU_NAME namespaces the harness daemon (its IPC
     # socket, log, and pid), and on provider backends the name additionally
     # keys its own cloud browser — so concurrent sessions stop clobbering

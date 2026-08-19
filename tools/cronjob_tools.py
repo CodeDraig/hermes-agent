@@ -1038,12 +1038,7 @@ def _try_dispatch_background_run(
         return {"claimed": True, "dispatched": False, "success": False, "error": str(e)}
 
     try:
-        from tools.async_delegation import (
-            _current_origin_session_id,
-            dispatch_async_delegation,
-        )
-
-        origin_session_id = _current_origin_session_id()
+        from tools.async_delegation import dispatch_async_delegation
     except Exception as e:
         logger.warning(
             "cronjob run: async delegation registry unavailable (%s); "
@@ -1104,7 +1099,6 @@ def _try_dispatch_background_run(
         session_key=session_key,
         parent_session_id=str(session_id) if session_id else None,
         runner=_runner,
-        origin_session_id=origin_session_id,
         max_async_children=max_async,
     )
 
@@ -1416,8 +1410,8 @@ def cronjob(
                 else _execute_job_now(job, extra_prompt=extra_prompt)
             )
             # A claimed direct run advances next_run_at and may race the
-            # external one-shot for the same occurrence. If Chronos loses that
-            # claim, its consumed fire cannot re-arm itself; reconcile from the
+            # external one-shot for the same occurrence. If the external provider
+            # loses that claim, its consumed fire cannot re-arm itself; reconcile from the
             # winning direct path after the run has persisted its final state.
             if exec_result.get("claimed", False):
                 _notify_provider_jobs_changed_safe()

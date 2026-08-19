@@ -33,7 +33,6 @@ from hermes_cli.doctor import (
 DEFAULT_PROBE_TIMEOUT = 10.0
 
 # Metadata-only endpoints. None of these spend generation credits.
-FIRECRAWL_HEALTH_URL = "https://api.firecrawl.dev/v2/team/credit-usage"
 FAL_MODELS_URL = "https://fal.ai/api/models?page=1"
 OPENAI_MODELS_URL = "https://api.openai.com/v1/models"
 GROQ_MODELS_URL = "https://api.groq.com/openai/v1/models"
@@ -157,16 +156,6 @@ def _classify_http(name: str, resp, key_hint: str) -> ProbeResult:
     return ProbeResult(name, "fail", f"(HTTP {code})")
 
 
-def _probe_firecrawl(timeout: float) -> ProbeResult:
-    key = os.getenv("FIRECRAWL_API_KEY", "").strip()
-    if not key:
-        return ProbeResult("Firecrawl", "skip", "(not configured)")
-    resp = _http_get(FIRECRAWL_HEALTH_URL,
-                     headers={"Authorization": f"Bearer {key}"},
-                     timeout=timeout)
-    return _classify_http("Firecrawl", resp, "FIRECRAWL_API_KEY")
-
-
 def _probe_fal(timeout: float) -> ProbeResult:
     key = os.getenv("FAL_KEY", "").strip()
     if not key:
@@ -283,8 +272,6 @@ def run_live_checks(issues: List[str]) -> List[ProbeResult]:
     _section("Live Backend Probes (opt-in, real calls)")
     results: List[ProbeResult] = []
 
-    results.append(_run_one(
-        "Firecrawl", lambda: _probe_firecrawl(timeout), issues))
     results.append(_run_one(
         "FAL", lambda: _probe_fal(timeout), issues))
     results.append(_run_one(

@@ -186,10 +186,6 @@ from gateway.process_notifications import ProcessNotifications
 from gateway.platform_runtime import PlatformRuntime
 from gateway.lifecycle import LifecycleRuntime, _shutdown_gateway_health_export
 from gateway.turn_execution import TurnExecution
-from gateway.profile_routing import (
-    _multiplex_profile_homes,
-    load_gateway_config_for_runner,
-)
 from gateway.response_filters import (
     _is_transient_network_error,
 )
@@ -809,32 +805,13 @@ class GatewayRunner(
     """
 
     def __init__(self, config: Optional[GatewayConfig] = None):
-        # When multiplex_profiles is on, load under the default profile secret
-        # scope so bot tokens in that profile's .env resolve the same way
-        # secondary profiles do (#64674). Explicit config= injection (tests)
-        # is left untouched.
-        self.config = config if config is not None else load_gateway_config_for_runner()
-        # Mark the process as a profile multiplexer when configured. This flips
-        # agent.secret_scope.get_secret() to fail-closed on any unscoped
-        # credential read, so a missed migration crashes loudly instead of
-        # leaking a cross-profile value (Workstream A). Inert when off.
-        try:
-            from agent.secret_scope import set_multiplex_active
-            set_multiplex_active(bool(getattr(self.config, "multiplex_profiles", False)))
-        except Exception:
-            logger.debug("could not set multiplex-active flag", exc_info=True)
+        self.config = config if config is not None else _load_gateway_config()
         self.adapters: Dict[Platform, BasePlatformAdapter] = {}
         # When non-None, SessionDB init failed — the gateway broadcasts a
         # one-time warning to the home channel(s) after connecting, so the
         # user knows persistence is broken instead of discovering it later
         # via a missing /resume or empty history (#88235).
         self._session_db_init_error: Optional[str] = None
-        # Multi-profile multiplexing: adapters for NON-default profiles live
-        # here, keyed by profile name then Platform. self.adapters stays the
-        # default/active profile's map so the ~93 existing self.adapters[...]
-        # sites are untouched when multiplexing is off (this dict is empty).
-        # Populated by _start_secondary_profile_adapters().
-        self._profile_adapters: Dict[str, Dict[Platform, BasePlatformAdapter]] = {}
         self._warn_if_docker_media_delivery_is_risky()
         from gateway.runtime_registry import register_runner
 
@@ -848,10 +825,6 @@ class GatewayRunner(
         self._service_tier = self._load_service_tier()
         self._show_reasoning = self._load_show_reasoning()
         self._busy_input_mode = self._load_busy_input_mode()
-        # Secondary-profile busy modes are snapshotted during multiplex
-        # startup. Busy-message handlers consult these maps by routed source
-        # without rereading config or mutating process-global environment.
-        self._busy_input_modes_by_profile: Dict[str, str] = {}
         self._restart_drain_timeout = self._load_restart_drain_timeout()
         self._restart_after_turn_timeout = self._load_restart_after_turn_timeout()
         self._cron_drain_timeout = self._load_cron_drain_timeout()
@@ -889,7 +862,6 @@ class GatewayRunner(
         self._exit_reason: Optional[str] = None
         self._exit_code: Optional[int] = None
         self._draining = False
-        self._profile_failed_platforms: Dict[str, Dict[Platform, asyncio.Task]] = {}
         self._systemd_watchdog = None
         self._restart_requested = False
         self._restart_task_started = False
@@ -1161,9 +1133,6 @@ class GatewayRunner(
         from gateway.hooks import HookRegistry
         self.hooks = HookRegistry()
 
-        # Per-chat voice reply mode: "off" | "voice_only" | "all"
-        self._voice_mode: Dict[str, str] = self._load_voice_modes()
-
         # Track background tasks to prevent garbage collection mid-execution
         self._background_tasks: set = set()
 
@@ -1393,23 +1362,6 @@ def _start_gateway_housekeeping(stop_event: threading.Event, adapters=None, loop
                 )
             except Exception as e:
                 logger.debug("Curator tick error: %s", e)
-
-            # Skill Sync — best-effort periodic pull on the same cadence.
-            # Inert unless the access gate is open and a sync base URL is
-            # configured; never raises.
-            try:
-                from tools.skills_sync_client import maybe_pull_skills
-                maybe_pull_skills()
-            except Exception as e:
-                logger.debug("Sync pull tick error: %s", e)
-
-            # Org-shared skills. Gated on real org membership (the token must
-            # carry an org role), so a solo account never reaches the network.
-            try:
-                from tools.skills_sync_client import maybe_pull_org_skills
-                maybe_pull_org_skills()
-            except Exception as e:
-                logger.debug("Org sync pull tick error: %s", e)
 
         # Stale-session auto-archive — a live timer, so gateways that stay up
         # for weeks keep sweeping on schedule (the startup hook fires once).
@@ -2032,46 +1984,16 @@ async def start_gateway(config: Optional[GatewayConfig] = None, replace: bool = 
 
     # Start the background cron scheduler via the resolved provider so
     # scheduled jobs fire automatically. The built-in provider is the
-    # historical in-process 60s ticker; an external provider (e.g. chronos)
+    # historical in-process 60s ticker; an external provider
     # may arm a schedule and return. Pass the event loop so cron delivery can
     # use live adapters (E2EE support).
     from cron.scheduler_provider import (
         InProcessCronScheduler,
         resolve_cron_scheduler,
-        scheduler_for_profile_mode,
     )
     cron_stop = threading.Event()
-    multiplex_cron = bool(getattr(runner.config, "multiplex_profiles", False))
-    cron_provider = scheduler_for_profile_mode(
-        resolve_cron_scheduler(),
-        multiplex_profiles=multiplex_cron,
-    )
+    cron_provider = resolve_cron_scheduler()
     cron_start_kwargs: Dict[str, Any] = {"adapters": runner.adapters, "loop": asyncio.get_running_loop()}
-
-    # Multiplex profiles: tell the built-in ticker which profile homes to
-    # tick so secondary-profile cron jobs actually fire (#69377).
-    # Without this, only the process-global HERMES_HOME (default profile)
-    # is iterated and every secondary profile's cron store is silently
-    # ignored — jobs show as "scheduled" with a valid next_run_at but
-    # never execute because no ticker owns that store.
-    if (
-        isinstance(cron_provider, InProcessCronScheduler)
-        and multiplex_cron
-    ):
-        try:
-            profile_homes = _multiplex_profile_homes(runner.config)
-            if profile_homes:
-                cron_start_kwargs["profile_homes"] = profile_homes
-                logger.info(
-                    "Cron scheduler will tick %d profile(s) under multiplex: %s",
-                    len(profile_homes),
-                    [p[0] if isinstance(p, tuple) else p for p in profile_homes],
-                )
-        except Exception as exc:
-            logger.warning(
-                "Could not resolve profile homes for multiplex cron: %s",
-                exc,
-            )
 
     if isinstance(cron_provider, InProcessCronScheduler):
         cron_start_kwargs["can_dispatch"] = lambda: not runner._draining

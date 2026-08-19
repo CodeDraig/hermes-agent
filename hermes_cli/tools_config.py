@@ -24,14 +24,6 @@ from hermes_cli.config import (
     load_config, save_config, get_env_value, save_env_value,
 )
 from hermes_cli.colors import Colors, color
-from hermes_cli.nous_subscription import (
-    MANAGED_FEATURE_COVERAGE_CATEGORY,
-    NousSubscriptionFeatures,
-    apply_nous_managed_defaults,
-    get_nous_subscription_features,
-)
-from hermes_cli.nous_account import format_nous_portal_entitlement_message
-from tools.tool_backend_helpers import fal_key_is_configured
 from utils import base_url_hostname, is_truthy_value
 
 logger = logging.getLogger(__name__)
@@ -104,22 +96,13 @@ CONFIGURABLE_TOOLSETS = [
     ("file",            "📁 File Operations",           "read, write, patch, search"),
     ("code_execution",  "⚡ Code Execution",            "execute_code"),
     ("vision",          "👁️  Vision / Image Analysis",  "vision_analyze"),
-    ("video",           "🎬 Video Analysis",            "video_analyze (requires video-capable model)"),
-    ("image_gen",       "🎨 Image Generation",          "image_generate"),
-    ("video_gen",       "🎬 Video Generation",          "video_generate (text/image/reference)"),
-    ("bfl",             "🎬 BFL FLUX 3 Video",          "bfl_flux3_*"),
-    ("x_search",        "🐦 X (Twitter) Search",        "x_search (requires xAI OAuth or XAI_API_KEY)"),
-    ("tts",             "🔊 Text-to-Speech",            "text_to_speech"),
-    ("stt",             "🎙️ Speech-to-Text",           "voice transcription (gateway voice messages + voice mode)"),
     ("skills",          "📚 Skills",                    "list, view, manage"),
     ("todo",            "📋 Task Planning",             "todo"),
     ("memory",          "💾 Memory",                    "persistent memory across sessions"),
-    ("context_engine",  "🧩 Context Engine",            "runtime tools from the active context engine"),
     ("session_search",  "🔎 Session Search",            "search past conversations"),
     ("clarify",         "❓ Clarifying Questions",      "clarify"),
     ("delegation",      "👥 Task Delegation",           "delegate_task"),
     ("cronjob",         "⏰ Cron Jobs",                 "create/list/update/pause/resume/run, with optional attached skills"),
-    ("spotify",          "🎵 Spotify",                  "playback, search, playlists, library"),
     ("computer_use",     "🖱️  Computer Use (macOS/Windows/Linux)", "background desktop control via cua-driver"),
 ]
 
@@ -138,7 +121,7 @@ CONFIGURABLE_TOOLSETS = [
 # `hermes tools` → X (Twitter) Search setup walks users through credential
 # setup. The tool's check_fn means the schema still won't appear to the
 # model if the credential later goes missing or expires.
-_DEFAULT_OFF_TOOLSETS = {"spotify", "video", "video_gen", "x_search"}
+_DEFAULT_OFF_TOOLSETS: set[str] = set()
 
 
 # Config-only capabilities: they appear in `hermes tools` for provider/API-key
@@ -147,39 +130,7 @@ _DEFAULT_OFF_TOOLSETS = {"spotify", "video", "video_gen", "x_search"}
 # (e.g. ``stt.enabled``), not ``platform_toolsets``. Excluded from the
 # per-platform enable/disable checklist; configured via the "Reconfigure an
 # existing tool" flow and the GUI provider matrix instead.
-_CONFIG_ONLY_TOOLSETS = {"stt"}
-
-
-def _xai_credentials_present() -> bool:
-    """Cheap, side-effect-free check for usable xAI credentials.
-
-    Used to auto-enable the ``x_search`` toolset when the user has either
-    completed xAI Grok OAuth (SuperGrok / Premium+) or set
-    ``XAI_API_KEY``. Does NOT hit the network — only inspects the local
-    auth store and environment. The tool's runtime ``check_fn`` still
-    gates schema registration if creds later expire or get revoked.
-    Also reused by ``provider_readiness_status`` for ``post_setup:
-    "xai_grok"`` picker rows (xAI TTS, Grok OAuth x_search).
-    """
-    try:
-        from hermes_cli.auth import _read_xai_oauth_tokens
-
-        _read_xai_oauth_tokens()
-        return True
-    except Exception:
-        pass
-    try:
-        from tools.xai_http import get_env_value as _xai_get_env_value
-
-        if str(_xai_get_env_value("XAI_API_KEY") or "").strip():
-            return True
-    except Exception:
-        pass
-    try:
-        from agent.secret_scope import get_secret
-    except ImportError:  # pragma: no cover — secret_scope is in-repo
-        return bool(str(os.environ.get("XAI_API_KEY") or "").strip())
-    return bool(str(get_secret("XAI_API_KEY") or "").strip())
+_CONFIG_ONLY_TOOLSETS: set[str] = set()
 
 
 _TOOLSET_PLATFORM_RESTRICTIONS: Dict[str, Set[str]] = {}
@@ -214,7 +165,7 @@ def _get_effective_configurable_toolsets():
     Plugin toolsets are appended at the end so they appear after the
     built-in toolsets in the TUI checklist. A plugin whose toolset key
     already appears in ``CONFIGURABLE_TOOLSETS`` is skipped — bundled
-    plugins (e.g. ``plugins/spotify``) share their toolset key with the
+    plugins share their toolset key with the
     built-in entry, and we want the built-in label/description to win.
     Without the dedupe, ``hermes tools`` → "reconfigure existing" would
     list the same toolset twice.
@@ -288,307 +239,19 @@ PLATFORMS = {
 # Toolsets not in this map either need no config or use the simple fallback.
 
 TOOL_CATEGORIES = {
-    "tts": {
-        "name": "Text-to-Speech",
-        "icon": "🔊",
-        "providers": [
-            {
-                "name": "Microsoft Edge TTS",
-                "badge": "★ recommended · free",
-                "tag": "Good quality, no API key needed",
-                "env_vars": [],
-                "tts_provider": "edge",
-            },
-            {
-                "name": "Nous Subscription",
-                "badge": "subscription",
-                "tag": "Managed OpenAI TTS billed to your subscription",
-                "env_vars": [],
-                "tts_provider": "openai",
-                "requires_nous_auth": True,
-                "managed_nous_feature": "tts",
-                "override_env_vars": ["VOICE_TOOLS_OPENAI_KEY", "OPENAI_API_KEY"],
-            },
-            {
-                "name": "OpenAI TTS",
-                "badge": "paid",
-                "tag": "High quality voices",
-                "env_vars": [
-                    {"key": "VOICE_TOOLS_OPENAI_KEY", "prompt": "OpenAI API key", "url": "https://platform.openai.com/api-keys"},
-                ],
-                "tts_provider": "openai",
-            },
-            {
-                "name": "xAI TTS",
-                "tag": "Grok voices — uses xAI Grok OAuth or XAI_API_KEY",
-                "env_vars": [],
-                "tts_provider": "xai",
-                "post_setup": "xai_grok",
-            },
-            {
-                "name": "ElevenLabs",
-                "badge": "paid",
-                "tag": "Most natural voices",
-                "env_vars": [
-                    {"key": "ELEVENLABS_API_KEY", "prompt": "ElevenLabs API key", "url": "https://elevenlabs.io/app/settings/api-keys"},
-                ],
-                "tts_provider": "elevenlabs",
-            },
-            # Mistral Voxtral TTS — `mistralai` SDK lazy-installs on first use.
-            {
-                "name": "Mistral (Voxtral TTS)",
-                "badge": "paid",
-                "tag": "Multilingual, native Opus",
-                "env_vars": [
-                    {"key": "MISTRAL_API_KEY", "prompt": "Mistral API key", "url": "https://console.mistral.ai/"},
-                ],
-                "tts_provider": "mistral",
-            },
-            {
-                "name": "Google Gemini TTS",
-                "badge": "preview",
-                "tag": "30 prebuilt voices, controllable via prompts",
-                "env_vars": [
-                    {"key": "GEMINI_API_KEY", "prompt": "Gemini API key", "url": "https://aistudio.google.com/app/apikey"},
-                ],
-                "tts_provider": "gemini",
-            },
-            {
-                "name": "KittenTTS",
-                "badge": "local · free",
-                "tag": "Lightweight local ONNX TTS (~25MB), no API key",
-                "env_vars": [],
-                "tts_provider": "kittentts",
-                "post_setup": "kittentts",
-            },
-            {
-                "name": "Piper",
-                "badge": "local · free",
-                "tag": "Local neural TTS, 44 languages (voices ~20-90MB)",
-                "env_vars": [],
-                "tts_provider": "piper",
-                "post_setup": "piper",
-            },
-            {
-                "name": "DeepInfra TTS",
-                "badge": "paid",
-                "tag": "Chatterbox, Qwen3-TTS, … — live catalog from api.deepinfra.com",
-                "env_vars": [
-                    {"key": "DEEPINFRA_API_KEY", "prompt": "DeepInfra API key", "url": "https://deepinfra.com/dash/api_keys"},
-                ],
-                "tts_provider": "deepinfra",
-            },
-        ],
-    },
-    "stt": {
-        "name": "Speech-to-Text",
-        "icon": "🎙️",
-        "providers": [
-            {
-                "name": "Local Whisper",
-                "badge": "★ recommended · free",
-                "tag": "faster-whisper on-device, no API key",
-                "env_vars": [],
-                "stt_provider": "local",
-                "post_setup": "faster_whisper",
-            },
-            {
-                "name": "Nous Subscription",
-                "badge": "subscription",
-                "tag": "Managed OpenAI transcription billed to your subscription",
-                "env_vars": [],
-                "stt_provider": "openai",
-                "requires_nous_auth": True,
-                "managed_nous_feature": "stt",
-                "override_env_vars": ["VOICE_TOOLS_OPENAI_KEY", "OPENAI_API_KEY"],
-            },
-            {
-                "name": "OpenAI",
-                "badge": "paid",
-                "tag": "whisper-1, gpt-4o-transcribe, gpt-transcribe",
-                "env_vars": [
-                    {"key": "VOICE_TOOLS_OPENAI_KEY", "prompt": "OpenAI API key", "url": "https://platform.openai.com/api-keys"},
-                ],
-                "stt_provider": "openai",
-            },
-            {
-                "name": "Groq",
-                "badge": "free tier",
-                "tag": "Whisper large-v3 family — very fast",
-                "env_vars": [
-                    {"key": "GROQ_API_KEY", "prompt": "Groq API key", "url": "https://console.groq.com/keys"},
-                ],
-                "stt_provider": "groq",
-            },
-            {
-                "name": "xAI",
-                "tag": "grok-stt — uses xAI Grok OAuth or XAI_API_KEY",
-                "env_vars": [],
-                "stt_provider": "xai",
-                "post_setup": "xai_grok",
-            },
-            {
-                "name": "ElevenLabs Scribe",
-                "badge": "paid",
-                "tag": "scribe_v2 — diarization + audio-event tagging",
-                "env_vars": [
-                    {"key": "ELEVENLABS_API_KEY", "prompt": "ElevenLabs API key", "url": "https://elevenlabs.io/app/settings/api-keys"},
-                ],
-                "stt_provider": "elevenlabs",
-            },
-            # Mistral Voxtral STT intentionally omitted — mistralai PyPI
-            # package quarantined (malicious 2.4.6 release, 2026-05-12).
-            # Restore alongside the dashboard stt.provider option.
-            {
-                "name": "DeepInfra",
-                "badge": "paid",
-                "tag": "Live STT catalog from api.deepinfra.com",
-                "env_vars": [
-                    {"key": "DEEPINFRA_API_KEY", "prompt": "DeepInfra API key", "url": "https://deepinfra.com/dash/api_keys"},
-                ],
-                "stt_provider": "deepinfra",
-            },
-        ],
-    },
     "web": {
         "name": "Web Search & Extract",
         "setup_title": "Select Search Provider",
-        "setup_note": "A free DuckDuckGo search skill is also included — skip this if you don't need a premium provider.",
+        "setup_note": "Configure the retained SearXNG search provider.",
         "icon": "🔍",
-        # Per-provider rows are injected at runtime from
-        # plugins.web.<vendor>.provider via _plugin_web_search_providers()
-        # in _visible_providers(). Only non-provider UX setup-flow rows
-        # for the firecrawl backend are listed here:
-        #   - "Nous Subscription" — managed Firecrawl billed via Nous
-        #     subscription (requires_nous_auth + override_env_vars).
-        #   - "Firecrawl Self-Hosted" — points firecrawl at a private
-        #     Docker instance via FIRECRAWL_API_URL only.
-        # See PR #25182 for the migration rationale.
-        "providers": [
-            {
-                "name": "Nous Subscription",
-                "badge": "subscription",
-                "tag": "Managed Firecrawl billed to your subscription",
-                "web_backend": "firecrawl",
-                "env_vars": [],
-                "requires_nous_auth": True,
-                "managed_nous_feature": "web",
-                "override_env_vars": ["FIRECRAWL_API_KEY", "FIRECRAWL_API_URL"],
-            },
-            {
-                "name": "Firecrawl Self-Hosted",
-                "badge": "free · self-hosted",
-                "tag": "Run your own Firecrawl instance (Docker)",
-                "web_backend": "firecrawl",
-                "env_vars": [
-                    {"key": "FIRECRAWL_API_URL", "prompt": "Your Firecrawl instance URL (e.g., http://localhost:3002)"},
-                ],
-            },
-        ],
-    },
-    "image_gen": {
-        "name": "Image Generation",
-        "icon": "🎨",
-        # Per-provider rows for FAL.ai (`plugins/image_gen/fal`), OpenAI,
-        # OpenAI Codex, and xAI are injected at runtime from each
-        # ``plugins.image_gen.<vendor>`` package via
-        # ``_plugin_image_gen_providers()`` in ``_visible_providers``.
-        # Only non-provider UX setup-flow rows remain here:
-        #   - "Nous Subscription" — managed FAL billed via the Nous
-        #     subscription (requires_nous_auth + override_env_vars).
-        #     Uses the fal plugin as the underlying backend but has a
-        #     distinct setup UX.
-        # Mirrors the shape browser/video_gen ship today.
-        "providers": [
-            {
-                "name": "Nous Subscription",
-                "badge": "subscription",
-                "tag": "Managed FAL image generation billed to your subscription",
-                "env_vars": [],
-                "requires_nous_auth": True,
-                "managed_nous_feature": "image_gen",
-                "override_env_vars": ["FAL_KEY"],
-                "imagegen_backend": "fal",
-            },
-        ],
-    },
-    "video_gen": {
-        "name": "Video Generation",
-        "icon": "🎬",
-        # "Nous Subscription" row mirrors the image_gen pattern — managed
-        # FAL video generation billed via the Nous Portal.  Plugin-backed
-        # provider rows (FAL BYOK, xAI, …) are injected at runtime by
-        # ``_plugin_video_gen_providers()`` in ``_visible_providers``.
-        "providers": [
-            {
-                "name": "Nous Subscription",
-                "badge": "subscription",
-                "tag": "Managed FAL video generation billed to your subscription",
-                "env_vars": [],
-                "requires_nous_auth": True,
-                "managed_nous_feature": "video_gen",
-                "override_env_vars": ["FAL_KEY"],
-                # The underlying plugin backend — when the user picks
-                # "Nous Subscription" we set video_gen.provider = "fal"
-                # and video_gen.use_gateway = True so the FAL plugin
-                # routes through the managed queue gateway.
-                "video_gen_plugin_name": "fal",
-            },
-        ],
-    },
-    "x_search": {
-        "name": "X (Twitter) Search",
-        "setup_title": "Select xAI Credential Source",
-        "setup_note": (
-            "Hermes routes X searches through xAI's built-in x_search "
-            "Responses tool for read-only public X discovery. Use the xurl "
-            "skill for authenticated X API reads and account actions. Both "
-            "credential sources hit the same "
-            "https://api.x.ai/v1/responses endpoint — pick whichever you "
-            "already have. SuperGrok OAuth is preferred when both are set "
-            "(uses your subscription quota instead of API spend)."
-        ),
-        "icon": "🐦",
-        "providers": [
-            {
-                "name": "xAI Grok OAuth (SuperGrok / Premium+)",
-                "badge": "subscription",
-                "tag": "Browser login at accounts.x.ai — no API key required",
-                "env_vars": [],
-                "post_setup": "xai_grok",
-            },
-            {
-                "name": "xAI API key",
-                "badge": "paid",
-                "tag": "Direct xAI API billing via XAI_API_KEY",
-                "env_vars": [
-                    {
-                        "key": "XAI_API_KEY",
-                        "prompt": "xAI API key",
-                        "url": "https://console.x.ai/",
-                    },
-                ],
-            },
-        ],
+        # Provider rows are injected from the plugin registry.
+        "providers": [],
     },
     "browser": {
         "name": "Browser Automation",
         "icon": "🌐",
-        # Per-provider rows for Browserbase, Browser Use, and Firecrawl are
-        # injected at runtime from plugins.browser.<vendor>.provider via
-        # _plugin_browser_providers() in _visible_providers(). Only
-        # non-provider UX setup-flow rows remain here. "Local Browser" is
-        # listed FIRST so it is the default-highlighted (index 0) choice on a
-        # fresh install — pressing Enter must land on the free, no-key local
-        # backend, never on the paid Nous Subscription gateway row:
-        #   - "Local Browser" — non-cloud option, no CloudBrowserProvider.
-        #   - "Nous Subscription (Browser Use cloud)" — managed Browser Use
-        #     billed via Nous subscription (requires_nous_auth +
-        #     override_env_vars). Uses the browser-use plugin as the
-        #     underlying backend but has a distinct setup UX.
-        #   - "Camofox" — anti-detection local Firefox; short-circuits the
-        #     cloud-provider dispatch path via _is_camofox_mode().
-        #   - "Browser Use" — the Browser Use CLI 3.0
+        # Local Chromium and the retained Browser Use backend are the only
+        # browser choices.
         "providers": [
             {
                 "name": "Local Browser",
@@ -599,51 +262,12 @@ TOOL_CATEGORIES = {
                 "post_setup": "agent_browser",
             },
             {
-                "name": "Nous Subscription (Browser Use cloud)",
-                "badge": "subscription",
-                "tag": "Managed Browser Use billed to your subscription",
-                "env_vars": [],
-                "browser_provider": "browser-use",
-                "requires_nous_auth": True,
-                "managed_nous_feature": "browser",
-                "override_env_vars": ["BROWSER_USE_API_KEY"],
-                # Cloud hook: installs the agent-browser CLI only. Browser Use
-                # hosts its own Chromium, so the local-Chromium install (and
-                # the local-Chromium readiness gate) must not apply here —
-                # with "agent_browser" this row read "needs setup" forever on
-                # machines without a local Chromium build.
-                "post_setup": "browserbase",
-            },
-            {
-                "name": "Camofox",
-                "badge": "free · local",
-                "tag": "Anti-detection browser (Firefox/Camoufox)",
-                "env_vars": [
-                    {"key": "CAMOFOX_URL", "prompt": "Camofox server URL", "default": "http://localhost:9377",
-                     "url": "https://github.com/jo-inc/camofox-browser"},
-                ],
-                "browser_provider": "camofox",
-                "post_setup": "camofox",
-            },
-            {
                 "name": "Browser Use",
                 "badge": "free · local · cloud",
                 "tag": "New SOTA web harness (CLI 3.0)",
                 "env_vars": [],
                 "browser_backend": "browser-use",
                 "post_setup": "browser_use_cli",
-            },
-        ],
-    },
-    "spotify": {
-        "name": "Spotify",
-        "icon": "🎵",
-        "providers": [
-            {
-                "name": "Spotify Web API",
-                "tag": "PKCE OAuth — opens the setup wizard",
-                "env_vars": [],
-                "post_setup": "spotify",
             },
         ],
     },
@@ -1716,8 +1340,8 @@ def _ensure_browser_use_cli(*, verbose_hints: bool = False) -> None:
 
     The Browser Use CLI 3.0 is the primary driver engine for EVERY browser
     backend except Camofox (which is Firefox-based with no CDP surface, so
-    the CDP-only browser-use harness cannot drive it). Local, Browserbase,
-    Firecrawl, and the Nous-managed cloud rows all execute through
+    the CDP-only browser-use harness cannot drive it). Local and the
+    Nous-managed cloud rows execute through
     ``browser_exec`` when the CLI is runnable — so every one of those
     picker selections must attempt this install, not just the explicit
     "Browser Use" row. Failure is non-fatal: ``browser_exec`` can still run
@@ -1755,7 +1379,7 @@ def _run_post_setup(post_setup_key: str):
     """Run post-setup hooks for tools that need extra installation steps."""
     from hermes_constants import find_node_executable
 
-    if post_setup_key in {"agent_browser", "browserbase"}:
+    if post_setup_key in {"agent_browser", "cloud_browser"}:
         # Every non-Camofox browser backend drives through the Browser Use
         # CLI when it's runnable — install it here too, not only on the
         # explicit "Browser Use" picker row.
@@ -1792,7 +1416,7 @@ def _run_post_setup(post_setup_key: str):
             return
 
         # Step 1: only the local browser provider actually needs Chromium on
-        # disk. Cloud providers (Browserbase, Browser Use, Firecrawl) host
+        # disk. Browser Use cloud hosts
         # their own Chromium and don't need the local install.
         if post_setup_key != "agent_browser":
             return
@@ -1985,35 +1609,6 @@ def _run_post_setup(post_setup_key: str):
                 return
         _print_info("    No API key required. DuckDuckGo enforces server-side rate limits.")
         _print_info("    Pair with an extract provider if you also need web_extract.")
-
-    elif post_setup_key == "spotify":
-        # Run the full `hermes auth spotify` flow — if the user has no
-        # client_id yet, this drops them into the interactive wizard
-        # (opens the Spotify dashboard, prompts for client_id, persists
-        # to ~/.hermes/.env), then continues straight into PKCE. If they
-        # already have an app, it skips the wizard and just does OAuth.
-        from types import SimpleNamespace
-        try:
-            from hermes_cli.auth import login_spotify_command
-        except Exception as exc:
-            _print_warning(f"    Could not load Spotify auth: {exc}")
-            _print_info("    Run manually: hermes auth spotify")
-            return
-        _print_info("    Starting Spotify login...")
-        try:
-            login_spotify_command(SimpleNamespace(
-                client_id=None, redirect_uri=None, scope=None,
-                no_browser=False, timeout=None,
-            ))
-            _print_success("    Spotify authenticated")
-        except SystemExit as exc:
-            # User aborted the wizard, or OAuth failed — don't fail the
-            # toolset enable; they can retry with `hermes auth spotify`.
-            _print_warning(f"    Spotify login did not complete: {exc}")
-            _print_info("    Run later: hermes auth spotify")
-        except Exception as exc:
-            _print_warning(f"    Spotify login failed: {exc}")
-            _print_info("    Run manually: hermes auth spotify")
 
     elif post_setup_key == "langfuse":
         # Install the langfuse SDK.
@@ -2220,7 +1815,7 @@ def _parse_enabled_flag(value, default: bool = True) -> bool:
 
 
 def enabled_mcp_server_names(config: dict) -> Set[str]:
-    """Names of MCP servers globally enabled in config.yaml or by a plugin.
+    """Names of MCP servers globally enabled in config.yaml.
 
     Shared by the gateway/CLI platform resolver (``_get_platform_tools``) and
     the cron per-job toolset resolver (``cron.scheduler``) so every path agrees
@@ -2228,12 +1823,6 @@ def enabled_mcp_server_names(config: dict) -> Set[str]:
     falsey ``enabled`` (per ``_parse_enabled_flag``: false/0/no/off) — a missing
     flag or an unrecognized value is treated as enabled.
 
-    Portable Agent Plugins contribute MCP servers in-memory rather than via
-    ``config.yaml`` (see ``PluginManager.get_portable_mcp_servers``). Those are
-    included here so their tools fold into platform toolsets like native
-    servers do — the user's opt-in is enabling the plugin itself. Without this,
-    a portable server registers with the MCP runtime but its tools never reach
-    the model's schema.
     """
     mcp_servers = (config or {}).get("mcp_servers") or {}
     names = {
@@ -2242,17 +1831,6 @@ def enabled_mcp_server_names(config: dict) -> Set[str]:
         if isinstance(server_cfg, dict)
         and _parse_enabled_flag(server_cfg.get("enabled", True), default=True)
     }
-    try:
-        from hermes_cli.plugins import (
-            get_plugin_manager,
-            get_portable_mcp_server_names_nowait,
-        )
-
-        portable = get_portable_mcp_server_names_nowait()
-        # Native config wins on a name collision (mirrors _load_mcp_config).
-        names |= portable - set(mcp_servers)
-    except Exception:
-        logger.debug("Failed to include portable MCP servers", exc_info=True)
     return names
 
 
@@ -2278,7 +1856,7 @@ def enabled_mcp_server_names(config: dict) -> Set[str]:
 #: schemas to a user with no Nous credential — the same split Home Assistant
 #: uses. Probing the portal from this path would put a network call on every
 #: CLI start, gateway session and cron tick.
-_RECENTLY_SHIPPED_TOOLSETS = frozenset({"bfl"})
+_RECENTLY_SHIPPED_TOOLSETS: frozenset[str] = frozenset()
 
 
 def _enable_recently_shipped_toolsets(
@@ -2362,13 +1940,12 @@ def _get_platform_tools(
             ts for ts in toolset_names
             if ts in explicit_known_keys and _toolset_allowed_for_platform(ts, platform)
         }
-        # Mixed config: composite toolset alongside configurables (e.g.
-        # ``[hermes-cli, spotify]`` after enabling Spotify via ``hermes
-        # tools``). Without expansion the composite name is silently dropped,
+        # Mixed config: composite toolset alongside configurables. Without
+        # expansion the composite name is silently dropped,
         # leaving sessions with only the configurable opt-ins and no native
         # tools. Mirror the else-branch's subset inference, but apply
         # _DEFAULT_OFF_TOOLSETS only to the implicit expansion — anything the
-        # user explicitly listed (e.g. ``spotify``) must survive.
+        # user explicitly listed must survive.
         composite_tools = set()
         for ts_name in toolset_names:
             if ts_name in configurable_keys or ts_name in plugin_ts_keys:
@@ -2417,31 +1994,11 @@ def _get_platform_tools(
             ts_tools = set(resolve_toolset(ts_key, include_registry=False))
             if ts_tools and ts_tools.issubset(all_tool_names):
                 enabled_toolsets.add(ts_key)
-
-        # Auto-enable ``x_search`` when xAI credentials are configured.
-        # ``x_search`` is its own one-tool toolset that the composite does
-        # NOT include, so the subset loop never picks it up. Inject it
-        # directly here: once you have working creds, you don't have to also click
-        # through ``hermes tools`` to flip the toolset on. Only fires when
-        # the user has not yet saved an explicit toolset list — once they
-        # do, the saved list is authoritative.
-        x_search_auto_enabled = (
-            _toolset_allowed_for_platform("x_search", platform)
-            and _xai_credentials_present()
-        )
-        if x_search_auto_enabled:
-            enabled_toolsets.add("x_search")
-
         default_off = set(_DEFAULT_OFF_TOOLSETS)
         # If a platform's own name matches a default-off toolset, keep that
         # toolset enabled on first install.
         if platform in default_off and platform not in _TOOLSET_PLATFORM_RESTRICTIONS:
             default_off.remove(platform)
-        # Symmetric carve-out for x_search auto-enable (see the inject
-        # block above). Without this, the default_off subtraction would
-        # strip the entry we just added.
-        if x_search_auto_enabled and "x_search" in default_off:
-            default_off.remove("x_search")
         enabled_toolsets -= default_off
 
     # Recover non-configurable platform toolsets. These may be part of a
@@ -2484,9 +2041,7 @@ def _get_platform_tools(
             claimed.update(ts_tools)
 
     # Plugin toolsets: enabled by default unless explicitly disabled, or
-    # unless the toolset is in _DEFAULT_OFF_TOOLSETS (e.g. spotify —
-    # shipped as a bundled plugin but user must opt in via `hermes tools`
-    # so we don't ship 7 Spotify tool schemas to users who don't use it).
+    # unless the toolset is in _DEFAULT_OFF_TOOLSETS.
     # A plugin toolset is "known" for a platform once `hermes tools`
     # has been saved for that platform (tracked via known_plugin_toolsets).
     # Unknown plugins default to enabled; known-but-absent = disabled.
@@ -2504,24 +2059,6 @@ def _get_platform_tools(
                 # New plugin not yet seen by hermes tools — default enabled
                 enabled_toolsets.add(pts)
             # else: known but not in config = user disabled it
-
-    # Context-engine tools are runtime-provided by the active engine, so they
-    # are not part of any static platform composite. When a non-default engine
-    # is selected, keep its recovery/status tools available even after a user
-    # saves an explicit platform toolset list. Preserve the explicit empty-list
-    # contract: selecting no configurable tools means no context-engine tools
-    # either unless the user adds ``context_engine`` manually later.
-    context_cfg = config.get("context") or {}
-    if not isinstance(context_cfg, dict):
-        context_cfg = {}
-    context_engine_name = str(context_cfg.get("engine") or "compressor").strip().lower()
-    explicit_empty_selection = (
-        platform in platform_toolsets
-        and isinstance(platform_toolsets.get(platform), list)
-        and not toolset_names
-    )
-    if context_engine_name and context_engine_name != "compressor" and not explicit_empty_selection:
-        enabled_toolsets.add("context_engine")
 
     # Preserve any explicit non-configurable toolset entries (for example,
     # custom toolsets or MCP server names saved in platform_toolsets).
@@ -2700,7 +2237,7 @@ def _toolset_has_keys(
     config: dict = None,
     *,
     force_fresh: bool = False,
-    features: Optional[NousSubscriptionFeatures] = None,
+    features: Optional[object] = None,
 ) -> bool:
     """Check if a toolset's required API keys are configured."""
     if config is None:
@@ -2977,14 +2514,7 @@ def _plugin_video_gen_providers() -> list[dict]:
 
 # Mirror of _plugin_image_gen_providers for web search backends. Surfaces
 # every plugin-registered web provider so it appears in the
-# "Web Search & Extract" picker. All seven providers (brave-free, ddgs,
-# searxng, exa, parallel, tavily, firecrawl) live as plugins after
-# PR #25182 — this helper is the sole source of truth for the category's
-# provider rows. The hardcoded entries that used to drive the category
-# were deleted in the same PR; only the two non-provider UX rows
-# ("Nous Subscription" managed-gateway entry, "Firecrawl Self-Hosted")
-# remain in TOOL_CATEGORIES because they describe alternative *setup
-# flows* for the firecrawl backend rather than distinct providers.
+# "Web Search & Extract" picker.
 def _plugin_web_search_providers() -> list[dict]:
     """Build picker-row dicts from plugin-registered web search providers.
 
@@ -2994,9 +2524,7 @@ def _plugin_web_search_providers() -> list[dict]:
     marker) so the picker behaves identically whether a provider is
     hardcoded or plugin-registered.
 
-    After PR #25182, all seven web providers (brave-free, ddgs, searxng,
-    exa, parallel, tavily, firecrawl) are plugins; this helper is the sole
-    source of provider rows for the Web Search & Extract category.
+    This helper is the sole source of provider rows for the category.
     """
     try:
         from agent.web_search_registry import list_providers as _list_web_providers
@@ -3039,10 +2567,7 @@ def web_provider_capabilities(backend: str) -> list:
     Consults the plugin registry's provider instance (``supports_search`` /
     ``supports_extract``) so the Capabilities GUI can offer per-capability
     selection (``web.search_backend`` / ``web.extract_backend``) only where it
-    makes sense — e.g. ddgs and brave-free are search-only. Falls back to both
-    capabilities when the backend isn't registered (hardcoded setup-flow rows
-    like the managed Firecrawl entries resolve before plugin discovery in some
-    test contexts, and firecrawl itself supports both).
+    makes sense — e.g. ddgs and brave-free are search-only.
     """
     try:
         from agent.web_search_registry import get_provider
@@ -3057,13 +2582,12 @@ def web_provider_capabilities(backend: str) -> list:
             return caps
     except Exception:
         pass
-    return ["search", "extract"]
+    return []
 
 
-# Mirror of _plugin_web_search_providers for cloud browser backends. After
-# PR #25214, Browserbase / Browser Use / Firecrawl live as plugins under
-# plugins/browser/<vendor>/; this helper is the sole source of provider rows
-# for those three in the "Browser Automation" picker. The hardcoded
+# Mirror of _plugin_web_search_providers for cloud browser backends. Browser
+# Use lives under plugins/browser/<vendor>/; this helper is the source of
+# provider rows for the "Browser Automation" picker. The hardcoded
 # ``TOOL_CATEGORIES["browser"]`` entries that drove the category before
 # were deleted in the same PR; only non-provider UX setup-flow rows remain
 # ("Nous Subscription", "Local Browser", "Camofox") — see the comment block
@@ -3176,7 +2700,7 @@ def _visible_providers(
     config: dict,
     *,
     force_fresh: bool = False,
-    features: Optional[NousSubscriptionFeatures] = None,
+    features: Optional[object] = None,
 ) -> list[dict]:
     """Return provider entries visible for the current auth/config state.
 
@@ -3235,13 +2759,11 @@ def _visible_providers(
     # Inject plugin-registered web search backends. After PR #25182, this
     # is the SOLE source of provider rows for the Web Search & Extract
     # category — the per-provider hardcoded entries were deleted. The two
-    # remaining hardcoded rows ("Nous Subscription", "Firecrawl
-    # Self-Hosted") are non-provider UX setup-flow rows for firecrawl.
     if cat.get("name") == "Web Search & Extract":
         visible.extend(_plugin_web_search_providers())
 
-    # Inject plugin-registered cloud browser backends. After PR #25214,
-    # Browserbase / Browser Use / Firecrawl are the plugin-supplied rows;
+    # Inject plugin-registered cloud browser backends. Browser Use is the
+    # plugin-supplied row;
     # the hardcoded "Nous Subscription" / "Local Browser" / "Camofox" rows
     # stay because they're non-provider UX setup flows (subscription auth,
     # local fallback, and the REST-API anti-detection backend respectively).
@@ -3398,14 +2920,14 @@ _POST_SETUP_READY: dict = {
     "ddgs": lambda: _module_installed("ddgs"),
     "langfuse": lambda: _module_installed("langfuse"),
     "agent_browser": lambda: _agent_browser_installed(),
-    "browserbase": lambda: _cloud_agent_browser_installed(),
+    "cloud_browser": lambda: _cloud_agent_browser_installed(),
     "camofox": lambda: _camofox_installed(),
     "cua_driver": lambda: _cua_driver_install_ready(),
 }
 
 
 def _cloud_agent_browser_installed() -> bool:
-    """Installed-check for the ``browserbase`` hook (cloud provider rows).
+    """Installed check for cloud browser rows.
 
     Cloud providers host their own Chromium, so their hook only installs the
     agent-browser npm package — presence of the CLI is the whole contract."""
@@ -5079,23 +4601,13 @@ def tools_command(args=None, first_install: bool = False, config: dict = None):
                     label = next((l for k, l, _ in _get_effective_configurable_toolsets() if k == ts), ts)
                     print(color(f"  - {label}", Colors.RED))
 
-            auto_configured = apply_nous_managed_defaults(
-                config,
-                enabled_toolsets=new_enabled,
-                force_fresh=True,
-            )
-            for ts_key in sorted(auto_configured):
-                label = next((l for k, l, _ in CONFIGURABLE_TOOLSETS if k == ts_key), ts_key)
-                print(color(f"  ✓ {label}: using your Nous subscription defaults", Colors.GREEN))
-
             # Walk through ALL selected tools that have provider options or
-            # need API keys.  This ensures browser (Local vs Browserbase),
+            # need API keys.  This ensures browser provider selection,
             # TTS (Edge vs OpenAI vs ElevenLabs), etc. are shown even when
             # a free provider exists.
             to_configure = [
                 ts_key for ts_key in sorted(new_enabled)
                 if (TOOL_CATEGORIES.get(ts_key) or TOOLSET_ENV_REQUIREMENTS.get(ts_key))
-                and ts_key not in auto_configured
             ]
 
             if to_configure:

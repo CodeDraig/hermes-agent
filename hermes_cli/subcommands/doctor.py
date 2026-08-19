@@ -27,7 +27,7 @@ def build_doctor_parser(subparsers, *, cmd_doctor: Callable) -> None:
         action="store_true",
         help=(
             "Opt-in: run one bounded, read-only real-call health probe per "
-            "configured tool backend (Firecrawl/FAL/browser/MCP/TTS/STT) "
+            "configured tool backend (FAL/browser/MCP/TTS/STT) "
             "after the static checks. Makes real network calls."
         ),
     )

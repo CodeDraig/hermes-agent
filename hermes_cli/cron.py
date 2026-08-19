@@ -49,7 +49,7 @@ def _cron_api(**kwargs):
 
 
 def _active_cron_provider_name() -> str:
-    """Name of the resolved cron scheduler provider ('builtin', 'chronos', …).
+    """Name of the resolved cron scheduler provider.
 
     Best-effort + offline (``resolve_cron_scheduler`` reads config and the
     provider's ``is_available()`` contract forbids network). Returns 'builtin'
@@ -72,8 +72,8 @@ def _warn_if_gateway_not_running() -> None:
     stays null — the most common cron support report (#51038). Surfacing this
     at create/list time, when the user is right there, prevents it.
 
-    An external provider (e.g. Chronos) fires jobs via a NAS-mediated webhook,
-    NOT the in-process ticker, so a momentarily-absent gateway process does not
+    An external provider may fire jobs outside the in-process ticker, so a
+    momentarily-absent gateway process does not
     mean jobs won't fire — the warning would be a false alarm. Stay quiet for
     any non-builtin provider; the gateway-process heuristic only speaks to the
     built-in ticker's trigger.
@@ -246,12 +246,11 @@ def cron_status():
 
     provider = _active_cron_provider_name()
     if provider != "builtin":
-        # An external provider (e.g. Chronos) does NOT run the in-process 60s
-        # ticker — it arms one external one-shot per job and is fired by a
-        # NAS-mediated webhook, so between fires there is intentionally NO
+        # An external provider does NOT run the in-process 60s ticker, so there
+        # is intentionally NO
         # ticker thread and NO heartbeat file. Reporting the ticker-heartbeat
         # staleness here would always say "stalled / not firing" on a perfectly
-        # healthy Chronos instance. Report the provider instead and skip the
+        # healthy external provider. Report the provider instead and skip the
         # ticker-liveness heuristics entirely.
         print(color(
             f"✓ Cron provider: {provider} — jobs fire via the managed scheduler, "

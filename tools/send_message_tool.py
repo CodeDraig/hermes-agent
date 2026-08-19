@@ -200,7 +200,7 @@ def _handle_send(args):
     platform_name, _, target_ref = target.partition(":")
     platform_name = platform_name.strip().lower()
     platform = _load_platform(platform_name)
-    if platform is None or platform_name == "api_server":
+    if platform is None:
         return tool_error(f"Unknown delivery platform: {platform_name}")
     chat_id = thread_id = None
     if target_ref:
@@ -279,7 +279,7 @@ def _parse_target_ref(platform_name: str, target_ref: str):
 
 def resolve_send_target(platform_name, target_ref, *, pass_unresolved_references=False):
     platform = _load_platform(platform_name)
-    if platform is None or platform_name == "api_server":
+    if platform is None:
         return None, None, f"Unknown platform: {platform_name}"
     chat_id, thread_id, explicit = _parse_target_ref(platform_name, target_ref)
     if explicit:

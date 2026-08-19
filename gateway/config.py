@@ -37,86 +37,6 @@ def _coerce_bool(value: Any, default: bool = True) -> bool:
     return is_truthy_value(value, default=default)
 
 
-def _normalize_multiplex_profile_allowlist(value: Any) -> Optional[List[str]]:
-    """Normalize the optional named-profile allowlist.
-
-    ``None`` preserves the historical serve-all behavior. A malformed outer
-    value fails safe to an empty list (default profile only); malformed list
-    entries are skipped with a warning.
-    """
-    if value is None:
-        return None
-    if not isinstance(value, list):
-        logger.warning(
-            "Invalid gateway.multiplex_profile_allowlist (expected a list, got %s); "
-            "serving only the default profile",
-            type(value).__name__,
-        )
-        return []
-
-    from hermes_cli.profiles import normalize_profile_name, validate_profile_name
-
-    normalized: List[str] = []
-    seen = set()
-    for entry in value:
-        if not isinstance(entry, str):
-            logger.warning(
-                "Skipping invalid gateway.multiplex_profile_allowlist entry %r "
-                "(expected a profile name)",
-                entry,
-            )
-            continue
-        try:
-            name = normalize_profile_name(entry)
-            validate_profile_name(name)
-        except ValueError:
-            logger.warning(
-                "Skipping invalid gateway.multiplex_profile_allowlist entry %r",
-                entry,
-            )
-            continue
-        if name == "default" or name in seen:
-            continue
-        seen.add(name)
-        normalized.append(name)
-    return normalized
-
-
-# Recognized truthy / falsy tokens for the GATEWAY_MULTIPLEX_PROFILES operator
-# override. Anything not in either set — and a blank/whitespace value — is
-# treated as "unset" so it falls through to config.yaml rather than silently
-# forcing the flag off.
-_MULTIPLEX_TRUTHY_STRINGS = frozenset({"1", "true", "yes", "on"})
-_MULTIPLEX_FALSY_STRINGS = frozenset({"0", "false", "no", "off"})
-
-
-def _env_multiplex_profiles_override() -> "bool | None":
-    """Resolve the GATEWAY_MULTIPLEX_PROFILES operator override.
-
-    Returns ``True``/``False`` when the env var is set to a recognized truthy/
-    falsy token, or ``None`` when it is unset, blank, or unrecognized — in which
-    case the caller keeps the config.yaml value (env > config > default). Blank
-    is deliberately ``None``, not ``False``: a provisioned-but-unpopulated Fly
-    secret arrives as ``""`` and must NOT shadow a config.yaml opt-in.
-    """
-    raw = os.getenv("GATEWAY_MULTIPLEX_PROFILES")
-    if raw is None:
-        return None
-    token = raw.strip().lower()
-    if not token:
-        return None
-    if token in _MULTIPLEX_TRUTHY_STRINGS:
-        return True
-    if token in _MULTIPLEX_FALSY_STRINGS:
-        return False
-    logger.warning(
-        "Ignoring unrecognized GATEWAY_MULTIPLEX_PROFILES=%r "
-        "(expected one of %s or %s); falling back to config.yaml.",
-        raw,
-        sorted(_MULTIPLEX_TRUTHY_STRINGS),
-        sorted(_MULTIPLEX_FALSY_STRINGS),
-    )
-    return None
 
 
 def _normalize_transport_token(value: Any) -> str:
@@ -315,7 +235,6 @@ class Platform(Enum):
     LOCAL = "local"
     TELEGRAM = "telegram"
     MATTERMOST = "mattermost"
-    API_SERVER = "api_server"
 
 
 # Platforms that bind a host TCP port. In a profile
@@ -325,12 +244,10 @@ class Platform(Enum):
 # port already held by the default's listener. Single source of truth for
 # the gateway's fail-fast startup validation. Stored as platform .value
 # strings so configuration checks share the same policy.
-PORT_BINDING_PLATFORM_VALUES = frozenset({
-    "api_server",
-})
+PORT_BINDING_PLATFORM_VALUES = frozenset()
 
 def platform_binds_port(platform_value: str, extra: Optional[dict] = None) -> bool:
-    """Return True when *platform_value* owns the API listener port."""
+    """Return True when *platform_value* owns a listener port."""
     return platform_value in PORT_BINDING_PLATFORM_VALUES
 
 
@@ -408,7 +325,7 @@ class SessionResetPolicy:
     at_hour: int = 4  # Hour for daily reset (0-23, local time)
     idle_minutes: int = 1440  # Minutes of inactivity before reset (24 hours)
     notify: bool = True  # Send a notification to the user when auto-reset occurs
-    notify_exclude_platforms: tuple = ("api_server",)  # Programmatic surface excluded from reset notices
+    notify_exclude_platforms: tuple = ()
     # A background process this many hours old (or older) no longer blocks
     # session idle/daily reset. A forgotten preview server should not keep a
     # session alive forever (#29177). The process is NOT killed — only ignored
@@ -441,7 +358,7 @@ class SessionResetPolicy:
             at_hour=at_hour if at_hour is not None else 4,
             idle_minutes=idle_minutes if idle_minutes is not None else 1440,
             notify=_coerce_bool(notify, True),
-            notify_exclude_platforms=tuple(exclude) if exclude is not None else ("api_server",),
+            notify_exclude_platforms=tuple(exclude) if exclude is not None else (),
             bg_process_max_age_hours=bg_max_age if bg_max_age is not None else 24,
         )
 
@@ -707,27 +624,7 @@ class StreamingConfig:
 # Each callable receives a ``PlatformConfig`` and returns ``True`` when the
 # platform is sufficiently configured to be considered "connected". Telegram
 # and Mattermost use the generic ``token or api_key`` check.
-def _has_usable_api_server_key(key: object) -> bool:
-    """True when API_SERVER_KEY is present and strong enough to be usable.
-
-    Mirrors the startup guard in ``gateway/platforms/api_server.py``
-    (``has_usable_secret`` with ``min_length=16``) so the platform is only
-    enrolled at load time when the adapter would actually agree to start.
-    """
-    if not key:
-        return False
-    try:
-        from hermes_cli.auth import has_usable_secret
-    except ImportError:
-        return len(str(key).strip()) >= 16
-    return has_usable_secret(key, min_length=16)
-
-
-_PLATFORM_CONNECTED_CHECKERS: dict[Platform, Callable[[PlatformConfig], bool]] = {
-    Platform.API_SERVER: lambda cfg: _has_usable_api_server_key(
-        cfg.extra.get("key") if cfg else None
-    ),
-}
+_PLATFORM_CONNECTED_CHECKERS: dict[Platform, Callable[[PlatformConfig], bool]] = {}
 
 
 @dataclass
@@ -754,13 +651,6 @@ class GatewayConfig:
     # Storage paths
     sessions_dir: Path = field(default_factory=lambda: get_hermes_home() / "sessions")
 
-    # Whether to keep writing the legacy sessions.json mirror of the gateway
-    # routing index. The primary copy lives in state.db (gateway_routing
-    # table, #9006). Default True for backward compatibility with external
-    # tooling and downgrade safety; set gateway.write_sessions_json: false in
-    # config.yaml to stop producing the file.
-    write_sessions_json: bool = True
-    
     # Delivery settings
     always_log_local: bool = True  # Always save cron outputs to local files
     # Drop outbound "silence narration" messages (e.g. *(silent)*, 🔇, a bare
@@ -771,24 +661,10 @@ class GatewayConfig:
     # raw passthrough.
     filter_silence_narration: bool = True
 
-    # STT settings
-    stt_enabled: bool = True  # Whether to auto-transcribe inbound voice messages
-    stt_echo_transcripts: bool = True  # Whether to echo raw STT transcripts back to the user
-
     # Session isolation in shared chats
     group_sessions_per_user: bool = True  # Isolate group/channel sessions per participant when user IDs are available
     thread_sessions_per_user: bool = False  # When False (default), threads are shared across all participants
     max_concurrent_sessions: Optional[int] = None  # Positive int caps simultaneous active chat sessions
-
-    # Multi-profile multiplexing (opt-in; default off preserves one-gateway-per-profile).
-    # When True, the default profile's gateway serves inbound messages for every
-    # profile on the host: profiles are stamped into session keys and (in later
-    # phases) per-profile adapters/credentials are resolved. When False, the
-    # gateway behaves exactly as before — single HERMES_HOME, no profile stamping.
-    multiplex_profiles: bool = False
-    # Optional named-profile allowlist for multiplex mode. None preserves the
-    # historical serve-all behavior; [] serves only the default profile.
-    multiplex_profile_allowlist: Optional[List[str]] = None
 
     # Opt-in systemd event-loop watchdog. Zero preserves Type=simple and
     # disables sd_notify at runtime.
@@ -814,15 +690,7 @@ class GatewayConfig:
     # fresh session exactly as if the reset policy had fired.  0 = disabled.
     session_store_max_age_days: int = 90
 
-    # Profile-based routing: route specific guilds/channels/threads to
-    # different profiles. See gateway/profile_routing.py. Each entry is a
-    # dict with: name, platform, profile, and optional scope_id/chat_id/thread_id.
-    profile_routes: list = field(default_factory=list)
-
     def __post_init__(self) -> None:
-        self.multiplex_profile_allowlist = _normalize_multiplex_profile_allowlist(
-            self.multiplex_profile_allowlist
-        )
         self.systemd_watchdog_seconds = coerce_systemd_watchdog_seconds(
             self.systemd_watchdog_seconds
         )
@@ -896,25 +764,16 @@ class GatewayConfig:
             "reset_triggers": self.reset_triggers,
             "quick_commands": self.quick_commands,
             "sessions_dir": str(self.sessions_dir),
-            "write_sessions_json": self.write_sessions_json,
             "always_log_local": self.always_log_local,
             "filter_silence_narration": self.filter_silence_narration,
-            "stt_enabled": self.stt_enabled,
-            "stt_echo_transcripts": self.stt_echo_transcripts,
             "group_sessions_per_user": self.group_sessions_per_user,
             "thread_sessions_per_user": self.thread_sessions_per_user,
             "max_concurrent_sessions": self.max_concurrent_sessions,
-            "multiplex_profiles": self.multiplex_profiles,
-            "multiplex_profile_allowlist": self.multiplex_profile_allowlist,
             "systemd_watchdog_seconds": self.systemd_watchdog_seconds,
             "loop_watchdog": self.loop_watchdog,
             "unauthorized_dm_behavior": self.unauthorized_dm_behavior,
             "streaming": self.streaming.to_dict(),
             "session_store_max_age_days": self.session_store_max_age_days,
-            "profile_routes": [
-                asdict(r) if is_dataclass(r) and not isinstance(r, type) else r
-                for r in self.profile_routes
-            ],
         }
     
     @classmethod
@@ -955,28 +814,10 @@ class GatewayConfig:
         if not isinstance(quick_commands, dict):
             quick_commands = {}
 
-        stt_enabled = data.get("stt_enabled")
-        if stt_enabled is None:
-            stt_enabled = data.get("stt", {}).get("enabled") if isinstance(data.get("stt"), dict) else None
-        stt_echo_transcripts = data.get("stt_echo_transcripts")
-        if stt_echo_transcripts is None:
-            stt_echo_transcripts = (
-                data.get("stt", {}).get("echo_transcripts")
-                if isinstance(data.get("stt"), dict)
-                else None
-            )
-
         group_sessions_per_user = data.get("group_sessions_per_user")
         thread_sessions_per_user = data.get("thread_sessions_per_user")
-        multiplex_profiles = data.get("multiplex_profiles")
         raw_gateway = data.get("gateway")
         nested_gateway = raw_gateway if isinstance(raw_gateway, dict) else {}
-        if "multiplex_profile_allowlist" in data:
-            multiplex_profile_allowlist = data.get("multiplex_profile_allowlist")
-        else:
-            multiplex_profile_allowlist = nested_gateway.get(
-                "multiplex_profile_allowlist"
-            )
         if "systemd_watchdog_seconds" in data:
             systemd_watchdog_raw = data.get("systemd_watchdog_seconds")
             systemd_watchdog_key = "systemd_watchdog_seconds"
@@ -991,22 +832,6 @@ class GatewayConfig:
         else:
             loop_watchdog_raw = nested_gateway.get("loop_watchdog")
         loop_watchdog = _coerce_bool(loop_watchdog_raw, True)
-        if multiplex_profiles is None and isinstance(nested_gateway, dict):
-            # Also honor gateway.multiplex_profiles written by
-            # ``hermes config set gateway.multiplex_profiles true``.
-            multiplex_profiles = nested_gateway.get("multiplex_profiles")
-        # Operator override: GATEWAY_MULTIPLEX_PROFILES wins over config.yaml when
-        # set to a recognized value. Hosted deployments (Nous Portal / Fly) stamp
-        # it on the container so the single multiplexed gateway — which the
-        # connector now depends on for per-profile relay routing — is forced on at
-        # every boot regardless of the image's config.yaml, while self-hosted
-        # users keep setting gateway.multiplex_profiles in config.yaml. A blank or
-        # unrecognized env value falls through to config (the empty-secret trap:
-        # a provisioned-but-unpopulated Fly secret must not shadow config), so
-        # this is a genuine 3-tier chain: env > config.yaml > default False.
-        env_multiplex = _env_multiplex_profiles_override()
-        if env_multiplex is not None:
-            multiplex_profiles = env_multiplex
         if "max_concurrent_sessions" in data:
             max_concurrent_raw = data.get("max_concurrent_sessions")
             max_concurrent_key = "max_concurrent_sessions"
@@ -1028,10 +853,6 @@ class GatewayConfig:
         except (TypeError, ValueError):
             session_store_max_age_days = 90
 
-        # Parse profile routes (validated by gateway.profile_routing)
-        from gateway.profile_routing import parse_profile_routes
-        profile_routes = parse_profile_routes(data.get("profile_routes") or [])
-
         return cls(
             platforms=platforms,
             default_reset_policy=default_policy,
@@ -1040,24 +861,18 @@ class GatewayConfig:
             reset_triggers=data.get("reset_triggers", ["/new", "/reset"]),
             quick_commands=quick_commands,
             sessions_dir=sessions_dir,
-            write_sessions_json=_coerce_bool(data.get("write_sessions_json"), True),
             always_log_local=_coerce_bool(data.get("always_log_local"), True),
             filter_silence_narration=_coerce_bool(
                 data.get("filter_silence_narration"), True
             ),
-            stt_enabled=_coerce_bool(stt_enabled, True),
-            stt_echo_transcripts=_coerce_bool(stt_echo_transcripts, True),
             group_sessions_per_user=_coerce_bool(group_sessions_per_user, True),
             thread_sessions_per_user=_coerce_bool(thread_sessions_per_user, False),
-            multiplex_profiles=_coerce_bool(multiplex_profiles, False),
-            multiplex_profile_allowlist=multiplex_profile_allowlist,
             systemd_watchdog_seconds=systemd_watchdog_seconds,
             loop_watchdog=loop_watchdog,
             max_concurrent_sessions=max_concurrent_sessions,
             unauthorized_dm_behavior=unauthorized_dm_behavior,
             streaming=StreamingConfig.from_dict(data.get("streaming", {})),
             session_store_max_age_days=session_store_max_age_days,
-            profile_routes=profile_routes,
         )
 
     def get_unauthorized_dm_behavior(self, platform: Optional[Platform] = None) -> str:
@@ -1159,16 +974,6 @@ def load_gateway_config() -> GatewayConfig:
                         type(qc).__name__,
                     )
 
-            stt_cfg = yaml_cfg.get("stt")
-            if "stt" not in yaml_cfg and isinstance(gateway_section, dict):
-                stt_cfg = gateway_section.get("stt")
-            if isinstance(stt_cfg, dict):
-                gw_data["stt"] = stt_cfg
-            if "stt_echo_transcripts" in yaml_cfg:
-                gw_data["stt_echo_transcripts"] = yaml_cfg["stt_echo_transcripts"]
-            elif isinstance(gateway_section, dict) and "stt_echo_transcripts" in gateway_section:
-                gw_data["stt_echo_transcripts"] = gateway_section["stt_echo_transcripts"]
-
             gateway_cfg = yaml_cfg.get("gateway")
 
             if "group_sessions_per_user" in yaml_cfg:
@@ -1181,37 +986,7 @@ def load_gateway_config() -> GatewayConfig:
             elif isinstance(gateway_section, dict) and "thread_sessions_per_user" in gateway_section:
                 gw_data["thread_sessions_per_user"] = gateway_section["thread_sessions_per_user"]
 
-            # Multiplexing flag: accept both the top-level key and the nested
-            # gateway.multiplex_profiles form (written by
-            # ``hermes config set gateway.multiplex_profiles true``).
-            if "multiplex_profiles" in yaml_cfg:
-                gw_data["multiplex_profiles"] = yaml_cfg["multiplex_profiles"]
-
-            if "multiplex_profile_allowlist" in yaml_cfg:
-                gw_data["multiplex_profile_allowlist"] = yaml_cfg[
-                    "multiplex_profile_allowlist"
-                ]
-            elif (
-                isinstance(gateway_section, dict)
-                and "multiplex_profile_allowlist" in gateway_section
-            ):
-                gw_data["multiplex_profile_allowlist"] = gateway_section[
-                    "multiplex_profile_allowlist"
-                ]
-
-            # Profile-based routing rules: accept either top-level
-            # ``profile_routes`` or the nested ``gateway.profile_routes`` form
-            # (matching the multiplex_profiles parity above).
-            _pr = yaml_cfg.get("profile_routes")
-            if _pr is None and isinstance(gateway_section, dict):
-                _pr = gateway_section.get("profile_routes")
-            if isinstance(_pr, list):
-                gw_data["profile_routes"] = _pr
-
             if isinstance(gateway_section, dict):
-                if "multiplex_profiles" in gateway_section and "multiplex_profiles" not in gw_data:
-                    # gateway.multiplex_profiles written by `hermes config set gateway.multiplex_profiles true`
-                    gw_data["multiplex_profiles"] = gateway_section["multiplex_profiles"]
                 if "max_concurrent_sessions" in gateway_section:
                     gw_data["max_concurrent_sessions"] = gateway_section["max_concurrent_sessions"]
                 if "systemd_watchdog_seconds" in gateway_section:
@@ -1239,13 +1014,6 @@ def load_gateway_config() -> GatewayConfig:
                 gw_data["always_log_local"] = yaml_cfg["always_log_local"]
             elif isinstance(gateway_section, dict) and "always_log_local" in gateway_section:
                 gw_data["always_log_local"] = gateway_section["always_log_local"]
-
-            # write_sessions_json: top-level wins; nested gateway.* fallback
-            # (matches the gateway.streaming precedence pattern).
-            if "write_sessions_json" in yaml_cfg:
-                gw_data["write_sessions_json"] = yaml_cfg["write_sessions_json"]
-            elif isinstance(gateway_section, dict) and "write_sessions_json" in gateway_section:
-                gw_data["write_sessions_json"] = gateway_section["write_sessions_json"]
 
             if "filter_silence_narration" in yaml_cfg:
                 gw_data["filter_silence_narration"] = yaml_cfg[
@@ -1299,7 +1067,7 @@ def load_gateway_config() -> GatewayConfig:
             _merge_platform_map(yaml_cfg.get("platforms"))
 
             # Also merge platform configs placed directly under ``gateway.*``
-            # (e.g. ``gateway.api_server``) so subsections are discovered the
+            # so subsections are discovered the
             # same way ``gateway.streaming`` is handled elsewhere.  Iterate
             # all ``gateway:*`` keys and merge only those that match a known
             # platform value, skipping reserved keys like ``platforms``.
@@ -1316,21 +1084,6 @@ def load_gateway_config() -> GatewayConfig:
                         _nested_platforms[_k] = _v
                 if _nested_platforms:
                     _merge_platform_map(_nested_platforms)
-
-            # Bridge api_server-specific keys (port, key, host, cors_origins,
-            # model_name) into extra so PlatformConfig.from_dict preserves
-            # them — adapting what _apply_env_overrides does for env vars to
-            # the YAML path.  Users writing ``gateway.api_server.port: 8642``
-            # expect these to end up in the platform's extra dict.
-            _api_plat = platforms_data.get("api_server")
-            if isinstance(_api_plat, dict):
-                _api_extra = _api_plat.get("extra")
-                if not isinstance(_api_extra, dict):
-                    _api_extra = {}
-                    _api_plat["extra"] = _api_extra
-                for _bridge_key in ("port", "key", "host", "cors_origins", "model_name"):
-                    if _bridge_key in _api_plat and _bridge_key not in _api_extra:
-                        _api_extra[_bridge_key] = _api_plat.pop(_bridge_key)
 
             if platforms_data:
                 gw_data["platforms"] = platforms_data
@@ -1423,10 +1176,6 @@ def load_gateway_config() -> GatewayConfig:
                     bridged["typing_indicator"] = platform_cfg["typing_indicator"]
                 if "typing_status_text" in platform_cfg:
                     bridged["typing_status_text"] = platform_cfg["typing_status_text"]
-                if plat == Platform.API_SERVER:
-                    for _bridge_key in ("port", "host"):
-                        if _bridge_key in platform_cfg and _bridge_key not in platform_cfg.get("extra", {}):
-                            bridged[_bridge_key] = platform_cfg[_bridge_key]
                 has_channel_overrides = "channel_overrides" in platform_cfg
                 if has_channel_overrides:
                     raw_overrides = platform_cfg.get("channel_overrides")
@@ -1624,34 +1373,6 @@ def _apply_env_overrides(config: GatewayConfig) -> None:
             name=getenv("MATTERMOST_HOME_CHANNEL_NAME", "Home"),
             thread_id=getenv("MATTERMOST_HOME_CHANNEL_THREAD_ID") or None,
         )
-
-    api_server_key = getenv("API_SERVER_KEY", "")
-    if _has_usable_api_server_key(api_server_key):
-        api_config = config.platforms.setdefault(Platform.API_SERVER, PlatformConfig())
-        enabled_was_explicit = api_config.extra.pop("_enabled_explicit", False)
-        if not enabled_was_explicit or api_config.enabled:
-            api_config.enabled = True
-        api_config.extra["key"] = api_server_key
-
-        origins = [
-            origin.strip()
-            for origin in getenv("API_SERVER_CORS_ORIGINS", "").split(",")
-            if origin.strip()
-        ]
-        if origins:
-            api_config.extra["cors_origins"] = origins
-        api_port = getenv("API_SERVER_PORT")
-        if api_port:
-            try:
-                api_config.extra["port"] = int(api_port)
-            except ValueError:
-                pass
-        api_host = getenv("API_SERVER_HOST")
-        if api_host:
-            api_config.extra["host"] = api_host
-        api_model_name = getenv("API_SERVER_MODEL_NAME", "")
-        if api_model_name:
-            api_config.extra["model_name"] = api_model_name
 
     idle_minutes = getenv("SESSION_IDLE_MINUTES")
     if idle_minutes:

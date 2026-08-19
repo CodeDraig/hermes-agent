@@ -20,7 +20,7 @@ from hermes_cli.platforms import PLATFORMS as _PLATFORMS
 # Backward-compatible view: {key: label_string} so existing code that
 # iterates ``PLATFORMS.items()`` or calls ``PLATFORMS.get(key)`` keeps
 # working without changes to every call site.
-PLATFORMS = {k: info.label for k, info in _PLATFORMS.items() if k != "api_server"}
+PLATFORMS = {k: info.label for k, info in _PLATFORMS.items()}
 
 # ─── Config Helpers ───────────────────────────────────────────────────────────
 

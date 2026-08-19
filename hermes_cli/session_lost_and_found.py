@@ -39,7 +39,7 @@ MESSAGE_ROLES = frozenset({"user", "assistant", "tool", "system"})
 
 # Values produced by the retained clients and tooling.
 KNOWN_SOURCES = frozenset({
-    "cli", "telegram", "mattermost", "api_server", "api", "gateway",
+    "cli", "telegram", "mattermost", "api", "gateway",
     "tool", "subagent", "cron", "recovered", "imported", "acp",
 })
 
